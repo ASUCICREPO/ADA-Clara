@@ -1,7 +1,7 @@
 import { Handler } from 'aws-lambda';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
-import axios from 'axios';
+import * as https from 'https';
 import * as cheerio from 'cheerio';
 import * as crypto from 'crypto';
 
@@ -323,12 +323,46 @@ async function fullCrawl(urls: string[], forceRefresh = false) {
 async function scrapeUrl(url: string): Promise<ScrapedContent> {
   console.log(`Scraping: ${url}`);
   
-  const response = await axios.get(url, {
-    headers: {
-      'User-Agent': 'ADA-Clara-Bot/1.0 (Educational/Medical Content Crawler)',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    },
-    timeout: 30000,
+  // Use Node.js built-in https module instead of axios
+  const response = await new Promise<{ data: string; headers: Record<string, string> }>((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || 443,
+      path: urlObj.pathname + urlObj.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'ADA-Clara-Bot/1.0 (Educational/Medical Content Crawler)',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      timeout: 30000,
+    };
+    
+    const req = https.request(options, (res) => {
+      let data = '';
+      
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      
+      res.on('end', () => {
+        resolve({
+          data,
+          headers: res.headers as Record<string, string>
+        });
+      });
+    });
+    
+    req.on('error', (error) => {
+      reject(error);
+    });
+    
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    
+    req.end();
   });
   
   const $ = cheerio.load(response.data);

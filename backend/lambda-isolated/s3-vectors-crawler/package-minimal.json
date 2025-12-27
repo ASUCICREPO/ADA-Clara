@@ -1,0 +1,6 @@
+{
+  "name": "s3-vectors-crawler-minimal",
+  "version": "1.0.0",
+  "description": "Minimal S3 Vectors crawler Lambda function",
+  "main": "minimal.js"
+}
