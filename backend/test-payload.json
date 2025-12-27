@@ -1,1 +1,19 @@
-{"action":"test-crawl"}
+{
+  "httpMethod": "GET",
+  "path": "/health",
+  "headers": {},
+  "multiValueHeaders": {},
+  "queryStringParameters": null,
+  "multiValueQueryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "prod",
+    "httpMethod": "GET",
+    "path": "/health"
+  },
+  "resource": "",
+  "body": null,
+  "isBase64Encoded": false
+}
