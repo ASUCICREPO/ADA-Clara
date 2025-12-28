@@ -69,10 +69,10 @@ try {
     }
   } catch (evalError) {
     console.error('❌ Code evaluation failed:', evalError);
-    console.error('Stack:', evalError.stack);
+    console.error('Stack:', (evalError as Error).stack);
   }
   
 } catch (error) {
   console.error('❌ Progressive test failed:', error);
-  console.error('Stack:', error.stack);
+  console.error('Stack:', (error as Error).stack);
 }

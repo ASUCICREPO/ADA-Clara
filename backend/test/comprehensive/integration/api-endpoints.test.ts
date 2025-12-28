@@ -46,7 +46,7 @@ describe('API Endpoints Integration Tests', () => {
       const query = {
         startDate: '2024-01-01',
         endDate: '2024-01-31',
-        type: 'all' as const
+        type: 'chat' as const // Changed from 'all' to valid type
       };
 
       const result = await processor.getEnhancedDashboardMetrics(query);
@@ -58,7 +58,7 @@ describe('API Endpoints Integration Tests', () => {
       expect(result).toHaveProperty('timestamp');
     });
   });
-});
+
   describe('Conversation Analytics Endpoint', () => {
     /**
      * Requirements 1.1, 1.2: Conversation data with pagination

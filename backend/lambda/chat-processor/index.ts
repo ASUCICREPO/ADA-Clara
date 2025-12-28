@@ -307,7 +307,7 @@ class ChatProcessor {
       sender: botMessage.sender,
       timestamp: botMessage.timestamp.toISOString(),
       language: botMessage.language,
-      confidenceScore: botMessage.confidence,
+      confidence: botMessage.confidence,
       escalationTrigger: escalationTriggers.length > 0,
       isAnswered: confidence > 0.6
     });

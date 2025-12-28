@@ -125,7 +125,18 @@ export class ContextService {
   /**
    * Add message to conversation memory
    */
-  async addToMemory(sessionId: string, message: ChatMessage): Promise<void> {
+  async addToMemory(sessionId: string, message: {
+    messageId: string;
+    sessionId: string;
+    conversationId: string;
+    content: string;
+    sender: 'user' | 'bot';
+    timestamp: string;
+    language: 'en' | 'es';
+    confidence?: number;
+    escalationTrigger: boolean;
+    isAnswered: boolean;
+  }): Promise<void> {
     try {
       const context = await this.getConversationContext(sessionId);
       if (!context) {
@@ -136,11 +147,11 @@ export class ContextService {
       // Add message to memory
       const memory = context.conversationMemory;
       memory.recentMessages.push({
-        messageId: `${sessionId}-${Date.now()}`,
+        messageId: message.messageId,
         content: message.content,
         sender: message.sender,
         timestamp: message.timestamp,
-        confidence: message.confidenceScore
+        confidence: message.confidence
       });
 
       // Limit memory size
@@ -257,14 +268,14 @@ export class ContextService {
       return memory.recentMessages.slice(-limit).map(msg => ({
         messageId: msg.messageId,
         sessionId,
-        conversationId: `conv-${sessionId}`,
         content: msg.content,
         sender: msg.sender,
-        timestamp: msg.timestamp,
-        language: 'en', // Default, should be from context
-        confidenceScore: msg.confidence,
-        escalationTrigger: false,
-        isAnswered: msg.sender === 'bot'
+        timestamp: new Date(msg.timestamp),
+        language: 'en' as const, // Default, should be from context
+        confidence: msg.confidence,
+        sources: [],
+        processingTime: 0,
+        ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60) // 90 days TTL
       }));
     } catch (error) {
       console.error('Error getting conversation history:', error);
@@ -321,6 +332,7 @@ export class ContextService {
       topicInterests: [],
       escalationPreference: 'after_attempts',
       dataRetention: 'session_only',
+      notifications: false,
       createdAt: now,
       updatedAt: now
     };

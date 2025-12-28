@@ -12,7 +12,7 @@ import {
   WebDataSourceConfiguration,
   UrlConfiguration,
   SeedUrl,
-  CrawlerLimits,
+  WebCrawlerLimits, // Updated from CrawlerLimits
   ChunkingConfiguration,
   FixedSizeChunkingConfiguration
 } from '@aws-sdk/client-bedrock-agent';

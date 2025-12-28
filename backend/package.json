@@ -23,6 +23,7 @@
     "deploy-s3-vectors-bucket-only": "cdk deploy AdaClaraS3VectorsBucketOnly --app 'npx ts-node scripts/deploy-s3-vectors-bucket-only.ts'",
     "deploy-s3-vectors-minimal-test": "cdk deploy AdaClaraS3VectorsMinimalTest --app \"npx ts-node scripts/deploy-s3-vectors-minimal-test.ts\"",
     "deploy-s3-vectors-with-lambda": "cdk deploy AdaClaraS3VectorsWithLambda --app \"npx ts-node scripts/deploy-s3-vectors-with-lambda.ts\"",
+    "deploy-s3-vectors-ga": "cdk deploy AdaClaraS3VectorsGA --app \"npx ts-node scripts/deploy-s3-vectors-ga.ts\"",
     "create-dynamodb-tables": "npx ts-node scripts/create-dynamodb-tables.ts",
     "test-dynamodb": "npx ts-node scripts/test-dynamodb-setup.ts",
     "test-s3": "npx ts-node scripts/test-s3-integration.ts",
@@ -81,11 +82,15 @@
     "@aws-sdk/client-sns": "^3.958.0",
     "@aws-sdk/client-sqs": "^3.958.0",
     "@aws-sdk/lib-dynamodb": "^3.958.0",
+    "@exodus/bytes": "^1.7.0",
     "aws-cdk-lib": "2.233.0",
     "axios": "^1.7.0",
-    "cdk-s3-vectors": "^0.1.11",
+    "cdk-s3-vectors": "^0.3.2",
     "cheerio": "^1.0.0",
     "constructs": "^10.0.0",
     "playwright-core": "^1.48.0"
+  },
+  "overrides": {
+    "whatwg-encoding": "npm:@exodus/bytes@^1.0.0"
   }
 }

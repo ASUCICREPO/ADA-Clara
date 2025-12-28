@@ -14,6 +14,13 @@ interface CrawlResult {
   links: string[];
   success: boolean;
   error?: string;
+  metadata?: {
+    keyTopics?: string[];
+    medicalFacts?: string[];
+    bedrockConfidence?: number;
+    enhancedWithBedrock?: boolean;
+    bedrockError?: string;
+  };
 }
 
 interface BedrockCrawlRequest {

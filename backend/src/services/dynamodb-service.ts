@@ -276,7 +276,7 @@ export class DynamoDBService {
 
   async setUserPreferences(preferences: UserPreferences): Promise<void> {
     const preparedItem = this.prepareDynamoDBItem({
-      PK: DynamoDBKeyGenerator.userPreferencesPK(preferences.userId),
+      PK: DynamoDBKeyGenerator.userPreferencesPK(preferences.userId || preferences.sessionId),
       SK: DynamoDBKeyGenerator.userPreferencesSK(),
       ...preferences
     });

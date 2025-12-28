@@ -7,6 +7,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as snsSubscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 
@@ -56,9 +57,7 @@ export class SESEscalationStack extends Stack {
     // Create SES configuration set for tracking
     const configurationSet = new ses.ConfigurationSet(this, 'EscalationConfigSet', {
       configurationSetName: `ada-clara-escalation-${this.account}`,
-      deliveryOptions: {
-        tlsPolicy: ses.TlsPolicy.REQUIRE
-      }
+      // Note: deliveryOptions removed as it's not available in current CDK version
     });
 
     // Add event destination for bounce/complaint tracking
@@ -161,7 +160,7 @@ export class SESEscalationStack extends Stack {
     const dlqAlarm = new cloudwatch.Alarm(this, 'EscalationDLQAlarm', {
       alarmName: `ada-clara-escalation-dlq-messages-${this.account}`,
       alarmDescription: 'Messages in escalation dead letter queue',
-      metric: this.escalationDLQ.metricApproximateNumberOfVisibleMessages({
+      metric: this.escalationDLQ.metricApproximateNumberOfMessagesVisible({
         period: Duration.minutes(5)
       }),
       threshold: 1,
@@ -173,7 +172,7 @@ export class SESEscalationStack extends Stack {
     const queueDepthAlarm = new cloudwatch.Alarm(this, 'EscalationQueueDepth', {
       alarmName: `ada-clara-escalation-queue-depth-${this.account}`,
       alarmDescription: 'High number of messages in escalation queue',
-      metric: this.escalationQueue.metricApproximateNumberOfVisibleMessages({
+      metric: this.escalationQueue.metricApproximateNumberOfMessagesVisible({
         period: Duration.minutes(5)
       }),
       threshold: 50,
@@ -183,13 +182,13 @@ export class SESEscalationStack extends Stack {
 
     // Send alarms to SNS topic
     lambdaErrorAlarm.addAlarmAction(
-      new cloudwatch.SnsAction(this.escalationTopic)
+      new cloudwatchActions.SnsAction(this.escalationTopic)
     );
     dlqAlarm.addAlarmAction(
-      new cloudwatch.SnsAction(this.escalationTopic)
+      new cloudwatchActions.SnsAction(this.escalationTopic)
     );
     queueDepthAlarm.addAlarmAction(
-      new cloudwatch.SnsAction(this.escalationTopic)
+      new cloudwatchActions.SnsAction(this.escalationTopic)
     );
 
     // ===== DASHBOARD =====
@@ -201,7 +200,7 @@ export class SESEscalationStack extends Stack {
           new cloudwatch.GraphWidget({
             title: 'Escalation Queue Metrics',
             left: [
-              this.escalationQueue.metricApproximateNumberOfVisibleMessages(),
+              this.escalationQueue.metricApproximateNumberOfMessagesVisible(),
               this.escalationQueue.metricNumberOfMessagesSent(),
               this.escalationQueue.metricNumberOfMessagesReceived()
             ],
@@ -225,7 +224,7 @@ export class SESEscalationStack extends Stack {
           new cloudwatch.SingleValueWidget({
             title: 'DLQ Messages',
             metrics: [
-              this.escalationDLQ.metricApproximateNumberOfVisibleMessages()
+              this.escalationDLQ.metricApproximateNumberOfMessagesVisible()
             ],
             width: 6,
             height: 3

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { BackendStack } from '../lib/backend-stack';
-import { OpenSearchServerlessStack } from '../lib/opensearch-serverless-stack';
+import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
 
 const app = new cdk.App();
 
@@ -16,8 +16,7 @@ new BackendStack(app, 'BackendStack', {
   env
 });
 
-// OpenSearch Serverless stack for Task 4.2
-new OpenSearchServerlessStack(app, 'ADA-Clara-OpenSearch-Dev', {
-  environment: 'dev',
+// S3 Vectors GA stack for GA migration
+new S3VectorsGAStack(app, 'AdaClaraS3VectorsGA', {
   env
 });

@@ -37,6 +37,14 @@ export interface ChatResponse {
   escalationSuggested: boolean;
   escalationReason?: string;
   timestamp: string;
+  // TASK 11: Enhanced response metadata
+  conversationMetadata?: {
+    messageCount: number;
+    averageConfidence: number;
+    questionDetected: boolean;
+    questionCategory?: string;
+    escalationTriggers: string[];
+  };
 }
 
 /**
@@ -121,6 +129,13 @@ export interface UserPreferences {
   topicInterests: string[];
   escalationPreference: 'immediate' | 'after_attempts' | 'never';
   dataRetention: 'session_only' | 'short_term' | 'long_term';
+  notifications?: boolean;
+  timezone?: string;
+  accessibilitySettings?: {
+    fontSize: 'small' | 'medium' | 'large';
+    highContrast: boolean;
+    screenReader: boolean;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -366,25 +381,9 @@ export interface ProfessionalMember {
 }
 
 /**
- * User Preferences - Language and interaction preferences
- * DynamoDB Table: UserPreferences
- * PK: USER#{userId}
- * SK: PREFERENCES
+ * User Preferences - Language and interaction preferences (REMOVED DUPLICATE)
+ * This interface was merged with the earlier UserPreferences definition
  */
-export interface UserPreferences {
-  userId: string;
-  language: 'en' | 'es';
-  notifications: boolean;
-  escalationPreference: 'email' | 'phone' | 'both';
-  timezone?: string;
-  accessibilitySettings?: {
-    fontSize: 'small' | 'medium' | 'large';
-    highContrast: boolean;
-    screenReader: boolean;
-  };
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 /**
  * Analytics Data - System metrics and performance data

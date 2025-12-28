@@ -25,7 +25,7 @@ class SimpleCDKValidator {
 
     try {
       // Import and check the stack class
-      const { AdaClaraDynamoDBStack } = await import('../lib/dynamodb-stack');
+      const { AdaClaraDynamoDBStack } = await import('../lib/dynamodb-stack.js');
       
       // Test 1: Verify stack class exists
       if (AdaClaraDynamoDBStack) {
@@ -56,7 +56,7 @@ class SimpleCDKValidator {
 
     try {
       // Import and check the stack class
-      const { AdminAnalyticsStack } = await import('../lib/admin-analytics-stack');
+      const { AdminAnalyticsStack } = await import('../lib/admin-analytics-stack.js');
       
       // Test 1: Verify stack class exists
       if (AdminAnalyticsStack) {
@@ -87,7 +87,7 @@ class SimpleCDKValidator {
 
     try {
       // Import and check the stack class
-      const { AdaClaraChatProcessorStack } = await import('../lib/chat-processor-stack');
+      const { AdaClaraChatProcessorStack } = await import('../lib/chat-processor-stack.js');
       
       // Test 1: Verify stack class exists
       if (AdaClaraChatProcessorStack) {

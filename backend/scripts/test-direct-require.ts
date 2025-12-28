@@ -33,7 +33,7 @@ try {
     }
     
     // Check if it's a module resolution error
-    if (error.message.includes('Cannot find module') || error.code === 'MODULE_NOT_FOUND') {
+    if (error.message.includes('Cannot find module') || (error as any).code === 'MODULE_NOT_FOUND') {
       console.log('🚨 This appears to be a module resolution error');
     }
     

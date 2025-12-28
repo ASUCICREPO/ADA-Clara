@@ -220,8 +220,8 @@ class Task13CheckpointTester {
   private async checkCachingValidation(): Promise<string> {
     // Check if cache service is being used
     try {
-      const { cacheService } = await import('../src/services/cache-service');
-      const { validationService } = await import('../src/services/validation-service');
+      const { cacheService } = await import('../src/services/cache-service.js');
+      const { validationService } = await import('../src/services/validation-service.js');
       
       const cacheStats = cacheService.getStats();
       const hasValidation = typeof validationService.validateDashboardParams === 'function';
@@ -280,9 +280,9 @@ class Task13CheckpointTester {
   private async checkCDKInfrastructure(): Promise<string> {
     // Check if CDK stack files exist and have required exports
     try {
-      const dynamoStack = await import('../lib/dynamodb-stack');
-      const adminStack = await import('../lib/admin-analytics-stack');
-      const chatStack = await import('../lib/chat-processor-stack');
+      const dynamoStack = await import('../lib/dynamodb-stack.js');
+      const adminStack = await import('../lib/admin-analytics-stack.js');
+      const chatStack = await import('../lib/chat-processor-stack.js');
       
       const hasStacks = !!(dynamoStack && adminStack && chatStack);
       
