@@ -174,8 +174,8 @@ export class EscalationService {
     // Check if recent messages have significant keyword overlap
     for (let i = 0; i < keywordSets.length - 1; i++) {
       for (let j = i + 1; j < keywordSets.length; j++) {
-        const intersection = new Set([...keywordSets[i]].filter(x => keywordSets[j].has(x)));
-        const union = new Set([...keywordSets[i], ...keywordSets[j]]);
+        const intersection = new Set(Array.from(keywordSets[i]).filter(x => keywordSets[j].has(x)));
+        const union = new Set([...Array.from(keywordSets[i]), ...Array.from(keywordSets[j])]);
         const similarity = intersection.size / union.size;
         
         if (similarity > 0.6) { // 60% similarity threshold

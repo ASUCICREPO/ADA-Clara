@@ -333,14 +333,58 @@ export class DataService {
     languageDistribution: Record<string, number>;
     averageResponseTime: number;
   }> {
-    // This would aggregate data from multiple analytics records
-    // For now, return a basic structure
+    // Simple implementation without circular dependency
+    // Get analytics data directly from DynamoDB
+    const allData: AnalyticsData[] = [];
+    
+    // Iterate through each date in the range
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      const dateStr = date.toISOString().split('T')[0];
+      
+      try {
+        const dayData = await this.dynamoService.getAnalytics(dateStr, type || 'chat');
+        allData.push(...dayData);
+      } catch (error) {
+        console.warn(`Failed to get analytics for ${dateStr}:`, error);
+      }
+    }
+    
+    // Basic aggregation
+    let totalSessions = 0;
+    let totalMessages = 0;
+    let escalationCount = 0;
+    const languageDistribution: Record<string, number> = { en: 0, es: 0 };
+    const responseTimes: number[] = [];
+    
+    for (const data of allData) {
+      if (data.metric === 'session_created') {
+        totalSessions += data.value;
+      }
+      if (data.metric === 'message_processed') {
+        totalMessages += data.value;
+        if (data.metadata?.language) {
+          languageDistribution[data.metadata.language] = 
+            (languageDistribution[data.metadata.language] || 0) + data.value;
+        }
+      }
+      if (data.metric === 'escalation_created') {
+        escalationCount += data.value;
+      }
+      if (data.metric === 'response_time' && data.metadata?.responseTime) {
+        responseTimes.push(data.metadata.responseTime);
+      }
+    }
+    
     return {
-      totalSessions: 0,
-      totalMessages: 0,
-      escalationRate: 0,
-      languageDistribution: { en: 0, es: 0 },
-      averageResponseTime: 0
+      totalSessions,
+      totalMessages,
+      escalationRate: totalSessions > 0 ? (escalationCount / totalSessions) * 100 : 0,
+      languageDistribution,
+      averageResponseTime: responseTimes.length > 0 ? 
+        responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length : 0
     };
   }
 

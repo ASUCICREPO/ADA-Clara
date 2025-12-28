@@ -36,7 +36,18 @@
     "simulate-workflow": "ts-node scripts/simulate-workflow.ts",
     "cleanup-test": "ts-node scripts/cleanup-test-resources.ts",
     "deploy-ses-escalation": "cdk deploy AdaClaraSESEscalation --app \"npx ts-node scripts/deploy-ses-escalation.ts\"",
-    "test-escalation": "npx ts-node scripts/test-escalation-workflow.ts"
+    "test-escalation": "npx ts-node scripts/test-escalation-workflow.ts",
+    "deploy-admin-analytics": "cdk deploy AdaClaraAdminAnalytics --app \"npx ts-node scripts/deploy-admin-analytics.ts\"",
+    "test-admin-analytics": "npx ts-node scripts/test-admin-analytics.ts",
+    "deploy-enhanced-dynamodb": "cdk deploy AdaClaraEnhancedDynamoDB --app \"npx ts-node scripts/deploy-enhanced-dynamodb.ts\"",
+    "test-enhanced-dynamodb": "npx ts-node scripts/test-enhanced-dynamodb.ts",
+    "create-enhanced-tables": "npx ts-node scripts/create-enhanced-tables.ts",
+    "test-analytics-simple": "npx ts-node scripts/test-analytics-simple.ts",
+    "deploy-enhanced-admin-api": "npx ts-node scripts/deploy-enhanced-admin-api.ts",
+    "test-enhanced-api": "npx ts-node scripts/test-enhanced-api-endpoints.ts",
+    "test-escalation-analytics": "npx ts-node scripts/test-escalation-analytics.ts",
+    "test-faq-analysis": "npx ts-node scripts/test-faq-analysis.ts",
+    "deploy-enhanced-faq": "npx ts-node scripts/deploy-enhanced-faq.ts"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.159",

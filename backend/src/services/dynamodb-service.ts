@@ -19,6 +19,9 @@ import {
   AuditLog,
   EscalationQueue,
   KnowledgeContent,
+  ConversationRecord,
+  MessageRecord,
+  QuestionRecord,
   DynamoDBKeyGenerator,
   TTLCalculator,
   DataValidator
@@ -39,6 +42,11 @@ export class DynamoDBService {
   private readonly USER_PREFERENCES_TABLE = process.env.USER_PREFERENCES_TABLE || 'ada-clara-user-preferences';
   private readonly ESCALATION_QUEUE_TABLE = process.env.ESCALATION_QUEUE_TABLE || 'ada-clara-escalation-queue';
   private readonly KNOWLEDGE_CONTENT_TABLE = process.env.KNOWLEDGE_CONTENT_TABLE || 'ada-clara-knowledge-content';
+  
+  // New tables for enhanced analytics
+  private readonly CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
+  private readonly MESSAGES_TABLE = process.env.MESSAGES_TABLE || 'ada-clara-messages';
+  private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
 
   constructor() {
     const dynamoClient = new DynamoDBClient({
@@ -54,6 +62,7 @@ export class DynamoDBService {
 
   /**
    * Convert Date objects to ISO strings for DynamoDB storage
+   * Also handles boolean to string conversion for GSI compatibility
    */
   private prepareDynamoDBItem(item: any): any {
     if (item === null || item === undefined) {
@@ -62,6 +71,10 @@ export class DynamoDBService {
     
     if (item instanceof Date) {
       return item.toISOString();
+    }
+    
+    if (typeof item === 'boolean') {
+      return item.toString();
     }
     
     if (Array.isArray(item)) {
@@ -507,6 +520,397 @@ export class DynamoDBService {
     }
 
     return items;
+  }
+
+  // ===== ENHANCED ANALYTICS TABLES =====
+
+  // ===== CONVERSATIONS TABLE =====
+
+  async createConversationRecord(conversation: ConversationRecord): Promise<void> {
+    const validation = DataValidator.validateConversationRecord(conversation);
+    if (!validation.isValid) {
+      throw new Error(`Invalid conversation data: ${validation.errors.join(', ')}`);
+    }
+
+    const preparedItem = this.prepareDynamoDBItem({
+      ...conversation,
+      conversationId: conversation.conversationId,
+      timestamp: conversation.timestamp
+    });
+
+    const command = new PutCommand({
+      TableName: this.CONVERSATIONS_TABLE,
+      Item: preparedItem
+    });
+
+    await this.client.send(command);
+  }
+
+  async getConversationRecord(conversationId: string, timestamp: string): Promise<ConversationRecord | null> {
+    const command = new GetCommand({
+      TableName: this.CONVERSATIONS_TABLE,
+      Key: {
+        conversationId: conversationId,
+        timestamp: timestamp
+      }
+    });
+
+    const result = await this.client.send(command);
+    if (!result.Item) return null;
+
+    return result.Item as ConversationRecord;
+  }
+
+  async getConversationsByDateRange(startDate: string, endDate: string, language?: 'en' | 'es'): Promise<ConversationRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.CONVERSATIONS_TABLE,
+      IndexName: 'DateIndex',
+      KeyConditionExpression: '#date = :date',
+      ExpressionAttributeNames: {
+        '#date': 'date'
+      },
+      ExpressionAttributeValues: {
+        ':date': startDate // Query for specific date
+      }
+    });
+
+    const result = await this.client.send(command);
+    let conversations = (result.Items || []) as ConversationRecord[];
+
+    // Filter by language if specified
+    if (language) {
+      conversations = conversations.filter(conv => conv.language === language);
+    }
+
+    return conversations;
+  }
+
+  async getConversationsByUser(userId: string, limit?: number): Promise<ConversationRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.CONVERSATIONS_TABLE,
+      IndexName: 'UserIndex',
+      KeyConditionExpression: 'userId = :userId',
+      ExpressionAttributeValues: {
+        ':userId': userId
+      },
+      ScanIndexForward: false, // Most recent first
+      Limit: limit
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as ConversationRecord[];
+  }
+
+  async updateConversationRecord(conversationId: string, timestamp: string, updates: Partial<ConversationRecord>): Promise<void> {
+    const preparedUpdates = this.prepareDynamoDBItem(updates);
+    
+    const updateExpression: string[] = [];
+    const expressionAttributeNames: Record<string, string> = {};
+    const expressionAttributeValues: Record<string, any> = {};
+
+    Object.entries(preparedUpdates).forEach(([key, value], index) => {
+      const attrName = `#attr${index}`;
+      const attrValue = `:val${index}`;
+      updateExpression.push(`${attrName} = ${attrValue}`);
+      expressionAttributeNames[attrName] = key;
+      expressionAttributeValues[attrValue] = value;
+    });
+
+    const command = new UpdateCommand({
+      TableName: this.CONVERSATIONS_TABLE,
+      Key: {
+        conversationId: conversationId,
+        timestamp: timestamp
+      },
+      UpdateExpression: `SET ${updateExpression.join(', ')}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues
+    });
+
+    await this.client.send(command);
+  }
+
+  // ===== MESSAGES TABLE =====
+
+  async createMessageRecord(message: MessageRecord): Promise<void> {
+    const validation = DataValidator.validateMessageRecord(message);
+    if (!validation.isValid) {
+      throw new Error(`Invalid message data: ${validation.errors.join(', ')}`);
+    }
+
+    const preparedItem = this.prepareDynamoDBItem({
+      ...message,
+      conversationId: message.conversationId,
+      messageIndex: message.messageIndex
+    });
+
+    const command = new PutCommand({
+      TableName: this.MESSAGES_TABLE,
+      Item: preparedItem
+    });
+
+    await this.client.send(command);
+  }
+
+  async getMessagesByConversation(conversationId: string, limit?: number): Promise<MessageRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.MESSAGES_TABLE,
+      KeyConditionExpression: 'conversationId = :conversationId',
+      ExpressionAttributeValues: {
+        ':conversationId': conversationId
+      },
+      ScanIndexForward: true, // Chronological order
+      Limit: limit
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as MessageRecord[];
+  }
+
+  async getMessagesByConfidenceRange(minConfidence: number, maxConfidence: number, messageType: 'user' | 'bot' = 'bot'): Promise<MessageRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.MESSAGES_TABLE,
+      IndexName: 'ConfidenceIndex',
+      KeyConditionExpression: '#type = :type AND confidenceScore BETWEEN :minConf AND :maxConf',
+      ExpressionAttributeNames: {
+        '#type': 'type'
+      },
+      ExpressionAttributeValues: {
+        ':type': messageType,
+        ':minConf': minConfidence,
+        ':maxConf': maxConfidence
+      }
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as MessageRecord[];
+  }
+
+  async getEscalationTriggerMessages(startDate: string, endDate: string): Promise<MessageRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.MESSAGES_TABLE,
+      IndexName: 'EscalationIndex',
+      KeyConditionExpression: 'escalationTrigger = :trigger AND #timestamp BETWEEN :startDate AND :endDate',
+      ExpressionAttributeNames: {
+        '#timestamp': 'timestamp'
+      },
+      ExpressionAttributeValues: {
+        ':trigger': 'true', // DynamoDB stores boolean as string in GSI
+        ':startDate': startDate,
+        ':endDate': endDate
+      }
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as MessageRecord[];
+  }
+
+  // ===== QUESTIONS TABLE =====
+
+  async createOrUpdateQuestionRecord(question: QuestionRecord): Promise<void> {
+    const validation = DataValidator.validateQuestionRecord(question);
+    if (!validation.isValid) {
+      throw new Error(`Invalid question data: ${validation.errors.join(', ')}`);
+    }
+
+    // Try to get existing record first
+    const existingQuestion = await this.getQuestionRecord(question.questionHash, question.date);
+    
+    if (existingQuestion) {
+      // Update existing record
+      const updatedQuestion: QuestionRecord = {
+        ...existingQuestion,
+        count: existingQuestion.count + question.count,
+        totalConfidenceScore: existingQuestion.totalConfidenceScore + question.totalConfidenceScore,
+        answeredCount: existingQuestion.answeredCount + question.answeredCount,
+        unansweredCount: existingQuestion.unansweredCount + question.unansweredCount,
+        escalationCount: existingQuestion.escalationCount + question.escalationCount,
+        lastAsked: question.lastAsked
+      };
+      
+      // Recalculate average confidence
+      updatedQuestion.averageConfidenceScore = updatedQuestion.totalConfidenceScore / updatedQuestion.count;
+
+      const preparedItem = this.prepareDynamoDBItem({
+        ...updatedQuestion,
+        questionHash: updatedQuestion.questionHash,
+        date: updatedQuestion.date
+      });
+
+      const command = new PutCommand({
+        TableName: this.QUESTIONS_TABLE,
+        Item: preparedItem
+      });
+
+      await this.client.send(command);
+    } else {
+      // Create new record
+      const preparedItem = this.prepareDynamoDBItem({
+        ...question,
+        questionHash: question.questionHash,
+        date: question.date
+      });
+
+      const command = new PutCommand({
+        TableName: this.QUESTIONS_TABLE,
+        Item: preparedItem
+      });
+
+      await this.client.send(command);
+    }
+  }
+
+  async getQuestionRecord(questionHash: string, date: string): Promise<QuestionRecord | null> {
+    const command = new GetCommand({
+      TableName: this.QUESTIONS_TABLE,
+      Key: {
+        questionHash: questionHash,
+        date: date
+      }
+    });
+
+    const result = await this.client.send(command);
+    if (!result.Item) return null;
+
+    return result.Item as QuestionRecord;
+  }
+
+  async getQuestionsByCategory(category: string, limit?: number): Promise<QuestionRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.QUESTIONS_TABLE,
+      IndexName: 'CategoryIndex',
+      KeyConditionExpression: 'category = :category',
+      ExpressionAttributeValues: {
+        ':category': category
+      },
+      ScanIndexForward: false, // Highest count first
+      Limit: limit
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as QuestionRecord[];
+  }
+
+  async getUnansweredQuestionsByDate(date: string, limit?: number): Promise<QuestionRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.QUESTIONS_TABLE,
+      IndexName: 'UnansweredIndex',
+      KeyConditionExpression: '#date = :date',
+      ExpressionAttributeNames: {
+        '#date': 'date'
+      },
+      ExpressionAttributeValues: {
+        ':date': date
+      },
+      ScanIndexForward: false, // Highest unanswered count first
+      Limit: limit
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as QuestionRecord[];
+  }
+
+  async getQuestionsByLanguage(language: 'en' | 'es', limit?: number): Promise<QuestionRecord[]> {
+    const command = new QueryCommand({
+      TableName: this.QUESTIONS_TABLE,
+      IndexName: 'LanguageIndex',
+      KeyConditionExpression: '#language = :language',
+      ExpressionAttributeNames: {
+        '#language': 'language'
+      },
+      ExpressionAttributeValues: {
+        ':language': language
+      },
+      ScanIndexForward: false, // Most recent first
+      Limit: limit
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as QuestionRecord[];
+  }
+
+  // ===== ANALYTICS AGGREGATION METHODS =====
+
+  async getConversationAnalyticsByDateRange(
+    startDate: string, 
+    endDate: string, 
+    language?: 'en' | 'es'
+  ): Promise<{
+    totalConversations: number;
+    conversationsByDate: Array<{ date: string; count: number; languages: { en: number; es: number } }>;
+    languageDistribution: { en: number; es: number };
+    averageConfidenceScore: number;
+    unansweredPercentage: number;
+  }> {
+    const conversations = await this.getConversationsByDateRange(startDate, endDate, language);
+    
+    // Group by date
+    const conversationsByDate = new Map<string, { en: number; es: number }>();
+    let totalEn = 0;
+    let totalEs = 0;
+    let totalConfidenceScore = 0;
+    let unansweredCount = 0;
+    
+    conversations.forEach(conv => {
+      const date = conv.date;
+      if (!conversationsByDate.has(date)) {
+        conversationsByDate.set(date, { en: 0, es: 0 });
+      }
+      
+      const dateStats = conversationsByDate.get(date)!;
+      dateStats[conv.language]++;
+      
+      if (conv.language === 'en') totalEn++;
+      else totalEs++;
+      
+      totalConfidenceScore += conv.averageConfidenceScore;
+      
+      // Consider conversation unanswered if average confidence is below threshold (0.7)
+      if (conv.averageConfidenceScore < 0.7) {
+        unansweredCount++;
+      }
+    });
+    
+    const conversationsByDateArray = Array.from(conversationsByDate.entries()).map(([date, languages]) => ({
+      date,
+      count: languages.en + languages.es,
+      languages
+    }));
+    
+    return {
+      totalConversations: conversations.length,
+      conversationsByDate: conversationsByDateArray,
+      languageDistribution: { en: totalEn, es: totalEs },
+      averageConfidenceScore: conversations.length > 0 ? totalConfidenceScore / conversations.length : 0,
+      unansweredPercentage: conversations.length > 0 ? (unansweredCount / conversations.length) * 100 : 0
+    };
+  }
+
+  /**
+   * Get messages by date range for question extraction
+   */
+  async getMessagesByDateRange(startDate: string, endDate: string, messageType?: 'user' | 'bot'): Promise<MessageRecord[]> {
+    const messages: MessageRecord[] = [];
+    
+    // Since we don't have a date-based GSI on messages, we'll need to scan
+    // In production, consider adding a DateIndex GSI for better performance
+    const command = new ScanCommand({
+      TableName: this.MESSAGES_TABLE,
+      FilterExpression: '#timestamp BETWEEN :startDate AND :endDate' + 
+                       (messageType ? ' AND #type = :type' : ''),
+      ExpressionAttributeNames: {
+        '#timestamp': 'timestamp',
+        ...(messageType ? { '#type': 'type' } : {})
+      },
+      ExpressionAttributeValues: {
+        ':startDate': startDate,
+        ':endDate': endDate + 'T23:59:59.999Z', // Include full end date
+        ...(messageType ? { ':type': messageType } : {})
+      }
+    });
+
+    const result = await this.client.send(command);
+    return (result.Items || []) as MessageRecord[];
   }
 
   // ===== UTILITY METHODS =====
