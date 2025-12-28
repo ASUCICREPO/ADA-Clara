@@ -40,6 +40,11 @@ export class AdaClaraChatProcessorStack extends Stack {
         USER_PREFERENCES_TABLE: 'ada-clara-user-preferences',
         ESCALATION_QUEUE_TABLE: 'ada-clara-escalation-queue',
         KNOWLEDGE_CONTENT_TABLE: 'ada-clara-knowledge-content',
+        // Enhanced analytics tables from Task 11
+        CONVERSATIONS_TABLE: 'ada-clara-conversations',
+        MESSAGES_TABLE: 'ada-clara-messages',
+        QUESTIONS_TABLE: 'ada-clara-questions',
+        UNANSWERED_QUESTIONS_TABLE: 'ada-clara-unanswered-questions',
         CONTENT_BUCKET: 'ada-clara-content-minimal-023336033519-us-east-1',
         VECTORS_BUCKET: 'ada-clara-vectors-minimal-023336033519-us-east-1'
       }

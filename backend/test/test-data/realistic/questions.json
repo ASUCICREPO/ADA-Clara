@@ -1,0 +1,92 @@
+[
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "What is type 2 diabetes?",
+    "normalizedQuestion": "what is type 2 diabetes",
+    "category": "diabetes-basics",
+    "count": 45,
+    "totalConfidenceScore": 41.4,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "How to manage blood sugar levels?",
+    "normalizedQuestion": "how to manage blood sugar levels",
+    "category": "management",
+    "count": 38,
+    "totalConfidenceScore": 33.8,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "What foods should I avoid with diabetes?",
+    "normalizedQuestion": "what foods should i avoid with diabetes",
+    "category": "diet",
+    "count": 32,
+    "totalConfidenceScore": 28.8,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "¿Qué es la diabetes tipo 2?",
+    "normalizedQuestion": "que es la diabetes tipo 2",
+    "category": "diabetes-basics",
+    "count": 28,
+    "totalConfidenceScore": 25.2,
+    "language": "es"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "How often should I check my blood sugar?",
+    "normalizedQuestion": "how often should i check my blood sugar",
+    "category": "monitoring",
+    "count": 25,
+    "totalConfidenceScore": 22.5,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "Can diabetes cause vision problems?",
+    "normalizedQuestion": "can diabetes cause vision problems",
+    "category": "complications",
+    "count": 22,
+    "totalConfidenceScore": 19.8,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "What is the difference between type 1 and type 2 diabetes?",
+    "normalizedQuestion": "what is the difference between type 1 and type 2 diabetes",
+    "category": "diabetes-basics",
+    "count": 20,
+    "totalConfidenceScore": 18.0,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "How to prevent diabetes complications?",
+    "normalizedQuestion": "how to prevent diabetes complications",
+    "category": "prevention",
+    "count": 18,
+    "totalConfidenceScore": 16.2,
+    "language": "en"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "¿Cómo controlar el azúcar en la sangre?",
+    "normalizedQuestion": "como controlar el azucar en la sangre",
+    "category": "management",
+    "count": 15,
+    "totalConfidenceScore": 13.5,
+    "language": "es"
+  },
+  {
+    "date": "2024-01-15",
+    "originalQuestion": "What medications are used for type 2 diabetes?",
+    "normalizedQuestion": "what medications are used for type 2 diabetes",
+    "category": "medication",
+    "count": 12,
+    "totalConfidenceScore": 10.8,
+    "language": "en"
+  }
+]

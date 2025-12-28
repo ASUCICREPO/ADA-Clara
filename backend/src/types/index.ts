@@ -1,5 +1,203 @@
 // ADA Clara Chatbot - Core Data Models
 // TypeScript interfaces for DynamoDB-based data storage
+// Task 2.1: Complete TypeScript interfaces for all data models
+// Requirements: 2.2, 3.4, 7.3
+
+/**
+ * Chat Request Interface - For incoming chat messages
+ * Used by Lambda handler to process user messages
+ */
+export interface ChatRequest {
+  sessionId: string;
+  message: string;
+  language?: 'en' | 'es';
+  userId?: string;
+  userInfo?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+  };
+}
+
+/**
+ * Chat Response Interface - For outgoing chat responses
+ * Returned by Lambda handler after processing
+ */
+export interface ChatResponse {
+  sessionId: string;
+  response: string;
+  confidence: number;
+  language: 'en' | 'es';
+  sources?: Array<{
+    title: string;
+    url: string;
+    excerpt: string;
+  }>;
+  escalationSuggested: boolean;
+  escalationReason?: string;
+  timestamp: string;
+}
+
+/**
+ * Conversation Context Interface - For maintaining conversation state
+ * Used to track conversation flow and context across messages
+ */
+export interface ConversationContext {
+  conversationId: string;
+  sessionId: string;
+  userId?: string;
+  startTime: string;
+  lastActivity: string;
+  messageCount: number;
+  currentTopic?: string;
+  language: 'en' | 'es';
+  conversationMemory: ConversationMemory;
+  sessionState: SessionState;
+}
+
+/**
+ * Session State Interface - For tracking session-level information
+ * Maintains state that persists across the entire session
+ */
+export interface SessionState {
+  sessionId: string;
+  isActive: boolean;
+  startTime: string;
+  lastActivity: string;
+  userInfo?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+  };
+  preferences: UserPreferences;
+  escalationStatus: 'none' | 'suggested' | 'initiated' | 'completed';
+  escalationReason?: string;
+}
+
+/**
+ * Conversation Memory Interface - For storing conversation history and context
+ * Enables context-aware responses and follow-up question handling
+ */
+export interface ConversationMemory {
+  recentMessages: Array<{
+    messageId: string;
+    content: string;
+    sender: 'user' | 'bot';
+    timestamp: string;
+    confidence?: number;
+  }>;
+  topics: Array<{
+    topic: string;
+    confidence: number;
+    firstMentioned: string;
+    lastMentioned: string;
+  }>;
+  entities: Array<{
+    entity: string;
+    type: 'person' | 'condition' | 'medication' | 'location' | 'other';
+    confidence: number;
+    firstMentioned: string;
+  }>;
+  questions: Array<{
+    question: string;
+    category: string;
+    answered: boolean;
+    timestamp: string;
+  }>;
+  maxMessages: number; // Limit for memory size
+}
+
+/**
+ * User Preferences Interface - For storing user-specific preferences
+ * Persists across sessions for personalized experience
+ */
+export interface UserPreferences {
+  userId?: string;
+  sessionId: string;
+  language: 'en' | 'es';
+  communicationStyle: 'formal' | 'casual' | 'medical';
+  topicInterests: string[];
+  escalationPreference: 'immediate' | 'after_attempts' | 'never';
+  dataRetention: 'session_only' | 'short_term' | 'long_term';
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Escalation Request Interface - For initiating escalations
+ * Used when transferring conversations to human agents
+ */
+export interface EscalationRequest {
+  sessionId: string;
+  conversationId: string;
+  userId?: string;
+  reason: string;
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  userInfo?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+  };
+  conversationHistory: Array<{
+    content: string;
+    sender: 'user' | 'bot';
+    timestamp: string;
+    confidence?: number;
+  }>;
+  escalationTriggers: string[];
+  language: 'en' | 'es';
+  timestamp: string;
+}
+
+/**
+ * Escalation Response Interface - For escalation processing results
+ * Returned after escalation is processed and email is sent
+ */
+export interface EscalationResponse {
+  escalationId: string;
+  status: 'success' | 'failed' | 'pending';
+  emailSent: boolean;
+  messageId?: string;
+  error?: string;
+  timestamp: string;
+  supportTicketId?: string;
+}
+
+/**
+ * Escalation Status Interface - For tracking escalation progress
+ * Used to monitor escalation lifecycle and follow-up
+ */
+export interface EscalationStatus {
+  escalationId: string;
+  sessionId: string;
+  status: 'initiated' | 'email_sent' | 'acknowledged' | 'in_progress' | 'resolved' | 'failed';
+  priority: 'low' | 'medium' | 'high' | 'critical';
+  createdAt: string;
+  updatedAt: string;
+  assignedAgent?: string;
+  supportTicketId?: string;
+  resolutionNotes?: string;
+  followUpRequired: boolean;
+}
+
+/**
+ * Email Template Interface - For escalation email templates
+ * Defines structure for HTML and text email templates
+ */
+export interface EmailTemplate {
+  templateId: string;
+  name: string;
+  subject: string;
+  htmlContent: string;
+  textContent: string;
+  language: 'en' | 'es';
+  variables: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 /**
  * Enhanced Conversation Record - For admin dashboard analytics
@@ -456,7 +654,7 @@ export class DataValidator {
     };
   }
 
-  private static isValidEmail(email: string): boolean {
+  static isValidEmail(email: string): boolean {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   }
@@ -1357,4 +1555,733 @@ export interface MiddlewareContext {
   validatedParams?: any;
   cacheKey?: string;
   performanceMetrics: PerformanceMetrics;
+}
+
+// ============================================================================
+// TASK 2.1: Additional Core Data Models for ADA Clara Chatbot
+// Requirements: 2.2, 3.4, 7.3
+// ============================================================================
+
+/**
+ * Diabetes Risk Assessment - Risk evaluation questionnaire and results
+ * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+ */
+export interface DiabetesRiskAssessment {
+  assessmentId: string;
+  userId?: string;
+  sessionId: string;
+  startTime: Date;
+  completedTime?: Date;
+  language: 'en' | 'es';
+  
+  // Risk factors questionnaire responses
+  responses: {
+    age?: number;
+    gender?: 'male' | 'female' | 'other';
+    weight?: number;
+    height?: number;
+    familyHistory?: boolean;
+    physicalActivity?: 'none' | 'low' | 'moderate' | 'high';
+    bloodPressure?: boolean;
+    gestationalDiabetes?: boolean;
+    prediabetes?: boolean;
+    ethnicity?: string;
+  };
+  
+  // Calculated results
+  riskScore: number; // 0-100 scale
+  riskLevel: 'low' | 'moderate' | 'high' | 'very-high';
+  recommendations: string[];
+  
+  // Follow-up information
+  contactInfo?: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+    followUpRequested: boolean;
+  };
+  
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Event Information - Diabetes-related events and programs
+ * Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
+ */
+export interface EventInformation {
+  eventId: string;
+  title: string;
+  description: string;
+  eventType: 'education' | 'support' | 'fundraising' | 'conference' | 'webinar';
+  
+  // Event details
+  startDate: Date;
+  endDate?: Date;
+  location?: {
+    venue?: string;
+    address?: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    isVirtual: boolean;
+  };
+  
+  // Registration information
+  registration: {
+    required: boolean;
+    url?: string;
+    deadline?: Date;
+    capacity?: number;
+    currentRegistrations?: number;
+    cost?: number;
+    contactInfo?: {
+      email?: string;
+      phone?: string;
+    };
+  };
+  
+  // Content metadata
+  targetAudience: string[];
+  language: 'en' | 'es' | 'both';
+  tags: string[];
+  
+  createdAt: Date;
+  updatedAt: Date;
+  lastScraped: Date;
+}
+
+/**
+ * Language Detection Result - Language identification for user messages
+ * Requirements: 1.2, 1.3, 1.5
+ */
+export interface LanguageDetectionResult {
+  detectedLanguage: 'en' | 'es' | 'unknown';
+  confidence: number; // 0-1
+  alternativeLanguages?: Array<{
+    language: 'en' | 'es';
+    confidence: number;
+  }>;
+  method: 'amazon-comprehend' | 'heuristic' | 'user-specified';
+}
+
+/**
+ * RAG Response - Response from Retrieval-Augmented Generation system
+ * Requirements: 2.4, 2.5, 1.4
+ */
+export interface RAGResponse {
+  responseId: string;
+  query: string;
+  response: string;
+  language: 'en' | 'es';
+  confidence: number; // 0-1
+  
+  // Retrieved context
+  sources: Source[];
+  retrievalMetrics: {
+    documentsRetrieved: number;
+    averageRelevanceScore: number;
+    searchLatency: number; // milliseconds
+  };
+  
+  // Generation metrics
+  generationMetrics: {
+    modelUsed: string;
+    tokensGenerated: number;
+    generationLatency: number; // milliseconds
+  };
+  
+  // Quality assessment
+  qualityMetrics: {
+    coherence: number; // 0-1
+    relevance: number; // 0-1
+    factualAccuracy: number; // 0-1
+    completeness: number; // 0-1
+  };
+  
+  timestamp: Date;
+}
+
+/**
+ * Escalation Context - Information passed to Dialpad during escalation
+ * Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+ */
+export interface EscalationContext {
+  escalationId: string;
+  sessionId: string;
+  userId?: string;
+  
+  // Escalation trigger information
+  trigger: {
+    type: 'low-confidence' | 'user-request' | 'complex-query' | 'system-error';
+    confidence?: number;
+    reason: string;
+    timestamp: Date;
+  };
+  
+  // User information for Dialpad
+  userInfo: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    zipCode?: string;
+    language: 'en' | 'es';
+  };
+  
+  // Conversation context
+  conversationSummary: string;
+  messageHistory: ChatMessage[];
+  lastBotResponse?: string;
+  
+  // System context
+  systemContext: {
+    currentTime: Date;
+    userAgent?: string;
+    sessionDuration: number; // milliseconds
+    messageCount: number;
+  };
+  
+  // Dialpad integration
+  dialpadTicketId?: string;
+  escalationStatus: 'pending' | 'transferred' | 'completed' | 'failed';
+  
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * System Configuration - Runtime configuration for ADA Clara
+ * Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
+ */
+export interface SystemConfiguration {
+  configId: string;
+  environment: 'dev' | 'staging' | 'prod';
+  
+  // RAG system configuration
+  ragConfig: {
+    embeddingModel: string;
+    generativeModel: string;
+    maxRetrievedDocuments: number;
+    confidenceThreshold: number;
+    responseMaxTokens: number;
+  };
+  
+  // Escalation configuration
+  escalationConfig: {
+    confidenceThreshold: number;
+    maxResponseTime: number; // milliseconds
+    dialpadIntegration: {
+      enabled: boolean;
+      apiEndpoint?: string;
+      timeout: number;
+    };
+  };
+  
+  // Language configuration
+  languageConfig: {
+    supportedLanguages: ('en' | 'es')[];
+    defaultLanguage: 'en' | 'es';
+    detectionThreshold: number;
+  };
+  
+  // Security configuration
+  securityConfig: {
+    encryptionEnabled: boolean;
+    auditLoggingEnabled: boolean;
+    dataRetentionDays: number;
+    hipaaCompliant: boolean;
+  };
+  
+  // Performance configuration
+  performanceConfig: {
+    cacheEnabled: boolean;
+    cacheTTL: number; // seconds
+    maxConcurrentSessions: number;
+    responseTimeoutMs: number;
+  };
+  
+  createdAt: Date;
+  updatedAt: Date;
+  version: string;
+}
+
+/**
+ * Content Scraping Job - Web scraping job status and results
+ * Requirements: 2.1, 2.2, 2.3
+ */
+export interface ContentScrapingJob {
+  jobId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  
+  // Job configuration
+  config: {
+    targetUrl: string;
+    maxPages?: number;
+    includePatterns?: string[];
+    excludePatterns?: string[];
+    respectRobotsTxt: boolean;
+  };
+  
+  // Job progress
+  progress: {
+    pagesScraped: number;
+    pagesProcessed: number;
+    documentsCreated: number;
+    vectorsGenerated: number;
+    errors: number;
+  };
+  
+  // Job results
+  results?: {
+    totalContent: number;
+    newContent: number;
+    updatedContent: number;
+    deletedContent: number;
+    processingTime: number; // milliseconds
+  };
+  
+  // Error information
+  errors?: Array<{
+    url: string;
+    error: string;
+    timestamp: Date;
+  }>;
+  
+  startTime: Date;
+  endTime?: Date;
+  nextScheduledRun?: Date;
+  
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================================================
+// ENHANCED VALIDATION FUNCTIONS - Task 2.1 Requirement
+// ============================================================================
+
+/**
+ * Enhanced Data Validation Utilities
+ * Comprehensive validation for all ADA Clara data models
+ */
+export class EnhancedDataValidator extends DataValidator {
+  
+  /**
+   * Validate Diabetes Risk Assessment
+   */
+  static validateDiabetesRiskAssessment(assessment: Partial<DiabetesRiskAssessment>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!assessment.assessmentId) errors.push('assessmentId is required');
+    if (!assessment.sessionId) errors.push('sessionId is required');
+    if (!assessment.language || !['en', 'es'].includes(assessment.language)) {
+      errors.push('language must be "en" or "es"');
+    }
+    if (!assessment.startTime) errors.push('startTime is required');
+    
+    // Validate responses
+    if (assessment.responses) {
+      const { responses } = assessment;
+      if (responses.age !== undefined && (responses.age < 0 || responses.age > 120)) {
+        errors.push('age must be between 0 and 120');
+      }
+      if (responses.weight !== undefined && (responses.weight < 0 || responses.weight > 1000)) {
+        errors.push('weight must be between 0 and 1000');
+      }
+      if (responses.height !== undefined && (responses.height < 0 || responses.height > 300)) {
+        errors.push('height must be between 0 and 300');
+      }
+    }
+    
+    // Validate risk score
+    if (assessment.riskScore !== undefined && (assessment.riskScore < 0 || assessment.riskScore > 100)) {
+      errors.push('riskScore must be between 0 and 100');
+    }
+    
+    // Validate risk level
+    if (assessment.riskLevel && !['low', 'moderate', 'high', 'very-high'].includes(assessment.riskLevel)) {
+      errors.push('riskLevel must be one of: low, moderate, high, very-high');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate Event Information
+   */
+  static validateEventInformation(event: Partial<EventInformation>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!event.eventId) errors.push('eventId is required');
+    if (!event.title || event.title.trim().length === 0) {
+      errors.push('title is required and cannot be empty');
+    }
+    if (!event.description || event.description.trim().length === 0) {
+      errors.push('description is required and cannot be empty');
+    }
+    if (!event.eventType || !['education', 'support', 'fundraising', 'conference', 'webinar'].includes(event.eventType)) {
+      errors.push('eventType must be one of: education, support, fundraising, conference, webinar');
+    }
+    if (!event.startDate) errors.push('startDate is required');
+    if (!event.language || !['en', 'es', 'both'].includes(event.language)) {
+      errors.push('language must be "en", "es", or "both"');
+    }
+    
+    // Validate location if provided
+    if (event.location) {
+      const { location } = event;
+      if (!location.city || location.city.trim().length === 0) {
+        errors.push('location.city is required when location is provided');
+      }
+      if (!location.state || location.state.trim().length === 0) {
+        errors.push('location.state is required when location is provided');
+      }
+      if (!location.zipCode || location.zipCode.trim().length === 0) {
+        errors.push('location.zipCode is required when location is provided');
+      }
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate RAG Response
+   */
+  static validateRAGResponse(response: Partial<RAGResponse>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!response.responseId) errors.push('responseId is required');
+    if (!response.query || response.query.trim().length === 0) {
+      errors.push('query is required and cannot be empty');
+    }
+    if (!response.response || response.response.trim().length === 0) {
+      errors.push('response is required and cannot be empty');
+    }
+    if (!response.language || !['en', 'es'].includes(response.language)) {
+      errors.push('language must be "en" or "es"');
+    }
+    if (response.confidence === undefined || response.confidence < 0 || response.confidence > 1) {
+      errors.push('confidence is required and must be between 0 and 1');
+    }
+    if (!response.timestamp) errors.push('timestamp is required');
+    
+    // Validate sources array
+    if (response.sources && Array.isArray(response.sources)) {
+      response.sources.forEach((source, index) => {
+        if (!source.url) errors.push(`sources[${index}].url is required`);
+        if (!source.title) errors.push(`sources[${index}].title is required`);
+        if (source.relevanceScore < 0 || source.relevanceScore > 1) {
+          errors.push(`sources[${index}].relevanceScore must be between 0 and 1`);
+        }
+      });
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate Escalation Context
+   */
+  static validateEscalationContext(context: Partial<EscalationContext>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!context.escalationId) errors.push('escalationId is required');
+    if (!context.sessionId) errors.push('sessionId is required');
+    
+    // Validate trigger
+    if (!context.trigger) {
+      errors.push('trigger is required');
+    } else {
+      const { trigger } = context;
+      if (!trigger.type || !['low-confidence', 'user-request', 'complex-query', 'system-error'].includes(trigger.type)) {
+        errors.push('trigger.type must be one of: low-confidence, user-request, complex-query, system-error');
+      }
+      if (!trigger.reason || trigger.reason.trim().length === 0) {
+        errors.push('trigger.reason is required and cannot be empty');
+      }
+      if (!trigger.timestamp) errors.push('trigger.timestamp is required');
+    }
+    
+    // Validate user info
+    if (!context.userInfo) {
+      errors.push('userInfo is required');
+    } else {
+      const { userInfo } = context;
+      if (!userInfo.language || !['en', 'es'].includes(userInfo.language)) {
+        errors.push('userInfo.language must be "en" or "es"');
+      }
+      if (userInfo.email && !EnhancedDataValidator.isValidEmail(userInfo.email)) {
+        errors.push('userInfo.email must be a valid email address');
+      }
+    }
+    
+    // Validate escalation status
+    if (!context.escalationStatus || !['pending', 'transferred', 'completed', 'failed'].includes(context.escalationStatus)) {
+      errors.push('escalationStatus must be one of: pending, transferred, completed, failed');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate System Configuration
+   */
+  static validateSystemConfiguration(config: Partial<SystemConfiguration>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!config.configId) errors.push('configId is required');
+    if (!config.environment || !['dev', 'staging', 'prod'].includes(config.environment)) {
+      errors.push('environment must be one of: dev, staging, prod');
+    }
+    if (!config.version) errors.push('version is required');
+    
+    // Validate RAG config
+    if (config.ragConfig) {
+      const { ragConfig } = config;
+      if (!ragConfig.embeddingModel) errors.push('ragConfig.embeddingModel is required');
+      if (!ragConfig.generativeModel) errors.push('ragConfig.generativeModel is required');
+      if (ragConfig.confidenceThreshold < 0 || ragConfig.confidenceThreshold > 1) {
+        errors.push('ragConfig.confidenceThreshold must be between 0 and 1');
+      }
+    }
+    
+    // Validate escalation config
+    if (config.escalationConfig) {
+      const { escalationConfig } = config;
+      if (escalationConfig.confidenceThreshold < 0 || escalationConfig.confidenceThreshold > 1) {
+        errors.push('escalationConfig.confidenceThreshold must be between 0 and 1');
+      }
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate Content Scraping Job
+   */
+  static validateContentScrapingJob(job: Partial<ContentScrapingJob>): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!job.jobId) errors.push('jobId is required');
+    if (!job.status || !['pending', 'running', 'completed', 'failed'].includes(job.status)) {
+      errors.push('status must be one of: pending, running, completed, failed');
+    }
+    if (!job.startTime) errors.push('startTime is required');
+    
+    // Validate config
+    if (!job.config) {
+      errors.push('config is required');
+    } else {
+      const { config } = job;
+      if (!config.targetUrl) errors.push('config.targetUrl is required');
+      if (!this.isValidUrl(config.targetUrl)) {
+        errors.push('config.targetUrl must be a valid URL');
+      }
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+  
+  /**
+   * Validate URL format
+   */
+  static isValidUrl(url: string): boolean {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Validate email format
+   */
+  static isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+}
+
+// ============================================================================
+// UTILITY FUNCTIONS FOR DATA MODEL OPERATIONS
+// ============================================================================
+
+/**
+ * Data Model Utilities - Helper functions for working with ADA Clara data models
+ */
+export class DataModelUtils {
+  
+  /**
+   * Generate unique IDs for various entities
+   */
+  static generateId(prefix: string): string {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    return `${prefix}_${timestamp}_${random}`;
+  }
+  
+  /**
+   * Calculate risk score from assessment responses
+   */
+  static calculateRiskScore(responses: DiabetesRiskAssessment['responses']): number {
+    let score = 0;
+    
+    // Age factor (0-25 points)
+    if (responses.age) {
+      if (responses.age >= 45) score += 25;
+      else if (responses.age >= 35) score += 15;
+      else if (responses.age >= 25) score += 5;
+    }
+    
+    // Family history (0-15 points)
+    if (responses.familyHistory) score += 15;
+    
+    // Physical activity (0-20 points)
+    if (responses.physicalActivity === 'none') score += 20;
+    else if (responses.physicalActivity === 'low') score += 10;
+    
+    // Blood pressure (0-15 points)
+    if (responses.bloodPressure) score += 15;
+    
+    // Previous conditions (0-25 points)
+    if (responses.gestationalDiabetes) score += 15;
+    if (responses.prediabetes) score += 25;
+    
+    return Math.min(score, 100); // Cap at 100
+  }
+  
+  /**
+   * Determine risk level from score
+   */
+  static determineRiskLevel(score: number): DiabetesRiskAssessment['riskLevel'] {
+    if (score >= 75) return 'very-high';
+    if (score >= 50) return 'high';
+    if (score >= 25) return 'moderate';
+    return 'low';
+  }
+  
+  /**
+   * Generate risk recommendations based on level
+   */
+  static generateRiskRecommendations(riskLevel: DiabetesRiskAssessment['riskLevel'], language: 'en' | 'es'): string[] {
+    const recommendations: Record<string, Record<string, string[]>> = {
+      'low': {
+        'en': [
+          'Maintain a healthy diet and regular exercise',
+          'Continue regular health checkups',
+          'Monitor your weight and blood pressure'
+        ],
+        'es': [
+          'Mantén una dieta saludable y ejercicio regular',
+          'Continúa con chequeos médicos regulares',
+          'Monitorea tu peso y presión arterial'
+        ]
+      },
+      'moderate': {
+        'en': [
+          'Schedule a diabetes screening with your healthcare provider',
+          'Focus on weight management and physical activity',
+          'Consider lifestyle modifications to reduce risk'
+        ],
+        'es': [
+          'Programa un examen de diabetes con tu proveedor de salud',
+          'Enfócate en el manejo del peso y actividad física',
+          'Considera modificaciones del estilo de vida para reducir el riesgo'
+        ]
+      },
+      'high': {
+        'en': [
+          'Schedule an immediate appointment with your healthcare provider',
+          'Discuss diabetes prevention strategies',
+          'Consider joining a diabetes prevention program'
+        ],
+        'es': [
+          'Programa una cita inmediata con tu proveedor de salud',
+          'Discute estrategias de prevención de diabetes',
+          'Considera unirte a un programa de prevención de diabetes'
+        ]
+      },
+      'very-high': {
+        'en': [
+          'Seek immediate medical evaluation',
+          'Discuss comprehensive diabetes testing',
+          'Implement immediate lifestyle changes with medical supervision'
+        ],
+        'es': [
+          'Busca evaluación médica inmediata',
+          'Discute pruebas integrales de diabetes',
+          'Implementa cambios inmediatos del estilo de vida con supervisión médica'
+        ]
+      }
+    };
+    
+    return recommendations[riskLevel]?.[language] || recommendations[riskLevel]['en'] || [];
+  }
+  
+  /**
+   * Format user information for Dialpad escalation
+   */
+  static formatUserInfoForDialpad(userInfo: EscalationContext['userInfo']): Record<string, any> {
+    return {
+      name: userInfo.name || 'Anonymous User',
+      email: userInfo.email || '',
+      phone: userInfo.phone || '',
+      zipCode: userInfo.zipCode || '',
+      language: userInfo.language,
+      preferredLanguage: userInfo.language === 'es' ? 'Spanish' : 'English'
+    };
+  }
+  
+  /**
+   * Calculate conversation summary statistics
+   */
+  static calculateConversationStats(messages: ChatMessage[]): {
+    duration: number;
+    messageCount: number;
+    averageConfidence: number;
+    escalationTriggers: number;
+  } {
+    if (messages.length === 0) {
+      return { duration: 0, messageCount: 0, averageConfidence: 0, escalationTriggers: 0 };
+    }
+    
+    const sortedMessages = messages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    const firstMessage = sortedMessages[0];
+    const lastMessage = sortedMessages[sortedMessages.length - 1];
+    
+    const duration = lastMessage.timestamp.getTime() - firstMessage.timestamp.getTime();
+    const botMessages = messages.filter(m => m.sender === 'bot' && m.confidence !== undefined);
+    const averageConfidence = botMessages.length > 0 
+      ? botMessages.reduce((sum, m) => sum + (m.confidence || 0), 0) / botMessages.length 
+      : 0;
+    
+    // Count escalation triggers (messages with low confidence)
+    const escalationTriggers = botMessages.filter(m => (m.confidence || 0) < 0.7).length;
+    
+    return {
+      duration,
+      messageCount: messages.length,
+      averageConfidence,
+      escalationTriggers
+    };
+  }
 }

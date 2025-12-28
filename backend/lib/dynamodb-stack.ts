@@ -1,4 +1,4 @@
-import { Stack, StackProps, RemovalPolicy, Duration } from 'aws-cdk-lib';
+import { Stack, StackProps, RemovalPolicy } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -537,6 +537,7 @@ export class AdaClaraDynamoDBStack extends Stack {
             this.conversationsTable.tableArn,
             this.messagesTable.tableArn,
             this.questionsTable.tableArn,
+            this.unansweredQuestionsTable.tableArn,
             // Include GSI ARNs
             `${this.chatSessionsTable.tableArn}/index/*`,
             `${this.professionalMembersTable.tableArn}/index/*`,
@@ -547,6 +548,7 @@ export class AdaClaraDynamoDBStack extends Stack {
             `${this.conversationsTable.tableArn}/index/*`,
             `${this.messagesTable.tableArn}/index/*`,
             `${this.questionsTable.tableArn}/index/*`,
+            `${this.unansweredQuestionsTable.tableArn}/index/*`,
           ],
         }),
         new iam.PolicyStatement({
@@ -580,6 +582,7 @@ export class AdaClaraDynamoDBStack extends Stack {
     this.conversationsTable.grantReadWriteData(grantee);
     this.messagesTable.grantReadWriteData(grantee);
     this.questionsTable.grantReadWriteData(grantee);
+    this.unansweredQuestionsTable.grantReadWriteData(grantee);
   }
 
   /**
@@ -596,5 +599,6 @@ export class AdaClaraDynamoDBStack extends Stack {
     this.conversationsTable.grantReadData(grantee);
     this.messagesTable.grantReadData(grantee);
     this.questionsTable.grantReadData(grantee);
+    this.unansweredQuestionsTable.grantReadData(grantee);
   }
 }

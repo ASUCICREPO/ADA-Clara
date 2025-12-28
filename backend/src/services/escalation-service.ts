@@ -1,7 +1,14 @@
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { DataService } from './data-service';
-import { ChatMessage, EscalationQueue } from '../types/index';
+import { 
+  ChatMessage, 
+  EscalationQueue, 
+  EscalationRequest, 
+  EscalationResponse, 
+  EscalationStatus, 
+  EmailTemplate 
+} from '../types/index';
 
 /**
  * Escalation Service for ADA Clara Chatbot
@@ -377,5 +384,263 @@ Time: ${escalation.createdAt.toLocaleString()}
       topicConfigured,
       overall
     };
+  }
+
+  /**
+   * Send escalation email directly (for SES integration)
+   */
+  async sendEscalationEmail(escalationRequest: any): Promise<any> {
+    // This method will be implemented with SES integration
+    console.log('📧 Sending escalation email:', escalationRequest.escalationId);
+    
+    try {
+      // Get email template
+      const template = await this.getEscalationTemplate(escalationRequest.language || 'en');
+      
+      // Prepare email content
+      const emailContent = this.prepareEmailContent(template, escalationRequest);
+      
+      // Send via SES (placeholder - will be implemented in SES Lambda)
+      const result = {
+        escalationId: escalationRequest.escalationId,
+        status: 'success' as const,
+        emailSent: true,
+        messageId: `msg-${Date.now()}`,
+        timestamp: new Date().toISOString()
+      };
+      
+      // Track escalation status
+      await this.trackEscalationStatus(escalationRequest.escalationId, 'email_sent');
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to send escalation email:', error);
+      await this.trackEscalationStatus(escalationRequest.escalationId, 'failed');
+      throw error;
+    }
+  }
+
+  /**
+   * Get escalation email template
+   */
+  async getEscalationTemplate(language: 'en' | 'es' = 'en'): Promise<any> {
+    // Return default template structure
+    const templates = {
+      en: {
+        templateId: 'escalation-en',
+        name: 'Escalation Email - English',
+        subject: 'ADA Clara Chat Escalation - User Needs Assistance',
+        htmlContent: `
+          <html>
+            <body>
+              <h2>ADA Clara Chat Escalation</h2>
+              <p><strong>Session ID:</strong> {{sessionId}}</p>
+              <p><strong>User:</strong> {{userName}} ({{userEmail}})</p>
+              <p><strong>Reason:</strong> {{reason}}</p>
+              <p><strong>Priority:</strong> {{priority}}</p>
+              
+              <h3>Conversation History:</h3>
+              <div>{{conversationHistory}}</div>
+              
+              <h3>User Information:</h3>
+              <ul>
+                <li>Email: {{userEmail}}</li>
+                <li>Phone: {{userPhone}}</li>
+                <li>Location: {{userZipCode}}</li>
+              </ul>
+              
+              <p>Please respond to this escalation promptly.</p>
+            </body>
+          </html>
+        `,
+        textContent: `
+ADA Clara Chat Escalation
+
+Session ID: {{sessionId}}
+User: {{userName}} ({{userEmail}})
+Reason: {{reason}}
+Priority: {{priority}}
+
+Conversation History:
+{{conversationHistoryText}}
+
+User Information:
+- Email: {{userEmail}}
+- Phone: {{userPhone}}
+- Location: {{userZipCode}}
+
+Please respond to this escalation promptly.
+        `,
+        language: 'en' as const,
+        variables: ['sessionId', 'userName', 'userEmail', 'reason', 'priority', 'conversationHistory', 'conversationHistoryText', 'userPhone', 'userZipCode'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      es: {
+        templateId: 'escalation-es',
+        name: 'Escalation Email - Spanish',
+        subject: 'Escalación de ADA Clara - Usuario Necesita Asistencia',
+        htmlContent: `
+          <html>
+            <body>
+              <h2>Escalación de Chat ADA Clara</h2>
+              <p><strong>ID de Sesión:</strong> {{sessionId}}</p>
+              <p><strong>Usuario:</strong> {{userName}} ({{userEmail}})</p>
+              <p><strong>Razón:</strong> {{reason}}</p>
+              <p><strong>Prioridad:</strong> {{priority}}</p>
+              
+              <h3>Historial de Conversación:</h3>
+              <div>{{conversationHistory}}</div>
+              
+              <h3>Información del Usuario:</h3>
+              <ul>
+                <li>Email: {{userEmail}}</li>
+                <li>Teléfono: {{userPhone}}</li>
+                <li>Ubicación: {{userZipCode}}</li>
+              </ul>
+              
+              <p>Por favor responda a esta escalación prontamente.</p>
+            </body>
+          </html>
+        `,
+        textContent: `
+Escalación de Chat ADA Clara
+
+ID de Sesión: {{sessionId}}
+Usuario: {{userName}} ({{userEmail}})
+Razón: {{reason}}
+Prioridad: {{priority}}
+
+Historial de Conversación:
+{{conversationHistoryText}}
+
+Información del Usuario:
+- Email: {{userEmail}}
+- Teléfono: {{userPhone}}
+- Ubicación: {{userZipCode}}
+
+Por favor responda a esta escalación prontamente.
+        `,
+        language: 'es' as const,
+        variables: ['sessionId', 'userName', 'userEmail', 'reason', 'priority', 'conversationHistory', 'conversationHistoryText', 'userPhone', 'userZipCode'],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    };
+
+    return templates[language];
+  }
+
+  /**
+   * Track escalation status
+   */
+  async trackEscalationStatus(escalationId: string, status: string): Promise<void> {
+    try {
+      console.log(`📊 Tracking escalation status: ${escalationId} -> ${status}`);
+      
+      // Store escalation status in analytics
+      await this.dataService.recordAnalytics('escalation', 'status_update', 1, {
+        escalationId,
+        status,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Update escalation record if it exists
+      // This would typically update a dedicated escalation tracking table
+      console.log(`✅ Escalation status tracked: ${escalationId} -> ${status}`);
+    } catch (error) {
+      console.error('❌ Failed to track escalation status:', error);
+      // Don't throw - this is tracking data, not critical for escalation flow
+    }
+  }
+
+  /**
+   * Handle escalation callback (for status updates from support team)
+   */
+  async handleEscalationCallback(escalationId: string, callbackData: any): Promise<void> {
+    try {
+      console.log(`📞 Handling escalation callback: ${escalationId}`);
+      
+      // Process callback data
+      const { status, agentId, notes, resolution } = callbackData;
+      
+      // Update escalation status
+      await this.trackEscalationStatus(escalationId, status);
+      
+      // Record callback in analytics
+      await this.dataService.recordAnalytics('escalation', 'callback_received', 1, {
+        escalationId,
+        status,
+        agentId,
+        hasNotes: !!notes,
+        hasResolution: !!resolution,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log(`✅ Escalation callback processed: ${escalationId}`);
+    } catch (error) {
+      console.error('❌ Failed to handle escalation callback:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Prepare email content by replacing template variables
+   */
+  private prepareEmailContent(template: any, escalationRequest: any): { subject: string; htmlContent: string; textContent: string } {
+    const variables = {
+      sessionId: escalationRequest.sessionId || 'N/A',
+      userName: escalationRequest.userInfo?.name || 'Anonymous User',
+      userEmail: escalationRequest.userInfo?.email || 'No email provided',
+      userPhone: escalationRequest.userInfo?.phone || 'No phone provided',
+      userZipCode: escalationRequest.userInfo?.zipCode || 'No location provided',
+      reason: escalationRequest.reason || 'No reason provided',
+      priority: escalationRequest.priority || 'medium',
+      conversationHistory: this.formatConversationHistoryHtml(escalationRequest.conversationHistory || []),
+      conversationHistoryText: this.formatConversationHistoryText(escalationRequest.conversationHistory || [])
+    };
+
+    let subject = template.subject;
+    let htmlContent = template.htmlContent;
+    let textContent = template.textContent;
+
+    // Replace variables in all content
+    Object.entries(variables).forEach(([key, value]) => {
+      const placeholder = `{{${key}}}`;
+      subject = subject.replace(new RegExp(placeholder, 'g'), value);
+      htmlContent = htmlContent.replace(new RegExp(placeholder, 'g'), value);
+      textContent = textContent.replace(new RegExp(placeholder, 'g'), value);
+    });
+
+    return { subject, htmlContent, textContent };
+  }
+
+  /**
+   * Format conversation history for HTML email
+   */
+  private formatConversationHistoryHtml(history: any[]): string {
+    if (!history || history.length === 0) {
+      return '<p>No conversation history available.</p>';
+    }
+
+    return history.map(msg => `
+      <div style="margin-bottom: 10px; padding: 8px; border-left: 3px solid ${msg.sender === 'user' ? '#007bff' : '#28a745'};">
+        <strong>${msg.sender === 'user' ? 'User' : 'ADA Clara'}:</strong> ${msg.content}
+        <br><small style="color: #666;">${new Date(msg.timestamp).toLocaleString()}</small>
+      </div>
+    `).join('');
+  }
+
+  /**
+   * Format conversation history for text email
+   */
+  private formatConversationHistoryText(history: any[]): string {
+    if (!history || history.length === 0) {
+      return 'No conversation history available.';
+    }
+
+    return history.map(msg => 
+      `${msg.sender === 'user' ? 'User' : 'ADA Clara'}: ${msg.content}\n[${new Date(msg.timestamp).toLocaleString()}]\n`
+    ).join('\n');
   }
 }

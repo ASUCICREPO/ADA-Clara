@@ -47,7 +47,15 @@
     "test-enhanced-api": "npx ts-node scripts/test-enhanced-api-endpoints.ts",
     "test-escalation-analytics": "npx ts-node scripts/test-escalation-analytics.ts",
     "test-faq-analysis": "npx ts-node scripts/test-faq-analysis.ts",
-    "deploy-enhanced-faq": "npx ts-node scripts/deploy-enhanced-faq.ts"
+    "deploy-enhanced-faq": "npx ts-node scripts/deploy-enhanced-faq.ts",
+    "test:comprehensive": "jest test/comprehensive --testTimeout=30000",
+    "test:unit": "jest test/comprehensive/unit --testTimeout=10000",
+    "test:integration": "jest test/comprehensive/integration --testTimeout=20000",
+    "test:performance": "jest test/comprehensive/performance --testTimeout=60000",
+    "test:e2e": "jest test/comprehensive/e2e --testTimeout=60000",
+    "test:task13": "npx ts-node scripts/test-task13-simple.ts",
+    "test:task9": "npx ts-node scripts/test-task9-api-endpoints.ts",
+    "test:task11": "npx ts-node scripts/test-task11-simple.ts"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.159",

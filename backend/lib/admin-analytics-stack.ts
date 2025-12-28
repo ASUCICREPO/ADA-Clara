@@ -1,4 +1,4 @@
-import { Stack, StackProps, Duration, RemovalPolicy, CfnOutput } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, CfnOutput } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
@@ -30,7 +30,6 @@ export class AdminAnalyticsStack extends Stack {
       timeout: Duration.minutes(5),
       memorySize: 1024,
       environment: {
-        AWS_REGION: this.region,
         CHAT_SESSIONS_TABLE: 'ada-clara-chat-sessions',
         PROFESSIONAL_MEMBERS_TABLE: 'ada-clara-professional-members',
         ANALYTICS_TABLE: 'ada-clara-analytics',
@@ -258,6 +257,85 @@ export class AdminAnalyticsStack extends Stack {
           })
         ],
         [
+          // Enhanced endpoint metrics
+          new cloudwatch.GraphWidget({
+            title: 'New Endpoint Performance',
+            left: [
+              new cloudwatch.Metric({
+                namespace: 'AWS/ApiGateway',
+                metricName: 'Count',
+                dimensionsMap: {
+                  ApiName: this.adminApi.restApiName,
+                  Resource: '/admin/conversations'
+                },
+                period: Duration.minutes(5)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/ApiGateway',
+                metricName: 'Count',
+                dimensionsMap: {
+                  ApiName: this.adminApi.restApiName,
+                  Resource: '/admin/questions'
+                },
+                period: Duration.minutes(5)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/ApiGateway',
+                metricName: 'Count',
+                dimensionsMap: {
+                  ApiName: this.adminApi.restApiName,
+                  Resource: '/admin/escalations'
+                },
+                period: Duration.minutes(5)
+              })
+            ],
+            width: 12,
+            height: 6
+          })
+        ],
+        [
+          // DynamoDB table metrics
+          new cloudwatch.GraphWidget({
+            title: 'DynamoDB Table Performance',
+            left: [
+              new cloudwatch.Metric({
+                namespace: 'AWS/DynamoDB',
+                metricName: 'ConsumedReadCapacityUnits',
+                dimensionsMap: {
+                  TableName: 'ada-clara-conversations'
+                },
+                period: Duration.minutes(5)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/DynamoDB',
+                metricName: 'ConsumedReadCapacityUnits',
+                dimensionsMap: {
+                  TableName: 'ada-clara-messages'
+                },
+                period: Duration.minutes(5)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/DynamoDB',
+                metricName: 'ConsumedReadCapacityUnits',
+                dimensionsMap: {
+                  TableName: 'ada-clara-questions'
+                },
+                period: Duration.minutes(5)
+              }),
+              new cloudwatch.Metric({
+                namespace: 'AWS/DynamoDB',
+                metricName: 'ConsumedReadCapacityUnits',
+                dimensionsMap: {
+                  TableName: 'ada-clara-unanswered-questions'
+                },
+                period: Duration.minutes(5)
+              })
+            ],
+            width: 12,
+            height: 6
+          })
+        ],
+        [
           // Error rates
           new cloudwatch.SingleValueWidget({
             title: 'Error Rate (%)',
@@ -320,6 +398,130 @@ export class AdminAnalyticsStack extends Stack {
       }),
       threshold: 3,
       evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    // Enhanced monitoring alarms for new endpoints
+    const conversationEndpointAlarm = new cloudwatch.Alarm(this, 'ConversationEndpointErrors', {
+      alarmName: `ada-clara-conversation-endpoint-errors-${this.account}`,
+      alarmDescription: 'High error rate in conversation analytics endpoint',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '4XXError',
+        dimensionsMap: {
+          ApiName: this.adminApi.restApiName,
+          Resource: '/admin/conversations',
+          Method: 'GET'
+        },
+        period: Duration.minutes(5)
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    const questionAnalysisAlarm = new cloudwatch.Alarm(this, 'QuestionAnalysisErrors', {
+      alarmName: `ada-clara-question-analysis-errors-${this.account}`,
+      alarmDescription: 'High error rate in question analysis endpoints',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '4XXError',
+        dimensionsMap: {
+          ApiName: this.adminApi.restApiName,
+          Resource: '/admin/questions',
+          Method: 'GET'
+        },
+        period: Duration.minutes(5)
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    const escalationAnalysisAlarm = new cloudwatch.Alarm(this, 'EscalationAnalysisErrors', {
+      alarmName: `ada-clara-escalation-analysis-errors-${this.account}`,
+      alarmDescription: 'High error rate in escalation analysis endpoints',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/ApiGateway',
+        metricName: '4XXError',
+        dimensionsMap: {
+          ApiName: this.adminApi.restApiName,
+          Resource: '/admin/escalations',
+          Method: 'GET'
+        },
+        period: Duration.minutes(5)
+      }),
+      threshold: 5,
+      evaluationPeriods: 2,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    // DynamoDB throttling alarms for new tables
+    const conversationTableThrottleAlarm = new cloudwatch.Alarm(this, 'ConversationTableThrottle', {
+      alarmName: `ada-clara-conversations-table-throttle-${this.account}`,
+      alarmDescription: 'Throttling detected on conversations table',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/DynamoDB',
+        metricName: 'ThrottledRequests',
+        dimensionsMap: {
+          TableName: 'ada-clara-conversations'
+        },
+        period: Duration.minutes(5),
+        statistic: 'Sum'
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    const messagesTableThrottleAlarm = new cloudwatch.Alarm(this, 'MessagesTableThrottle', {
+      alarmName: `ada-clara-messages-table-throttle-${this.account}`,
+      alarmDescription: 'Throttling detected on messages table',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/DynamoDB',
+        metricName: 'ThrottledRequests',
+        dimensionsMap: {
+          TableName: 'ada-clara-messages'
+        },
+        period: Duration.minutes(5),
+        statistic: 'Sum'
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    const questionsTableThrottleAlarm = new cloudwatch.Alarm(this, 'QuestionsTableThrottle', {
+      alarmName: `ada-clara-questions-table-throttle-${this.account}`,
+      alarmDescription: 'Throttling detected on questions table',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/DynamoDB',
+        metricName: 'ThrottledRequests',
+        dimensionsMap: {
+          TableName: 'ada-clara-questions'
+        },
+        period: Duration.minutes(5),
+        statistic: 'Sum'
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    const unansweredQuestionsTableThrottleAlarm = new cloudwatch.Alarm(this, 'UnansweredQuestionsTableThrottle', {
+      alarmName: `ada-clara-unanswered-questions-table-throttle-${this.account}`,
+      alarmDescription: 'Throttling detected on unanswered questions table',
+      metric: new cloudwatch.Metric({
+        namespace: 'AWS/DynamoDB',
+        metricName: 'ThrottledRequests',
+        dimensionsMap: {
+          TableName: 'ada-clara-unanswered-questions'
+        },
+        period: Duration.minutes(5),
+        statistic: 'Sum'
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
     });
 

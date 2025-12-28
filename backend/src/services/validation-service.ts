@@ -256,9 +256,47 @@ export class ValidationService {
   }
 
   /**
-   * Validate export parameters
+   * Validate chat message parameters
    */
-  validateExportParams(params: any): ValidationResult {
+  validateChatMessage(message: any): ValidationResult {
+    const errors: string[] = [];
+    
+    if (!message.content || typeof message.content !== 'string' || message.content.trim().length === 0) {
+      errors.push('Message content is required and cannot be empty');
+    }
+    
+    if (message.content && message.content.length > 5000) {
+      errors.push('Message content cannot exceed 5000 characters');
+    }
+    
+    if (!message.sender || !['user', 'bot'].includes(message.sender)) {
+      errors.push('Message sender must be "user" or "bot"');
+    }
+    
+    if (!message.timestamp) {
+      errors.push('Message timestamp is required');
+    }
+    
+    if (message.confidence !== undefined && (typeof message.confidence !== 'number' || message.confidence < 0 || message.confidence > 1)) {
+      errors.push('Message confidence must be a number between 0 and 1');
+    }
+    
+    return {
+      isValid: errors.length === 0,
+      errors,
+      sanitizedData: errors.length === 0 ? {
+        content: message.content?.trim(),
+        sender: message.sender,
+        timestamp: message.timestamp,
+        confidence: message.confidence
+      } : undefined
+    };
+  }
+
+  /**
+   * Validate data export parameters
+   */
+  validateDataExportParams(params: any): ValidationResult {
     const rules: ValidationRule[] = [
       {
         field: 'format',
@@ -297,9 +335,10 @@ export class ValidationService {
   }
 
   /**
-   * Validate date range
+   * Validate export parameters
    */
-  validateDateRange(startDate?: string, endDate?: string): ValidationResult {
+  validateExportParams(params: any): ValidationResult {
+    const { startDate, endDate } = params;
     const errors: string[] = [];
     let sanitizedStartDate: string | undefined;
     let sanitizedEndDate: string | undefined;
@@ -345,6 +384,38 @@ export class ValidationService {
         startDate: sanitizedStartDate,
         endDate: sanitizedEndDate
       }
+    };
+  }
+
+  /**
+   * Validate date range
+   */
+  validateDateRange(startDate?: string, endDate?: string): ValidationResult {
+    const errors: string[] = [];
+    const sanitizedData: any = {};
+
+    if (startDate) {
+      const sanitizedStart = this.sanitizeDate(startDate);
+      if (!sanitizedStart) {
+        errors.push('Invalid start date format. Use YYYY-MM-DD');
+      } else {
+        sanitizedData.startDate = sanitizedStart;
+      }
+    }
+
+    if (endDate) {
+      const sanitizedEnd = this.sanitizeDate(endDate);
+      if (!sanitizedEnd) {
+        errors.push('Invalid end date format. Use YYYY-MM-DD');
+      } else {
+        sanitizedData.endDate = sanitizedEnd;
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      sanitizedData: errors.length === 0 ? sanitizedData : undefined
     };
   }
 
