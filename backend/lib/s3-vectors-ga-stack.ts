@@ -4,6 +4,7 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Bucket, Index } from 'cdk-s3-vectors';
+import { BedrockKnowledgeBaseGAStack } from './bedrock-knowledge-base-ga-stack';
 
 /**
  * S3 Vectors GA Stack
@@ -21,6 +22,8 @@ export class S3VectorsGAStack extends Stack {
   public readonly vectorsBucket: Bucket;
   public readonly vectorIndex: Index;
   public readonly crawlerFunction: lambda.Function;
+  public readonly kbTestFunction: lambda.Function;
+  public readonly knowledgeBaseStack: BedrockKnowledgeBaseGAStack;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -151,6 +154,49 @@ export class S3VectorsGAStack extends Stack {
       resources: ['*'],
     }));
 
+    // Knowledge Base test Lambda function for GA integration
+    this.kbTestFunction = new lambda.Function(this, 'KBTestFunction', {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda-kb-ga'),
+      timeout: Duration.minutes(15),
+      memorySize: 1024,
+      environment: {
+        KNOWLEDGE_BASE_ID: '', // Will be set after KB creation
+        DATA_SOURCE_ID: '', // Will be set after KB creation
+        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
+        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
+      },
+    });
+
+    // Grant Bedrock permissions for Knowledge Base testing
+    this.kbTestFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:InvokeModel',
+        'bedrock:InvokeModelWithResponseStream',
+        'bedrock:Retrieve',
+        'bedrock:RetrieveAndGenerate',
+        'bedrock:StartIngestionJob',
+        'bedrock:GetIngestionJob',
+        'bedrock:ListIngestionJobs',
+      ],
+      resources: ['*'],
+    }));
+
+    // Create Knowledge Base stack with GA S3 Vectors integration
+    this.knowledgeBaseStack = new BedrockKnowledgeBaseGAStack(this, 'KnowledgeBase', {
+      env: props?.env, // Pass environment to nested stack
+      contentBucket: this.contentBucket,
+      vectorsBucket: this.vectorsBucket,
+      vectorIndex: this.vectorIndex,
+    });
+
+    // Update KB test function environment with GA S3 Vectors configuration
+    this.kbTestFunction.addEnvironment('VECTORS_BUCKET', this.vectorsBucket.vectorBucketName);
+    this.kbTestFunction.addEnvironment('VECTOR_INDEX', this.vectorIndex.indexName);
+    this.kbTestFunction.addEnvironment('CONTENT_BUCKET', this.contentBucket.bucketName);
+
     // Outputs for GA infrastructure
     new CfnOutput(this, 'ContentBucketName', {
       value: this.contentBucket.bucketName,
@@ -170,6 +216,11 @@ export class S3VectorsGAStack extends Stack {
     new CfnOutput(this, 'CrawlerFunctionName', {
       value: this.crawlerFunction.functionName,
       description: 'Name of the GA-optimized crawler Lambda function'
+    });
+
+    new CfnOutput(this, 'KBTestFunctionName', {
+      value: this.kbTestFunction.functionName,
+      description: 'Name of the Knowledge Base GA integration test function'
     });
 
     new CfnOutput(this, 'VectorsBucketArn', {
