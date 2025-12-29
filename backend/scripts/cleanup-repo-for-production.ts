@@ -116,7 +116,7 @@ class ProductionCleanup {
     ]);
   }
 
-  private addCleanupItems(items: Omit<CleanupItem, 'path'>[] & { path: string }[]): void {
+  private addCleanupItems(items: { path: string; type: 'file' | 'directory'; reason: string; category: string }[]): void {
     items.forEach(item => {
       this.itemsToDelete.push({
         path: path.join(process.cwd(), item.path),

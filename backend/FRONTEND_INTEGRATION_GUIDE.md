@@ -4,6 +4,37 @@
 
 This guide provides everything your frontend team needs to integrate with the ADA Clara backend authentication and API systems. The backend provides secure authentication via AWS Cognito, role-based access control, and comprehensive APIs for chat functionality and admin dashboard.
 
+## Table of Contents
+
+1. [Configuration Values Required](#️-important-configuration-values-required)
+2. [Quick Start](#quick-start)
+3. [Authentication Integration](#authentication-integration)
+4. [API Integration](#api-integration)
+5. [User Types & Permissions](#user-types--permissions)
+6. [Admin Dashboard Integration](#admin-dashboard-integration)
+7. [Environment Configuration](#environment-configuration)
+8. [API Endpoints Reference](#api-endpoints-reference)
+9. [Error Handling](#error-handling)
+10. [Security Considerations](#security-considerations)
+11. [Testing](#testing)
+12. [Deployment Checklist](#deployment-checklist)
+13. [Support](#support)
+
+## ⚠️ IMPORTANT: Configuration Values Required
+
+**Before starting development, you need these values from the backend team:**
+
+1. **Cognito User Pool ID** - Format: `us-east-1_xxxxxxxxx`
+2. **Cognito App Client ID** - Format: `xxxxxxxxxxxxxxxxxx`  
+3. **Cognito Identity Pool ID** - Format: `us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+4. **Cognito Domain** - Format: `https://ada-clara-xxxxx.auth.us-east-1.amazoncognito.com`
+5. **API Gateway URL** - Format: `https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod`
+
+**How to get these values:**
+- Run the backend deployment script: `npm run deploy:cognito-auth`
+- The script will output all required configuration values
+- Copy these values to replace `GET_FROM_BACKEND_TEAM` placeholders in this guide
+
 ## Quick Start
 
 ### 1. Backend Configuration
@@ -15,12 +46,12 @@ After backend deployment, you'll receive these configuration files:
 {
   "aws_project_region": "us-east-1",
   "aws_cognito_region": "us-east-1", 
-  "aws_user_pools_id": "us-east-1_xxxxxxxxx",
-  "aws_user_pools_web_client_id": "xxxxxxxxxxxxxxxxxx",
-  "aws_cognito_identity_pool_id": "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "aws_user_pool_domain": "https://ada-clara-xxxxx.auth.us-east-1.amazoncognito.com",
+  "aws_user_pools_id": "GET_FROM_BACKEND_TEAM",
+  "aws_user_pools_web_client_id": "GET_FROM_BACKEND_TEAM",
+  "aws_cognito_identity_pool_id": "GET_FROM_BACKEND_TEAM",
+  "aws_user_pool_domain": "GET_FROM_BACKEND_TEAM",
   "oauth": {
-    "domain": "ada-clara-xxxxx.auth.us-east-1.amazoncognito.com",
+    "domain": "GET_FROM_BACKEND_TEAM",
     "scope": ["email", "openid", "profile"],
     "redirectSignIn": "http://localhost:3000/auth/callback",
     "redirectSignOut": "http://localhost:3000",
@@ -33,10 +64,10 @@ After backend deployment, you'll receive these configuration files:
 **API Base URLs**:
 ```bash
 # Development
-API_BASE_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
+API_BASE_URL=GET_FROM_BACKEND_TEAM
 
 # Production  
-API_BASE_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod
+API_BASE_URL=GET_FROM_BACKEND_TEAM
 ```
 
 ### 2. Required Dependencies
@@ -65,18 +96,18 @@ import { Amplify } from 'aws-amplify';
 const amplifyConfig = {
   Auth: {
     region: 'us-east-1',
-    userPoolId: 'us-east-1_xxxxxxxxx',
-    userPoolWebClientId: 'xxxxxxxxxxxxxxxxxx',
-    identityPoolId: 'us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+    userPoolId: 'GET_FROM_BACKEND_TEAM',
+    userPoolWebClientId: 'GET_FROM_BACKEND_TEAM',
+    identityPoolId: 'GET_FROM_BACKEND_TEAM',
     oauth: {
-      domain: 'ada-clara-xxxxx.auth.us-east-1.amazoncognito.com',
+      domain: 'GET_FROM_BACKEND_TEAM',
       scope: ['email', 'openid', 'profile'],
       redirectSignIn: process.env.NODE_ENV === 'production' 
-        ? 'https://ada-clara.diabetes.org/auth/callback'
-        : 'http://localhost:3000/auth/callback',
+        ? 'https://YOUR_PRODUCTION_DOMAIN.com/auth/callback' // Update this!
+        : 'http://localhost:3000/auth/callback', // Development - keep as-is
       redirectSignOut: process.env.NODE_ENV === 'production'
-        ? 'https://ada-clara.diabetes.org'
-        : 'http://localhost:3000',
+        ? 'https://YOUR_PRODUCTION_DOMAIN.com/' // Update this!
+        : 'http://localhost:3000', // Development - keep as-is
       responseType: 'code'
     }
   }
@@ -1088,7 +1119,7 @@ const TestComponent = () => {
   
   return (
     <div>
-      <button onClick={() => signIn('test@example.com', 'password')}>
+      <button onClick={() => signIn('user@example.com', 'testPassword123')}>
         Sign In
       </button>
       {user && <div>Logged in as {user.username}</div>}
