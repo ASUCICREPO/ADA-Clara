@@ -34,6 +34,7 @@
  */
 
 import { execSync } from 'child_process';
+import { CloudFormationClient, DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 
 interface DeploymentStep {
   name: string;

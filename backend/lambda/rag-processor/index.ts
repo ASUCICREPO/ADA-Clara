@@ -17,8 +17,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { 
   S3VectorsClient,
-  SearchCommand,
-  GetVectorCommand
+  QueryVectorsCommand
 } from '@aws-sdk/client-s3vectors';
 
 interface RAGRequest {
@@ -100,12 +99,12 @@ class RAGProcessor {
    */
   async performSemanticSearch(queryEmbedding: number[], maxResults: number = 5): Promise<VectorSearchResult[]> {
     try {
-      const command = new SearchCommand({
-        VectorBucketName: this.vectorsBucket,
-        IndexName: this.vectorIndex,
-        QueryVector: queryEmbedding,
-        K: maxResults,
-        Filter: {
+      const command = new QueryVectorsCommand({
+        vectorBucketName: this.vectorsBucket,
+        indexName: this.vectorIndex,
+        queryVector: queryEmbedding as any, // Type assertion for compatibility
+        topK: maxResults, // Correct parameter name
+        filter: {
           // Optional: Add metadata filters for content type, language, etc.
           language: 'en'
         }
@@ -113,7 +112,7 @@ class RAGProcessor {
 
       const response = await this.s3VectorsClient.send(command);
       
-      return (response.Vectors || []).map(vector => ({
+      return (response.vectors || []).map((vector: any) => ({
         vectorId: vector.VectorId!,
         score: vector.Score!,
         metadata: vector.Metadata || {}
@@ -415,5 +414,3 @@ export const handler: Handler = async (event: APIGatewayProxyEvent): Promise<API
     };
   }
 };
-</content>
-</invoke>

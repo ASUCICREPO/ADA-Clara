@@ -50,14 +50,14 @@ class ProductionDeployment {
       healthCheck: 'npx ts-node scripts/test-enhanced-dynamodb.ts'
     },
     {
-      name: 'S3 Vectors GA',
-      description: 'Deploy S3 Vectors with GA features for production vector storage and semantic search',
+      name: 'S3 Vectors GA with Enhanced Crawler Scheduling',
+      description: 'Deploy S3 Vectors with GA features, EventBridge weekly scheduling, content change detection, and comprehensive monitoring',
       command: 'cdk deploy AdaClaraS3VectorsGA --app "npx ts-node scripts/deploy-s3-vectors-ga.ts"',
       stackName: 'AdaClaraS3VectorsGA',
-      dependencies: [],
+      dependencies: ['AdaClaraEnhancedDynamoDB'],
       optional: false,
-      timeout: 15,
-      healthCheck: 'npx ts-node scripts/test-ga-infrastructure-simple.ts'
+      timeout: 25, // Increased timeout for EventBridge, monitoring, and security components
+      healthCheck: 'npx ts-node scripts/validate-enhanced-crawler-deployment.ts'
     },
     {
       name: 'Chat Processor',
@@ -386,8 +386,26 @@ class ProductionDeployment {
     // Verify S3 Vectors bucket and index exist
     try {
       execSync('aws s3 ls ada-clara-vectors-ga-', { stdio: 'pipe' });
+      
+      // Validate EventBridge rule exists and is enabled
+      const eventBridgeCheck = execSync('aws events describe-rule --name ada-clara-weekly-crawler-schedule', { 
+        stdio: 'pipe',
+        encoding: 'utf8'
+      });
+      const ruleInfo = JSON.parse(eventBridgeCheck);
+      
+      if (ruleInfo.State !== 'ENABLED') {
+        throw new Error(`EventBridge rule is not enabled: ${ruleInfo.State}`);
+      }
+      
+      // Validate SNS topic exists
+      execSync('aws sns list-topics | grep ada-clara-crawler-failures', { stdio: 'pipe' });
+      
+      // Validate content tracking table exists
+      execSync('aws dynamodb describe-table --table-name ada-clara-content-tracking', { stdio: 'pipe' });
+      
     } catch (error) {
-      throw new Error('S3 Vectors bucket not accessible');
+      throw new Error('S3 Vectors GA with enhanced crawler scheduling not accessible');
     }
   }
 
@@ -432,6 +450,16 @@ class ProductionDeployment {
     console.log('   • Chat API: Check CloudFormation outputs for AdaClaraChatProcessor-dev');
     console.log('   • RAG API: Check CloudFormation outputs for AdaClaraRAGProcessor');
     console.log('   • Admin Dashboard: Check CloudFormation outputs for AdaClaraAdminAnalytics');
+    console.log('   • Crawler Monitoring: Check CloudFormation outputs for AdaClaraS3VectorsGA');
+    
+    // Enhanced crawler scheduling information
+    console.log('\n📅 Enhanced Crawler Scheduling:');
+    console.log('   • Weekly Schedule: Automated via EventBridge (every 7 days)');
+    console.log('   • Content Detection: Intelligent change detection to avoid redundant uploads');
+    console.log('   • Monitoring: CloudWatch dashboard and alarms for crawler health');
+    console.log('   • Notifications: SNS alerts for failures and performance issues');
+    console.log('   • Security: Domain whitelist, rate limiting, and audit logging');
+    console.log('   • Configuration: Environment variables for schedule and target URLs');
   }
 
   private async generateFailureReport(startTime: number, error: Error): Promise<void> {

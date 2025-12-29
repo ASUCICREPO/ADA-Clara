@@ -1,13 +1,34 @@
 /**
- * S3 Vectors GA Lambda Function - Enhanced with Comprehensive Error Handling and Performance Monitoring
+ * S3 Vectors GA Lambda Function - Enhanced with Weekly Crawler Scheduling Support
  * 
  * This Lambda function implements GA (General Availability) S3 Vectors with optimized
  * batch processing, search/retrieval capabilities, comprehensive GA-specific error handling,
- * and CloudWatch performance monitoring for GA API latency, throughput, and cost tracking.
+ * CloudWatch performance monitoring, and automated weekly crawler scheduling support.
+ * 
+ * Enhanced Features:
+ * - EventBridge event handler for scheduled crawls
+ * - ContentDetectionService integration for efficient content processing
+ * - Skip logic for unchanged content to avoid redundant uploads
+ * - Execution metrics collection and CloudWatch logging
+ * - Enhanced error handling with partial success capability
  */
 
-import { Handler, APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { Handler, APIGatewayProxyEvent, APIGatewayProxyResult, EventBridgeEvent } from 'aws-lambda';
 import { CloudWatchClient, PutMetricDataCommand, MetricDatum } from '@aws-sdk/client-cloudwatch';
+import { ContentDetectionService } from '../src/services/content-detection-service';
+import { CrawlerMonitoringService, ExecutionMetrics, AlertConfiguration } from '../src/services/crawler-monitoring-service';
+import { 
+  ScheduledCrawlEvent, 
+  ManualCrawlEvent, 
+  CrawlerExecutionResult,
+  CrawlerError,
+  ContentChangesSummary,
+  CrawlerConfiguration,
+  ExecutionMetrics as CrawlerExecutionMetrics
+} from '../src/types/index';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 
 // GA-specific error classes for comprehensive error handling
 class GAValidationException extends Error {
@@ -799,6 +820,32 @@ const GA_CONFIG = {
   progressReportInterval: parseInt(process.env.PROGRESS_REPORT_INTERVAL || '1000'), // vectors
 };
 
+// Weekly Crawler Scheduling Configuration
+const CRAWLER_CONFIG = {
+  contentBucket: process.env.CONTENT_BUCKET!,
+  targetDomain: process.env.TARGET_DOMAIN || 'diabetes.org',
+  maxCrawlPages: parseInt(process.env.MAX_CRAWL_PAGES || '50'),
+  crawlTimeout: parseInt(process.env.CRAWL_TIMEOUT || '30000'),
+  rateLimitDelay: parseInt(process.env.CRAWLER_RATE_LIMIT || '2000'),
+  changeDetectionEnabled: process.env.CHANGE_DETECTION_ENABLED !== 'false',
+  skipUnchangedContent: process.env.SKIP_UNCHANGED_CONTENT !== 'false',
+  maxRetries: parseInt(process.env.CRAWLER_MAX_RETRIES || '3'),
+  batchSize: parseInt(process.env.CRAWLER_BATCH_SIZE || '10'),
+  parallelProcessing: process.env.PARALLEL_PROCESSING !== 'false'
+};
+
+// Default URLs for diabetes.org crawling
+const DEFAULT_CRAWL_URLS = [
+  'https://diabetes.org/about-diabetes/type-1',
+  'https://diabetes.org/about-diabetes/type-2',
+  'https://diabetes.org/about-diabetes/gestational',
+  'https://diabetes.org/about-diabetes/prediabetes',
+  'https://diabetes.org/living-with-diabetes',
+  'https://diabetes.org/tools-and-resources',
+  'https://diabetes.org/community',
+  'https://diabetes.org/professionals'
+];
+
 interface VectorData {
   id: string;
   content: string;
@@ -1239,6 +1286,834 @@ async function processBatchWithRetry(
 }
 
 /**
+ * Weekly Crawler Scheduler - Handles EventBridge scheduled crawl events
+ */
+class WeeklyCrawlerScheduler {
+  private contentDetectionService: ContentDetectionService;
+  private bedrockClient: BedrockRuntimeClient;
+  private monitoringService: CrawlerMonitoringService;
+  
+  constructor() {
+    this.contentDetectionService = new ContentDetectionService();
+    this.bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-east-1' });
+    
+    // Initialize monitoring service
+    const alertConfig: AlertConfiguration = {
+      executionFailureThreshold: 3,
+      highLatencyThreshold: 900000, // 15 minutes
+      lowEfficiencyThreshold: 70, // 70%
+      errorRateThreshold: 20, // 20%
+      notificationTopicArn: process.env.FAILURE_NOTIFICATION_TOPIC || ''
+    };
+    
+    this.monitoringService = new CrawlerMonitoringService(
+      process.env.CONTENT_TRACKING_TABLE || 'ada-clara-content-tracking',
+      alertConfig
+    );
+  }
+  
+  /**
+   * Handle EventBridge scheduled crawl event
+   * Requirements: 1.2, 1.3, 3.2, 3.3, 3.4, 5.5
+   */
+  async handleScheduledCrawl(event: ScheduledCrawlEvent): Promise<CrawlerExecutionResult> {
+    const executionId = event.executionId || `scheduled-${Date.now()}`;
+    const startTime = new Date().toISOString();
+    
+    GAErrorLogger.logInfo('Starting scheduled crawl execution', {
+      executionId,
+      scheduleId: event.scheduleId,
+      targetUrls: event.targetUrls,
+      retryAttempt: event.retryAttempt || 0
+    });
+
+    // Record execution start in monitoring service
+    await this.monitoringService.recordExecutionStart(
+      executionId, 
+      event.targetUrls || DEFAULT_CRAWL_URLS
+    );
+    
+    try {
+      const config: CrawlerConfiguration = {
+        targetUrls: event.targetUrls || DEFAULT_CRAWL_URLS,
+        changeDetectionEnabled: CRAWLER_CONFIG.changeDetectionEnabled,
+        forceRefresh: false,
+        maxRetries: CRAWLER_CONFIG.maxRetries,
+        timeoutSeconds: CRAWLER_CONFIG.crawlTimeout / 1000,
+        rateLimitDelay: CRAWLER_CONFIG.rateLimitDelay,
+        batchSize: CRAWLER_CONFIG.batchSize,
+        parallelProcessing: CRAWLER_CONFIG.parallelProcessing,
+        skipUnchangedContent: CRAWLER_CONFIG.skipUnchangedContent
+      };
+      
+      const result = await this.executeCrawl(executionId, config);
+      
+      // Record execution completion with comprehensive metrics
+      const executionMetrics: ExecutionMetrics = {
+        executionId,
+        startTime,
+        endTime: new Date().toISOString(),
+        duration: result.duration,
+        status: result.failedUrls > 0 && result.processedUrls === 0 ? 'failed' : 'completed',
+        totalUrls: result.totalUrls,
+        processedUrls: result.processedUrls,
+        skippedUrls: result.skippedUrls,
+        failedUrls: result.failedUrls,
+        newContent: result.newContent,
+        modifiedContent: result.modifiedContent,
+        unchangedContent: result.unchangedContent,
+        vectorsCreated: result.vectorsCreated,
+        vectorsUpdated: result.vectorsUpdated,
+        changeDetectionTime: result.performance?.changeDetectionTime || 0,
+        embeddingGenerationTime: result.performance?.embeddingGenerationTime || 0,
+        vectorStorageTime: result.performance?.vectorStorageTime || 0,
+        errorCount: result.errors.length,
+        errors: result.errors.map(e => e.errorMessage)
+      };
+
+      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      
+      GAErrorLogger.logInfo('Scheduled crawl execution completed', {
+        executionId,
+        result: {
+          totalUrls: result.totalUrls,
+          processedUrls: result.processedUrls,
+          skippedUrls: result.skippedUrls,
+          failedUrls: result.failedUrls,
+          newContent: result.newContent,
+          modifiedContent: result.modifiedContent,
+          unchangedContent: result.unchangedContent,
+          duration: result.duration
+        }
+      });
+      
+      return result;
+      
+    } catch (error: any) {
+      // Record failed execution
+      const executionMetrics: ExecutionMetrics = {
+        executionId,
+        startTime,
+        endTime: new Date().toISOString(),
+        duration: Date.now() - new Date(startTime).getTime(),
+        status: 'failed',
+        totalUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
+        processedUrls: 0,
+        skippedUrls: 0,
+        failedUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
+        newContent: 0,
+        modifiedContent: 0,
+        unchangedContent: 0,
+        vectorsCreated: 0,
+        vectorsUpdated: 0,
+        changeDetectionTime: 0,
+        embeddingGenerationTime: 0,
+        vectorStorageTime: 0,
+        errorCount: 1,
+        errors: [error.message]
+      };
+
+      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      
+      GAErrorLogger.logError(error, {
+        operation: 'handleScheduledCrawl',
+        executionId,
+        scheduleId: event.scheduleId
+      });
+      
+      throw new GAServiceException(
+        `Scheduled crawl execution failed: ${error.message}`,
+        500,
+        'SCHEDULED_CRAWL_FAILED'
+      );
+    }
+  }
+  
+  /**
+   * Handle manual crawl event
+   * Requirements: 1.2, 1.3, 3.2, 3.3, 3.4, 5.5
+   */
+  async handleManualCrawl(event: ManualCrawlEvent): Promise<CrawlerExecutionResult> {
+    const executionId = `manual-${Date.now()}`;
+    const startTime = new Date().toISOString();
+    
+    GAErrorLogger.logInfo('Starting manual crawl execution', {
+      executionId,
+      targetUrls: event.targetUrls,
+      forceRefresh: event.forceRefresh,
+      userId: event.userId
+    });
+
+    // Record execution start in monitoring service
+    await this.monitoringService.recordExecutionStart(
+      executionId, 
+      event.targetUrls || DEFAULT_CRAWL_URLS
+    );
+    
+    try {
+      const config: CrawlerConfiguration = {
+        targetUrls: event.targetUrls || DEFAULT_CRAWL_URLS,
+        changeDetectionEnabled: !event.forceRefresh && CRAWLER_CONFIG.changeDetectionEnabled,
+        forceRefresh: event.forceRefresh || false,
+        maxRetries: CRAWLER_CONFIG.maxRetries,
+        timeoutSeconds: CRAWLER_CONFIG.crawlTimeout / 1000,
+        rateLimitDelay: CRAWLER_CONFIG.rateLimitDelay,
+        batchSize: CRAWLER_CONFIG.batchSize,
+        parallelProcessing: CRAWLER_CONFIG.parallelProcessing,
+        skipUnchangedContent: !event.forceRefresh && CRAWLER_CONFIG.skipUnchangedContent
+      };
+      
+      const result = await this.executeCrawl(executionId, config);
+      
+      // Record execution completion with comprehensive metrics
+      const executionMetrics: ExecutionMetrics = {
+        executionId,
+        startTime,
+        endTime: new Date().toISOString(),
+        duration: result.duration,
+        status: result.failedUrls > 0 && result.processedUrls === 0 ? 'failed' : 'completed',
+        totalUrls: result.totalUrls,
+        processedUrls: result.processedUrls,
+        skippedUrls: result.skippedUrls,
+        failedUrls: result.failedUrls,
+        newContent: result.newContent,
+        modifiedContent: result.modifiedContent,
+        unchangedContent: result.unchangedContent,
+        vectorsCreated: result.vectorsCreated,
+        vectorsUpdated: result.vectorsUpdated,
+        changeDetectionTime: result.performance?.changeDetectionTime || 0,
+        embeddingGenerationTime: result.performance?.embeddingGenerationTime || 0,
+        vectorStorageTime: result.performance?.vectorStorageTime || 0,
+        errorCount: result.errors.length,
+        errors: result.errors.map(e => e.errorMessage)
+      };
+
+      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      
+      GAErrorLogger.logInfo('Manual crawl execution completed', {
+        executionId,
+        userId: event.userId,
+        result: {
+          totalUrls: result.totalUrls,
+          processedUrls: result.processedUrls,
+          skippedUrls: result.skippedUrls,
+          failedUrls: result.failedUrls,
+          newContent: result.newContent,
+          modifiedContent: result.modifiedContent,
+          unchangedContent: result.unchangedContent,
+          duration: result.duration
+        }
+      });
+      
+      return result;
+      
+    } catch (error: any) {
+      // Record failed execution
+      const executionMetrics: ExecutionMetrics = {
+        executionId,
+        startTime,
+        endTime: new Date().toISOString(),
+        duration: Date.now() - new Date(startTime).getTime(),
+        status: 'failed',
+        totalUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
+        processedUrls: 0,
+        skippedUrls: 0,
+        failedUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
+        newContent: 0,
+        modifiedContent: 0,
+        unchangedContent: 0,
+        vectorsCreated: 0,
+        vectorsUpdated: 0,
+        changeDetectionTime: 0,
+        embeddingGenerationTime: 0,
+        vectorStorageTime: 0,
+        errorCount: 1,
+        errors: [error.message]
+      };
+
+      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      
+      GAErrorLogger.logError(error, {
+        operation: 'handleManualCrawl',
+        executionId,
+        userId: event.userId
+      });
+      
+      throw new GAServiceException(
+        `Manual crawl execution failed: ${error.message}`,
+        500,
+        'MANUAL_CRAWL_FAILED'
+      );
+    }
+  }
+  
+  /**
+   * Execute crawl with content change detection and S3 Vectors integration
+   * Requirements: 3.2, 3.3, 3.4, 5.5
+   */
+  private async executeCrawl(executionId: string, config: CrawlerConfiguration): Promise<CrawlerExecutionResult> {
+    const startTime = Date.now();
+    const errors: CrawlerError[] = [];
+    const contentChanges: ContentChangesSummary[] = [];
+    const vectors: VectorData[] = [];
+    
+    let processedUrls = 0;
+    let skippedUrls = 0;
+    let failedUrls = 0;
+    let newContent = 0;
+    let modifiedContent = 0;
+    let unchangedContent = 0;
+    let vectorsCreated = 0;
+    let vectorsUpdated = 0;
+    
+    // Performance tracking
+    let totalChangeDetectionTime = 0;
+    let totalEmbeddingGenerationTime = 0;
+    let totalVectorStorageTime = 0;
+    
+    try {
+      // Process URLs in batches for better performance
+      const urlBatches = this.createUrlBatches(config.targetUrls, config.batchSize);
+      
+      for (let batchIndex = 0; batchIndex < urlBatches.length; batchIndex++) {
+        const batch = urlBatches[batchIndex];
+        
+        GAErrorLogger.logInfo(`Processing URL batch ${batchIndex + 1}/${urlBatches.length}`, {
+          executionId,
+          batchSize: batch.length,
+          urls: batch
+        });
+        
+        // Process batch with parallel processing if enabled
+        const batchPromises = batch.map(url => 
+          this.processUrl(url, config, executionId)
+        );
+        
+        const batchResults = config.parallelProcessing 
+          ? await Promise.allSettled(batchPromises)
+          : await this.processSequentially(batchPromises);
+        
+        // Collect batch results
+        for (let i = 0; i < batchResults.length; i++) {
+          const result = batchResults[i];
+          const url = batch[i];
+          
+          if (result.status === 'fulfilled' && result.value) {
+            const urlResult = result.value;
+            processedUrls++;
+            
+            // Track content changes
+            contentChanges.push({
+              url,
+              changeType: urlResult.changeType,
+              previousHash: urlResult.previousHash,
+              currentHash: urlResult.currentHash,
+              significanceScore: urlResult.significanceScore,
+              processingDecision: urlResult.processingDecision,
+              vectorIds: urlResult.vectorIds
+            });
+            
+            // Update counters based on change type
+            switch (urlResult.changeType) {
+              case 'new':
+                newContent++;
+                break;
+              case 'modified':
+                modifiedContent++;
+                break;
+              case 'unchanged':
+                unchangedContent++;
+                break;
+            }
+            
+            // Track processing decision
+            if (urlResult.processingDecision === 'processed') {
+              if (urlResult.vectors) {
+                vectors.push(...urlResult.vectors);
+                if (urlResult.changeType === 'new') {
+                  vectorsCreated += urlResult.vectors.length;
+                } else if (urlResult.changeType === 'modified') {
+                  vectorsUpdated += urlResult.vectors.length;
+                }
+              }
+            } else if (urlResult.processingDecision === 'skipped') {
+              skippedUrls++;
+            }
+            
+            // Track performance metrics
+            totalChangeDetectionTime += urlResult.changeDetectionTime || 0;
+            totalEmbeddingGenerationTime += urlResult.embeddingGenerationTime || 0;
+            totalVectorStorageTime += urlResult.vectorStorageTime || 0;
+            
+          } else {
+            failedUrls++;
+            const error: CrawlerError = {
+              url,
+              errorType: 'network',
+              errorMessage: result.status === 'rejected' ? result.reason : 'Unknown error',
+              timestamp: new Date().toISOString(),
+              retryAttempt: 0,
+              recoverable: true
+            };
+            errors.push(error);
+            
+            GAErrorLogger.logError(new Error(`URL processing failed: ${url}`), {
+              executionId,
+              url,
+              error: error.errorMessage
+            });
+          }
+        }
+        
+        // Rate limiting between batches
+        if (batchIndex < urlBatches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, config.rateLimitDelay));
+        }
+      }
+      
+      // Store vectors in S3 Vectors if any were processed
+      if (vectors.length > 0) {
+        GAErrorLogger.logInfo(`Storing ${vectors.length} vectors in S3 Vectors`, {
+          executionId,
+          vectorCount: vectors.length
+        });
+        
+        const vectorStorageStart = Date.now();
+        await storeVectorsGAOptimized(vectors);
+        totalVectorStorageTime += Date.now() - vectorStorageStart;
+      }
+      
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+      const averageProcessingTime = processedUrls > 0 ? duration / processedUrls : 0;
+      const throughput = processedUrls > 0 ? (processedUrls / duration) * 1000 : 0;
+      
+      const result: CrawlerExecutionResult = {
+        executionId,
+        startTime: new Date(startTime).toISOString(),
+        endTime: new Date(endTime).toISOString(),
+        duration,
+        totalUrls: config.targetUrls.length,
+        processedUrls,
+        skippedUrls,
+        failedUrls,
+        newContent,
+        modifiedContent,
+        unchangedContent,
+        vectorsCreated,
+        vectorsUpdated,
+        errors,
+        performance: {
+          averageProcessingTime,
+          throughput,
+          changeDetectionTime: totalChangeDetectionTime,
+          embeddingGenerationTime: totalEmbeddingGenerationTime,
+          vectorStorageTime: totalVectorStorageTime
+        },
+        contentChanges
+      };
+      
+      return result;
+      
+    } catch (error: any) {
+      GAErrorLogger.logError(error, {
+        operation: 'executeCrawl',
+        executionId,
+        processedUrls,
+        failedUrls
+      });
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Process a single URL with content change detection
+   */
+  private async processUrl(url: string, config: CrawlerConfiguration, executionId: string): Promise<any> {
+    const urlStartTime = Date.now();
+    
+    try {
+      // Step 1: Scrape content
+      const scrapedContent = await this.scrapeUrl(url);
+      
+      // Step 2: Content change detection (if enabled)
+      let changeDetectionResult;
+      let changeDetectionTime = 0;
+      
+      if (config.changeDetectionEnabled && !config.forceRefresh) {
+        const changeDetectionStart = Date.now();
+        changeDetectionResult = await this.contentDetectionService.detectChanges(url, scrapedContent.content);
+        changeDetectionTime = Date.now() - changeDetectionStart;
+        
+        // Skip processing if content hasn't changed
+        if (!changeDetectionResult.hasChanged && config.skipUnchangedContent) {
+          return {
+            changeType: 'unchanged',
+            previousHash: changeDetectionResult.previousHash,
+            currentHash: changeDetectionResult.currentHash,
+            processingDecision: 'skipped',
+            changeDetectionTime
+          };
+        }
+      } else {
+        // Force refresh or change detection disabled
+        changeDetectionResult = {
+          hasChanged: true,
+          changeType: 'new' as const,
+          currentHash: 'force-refresh',
+          processingDecision: 'processed'
+        };
+      }
+      
+      // Step 3: Generate embeddings and create vectors
+      const embeddingGenerationStart = Date.now();
+      const vectors = await this.createVectorsFromContent(scrapedContent, url);
+      const embeddingGenerationTime = Date.now() - embeddingGenerationStart;
+      
+      // Step 4: Update content record
+      if (changeDetectionResult.hasChanged) {
+        await this.contentDetectionService.updateContentRecord(url, {
+          url,
+          contentHash: changeDetectionResult.currentHash,
+          lastCrawled: new Date(),
+          wordCount: scrapedContent.wordCount,
+          chunkCount: vectors.length,
+          vectorIds: vectors.map(v => v.id),
+          metadata: {
+            title: scrapedContent.title,
+            section: this.extractSection(url),
+            contentType: scrapedContent.contentType
+          }
+        });
+      }
+      
+      return {
+        changeType: changeDetectionResult.changeType,
+        previousHash: changeDetectionResult.previousHash,
+        currentHash: changeDetectionResult.currentHash,
+        processingDecision: 'processed',
+        vectors,
+        changeDetectionTime,
+        embeddingGenerationTime,
+        vectorStorageTime: 0 // Will be updated during batch storage
+      };
+      
+    } catch (error: any) {
+      GAErrorLogger.logError(error, {
+        operation: 'processUrl',
+        url,
+        executionId
+      });
+      
+      throw error;
+    }
+  }
+  
+  /**
+   * Scrape content from URL using Cheerio
+   */
+  private async scrapeUrl(url: string): Promise<{
+    title: string;
+    content: string;
+    contentType: 'article' | 'faq' | 'resource' | 'event';
+    wordCount: number;
+    links: string[];
+  }> {
+    try {
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': 'ADA-Clara-Bot/1.0 (Educational/Medical Content Crawler)',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        timeout: CRAWLER_CONFIG.crawlTimeout,
+      });
+      
+      const $ = cheerio.load(response.data);
+      
+      // Remove unwanted elements
+      $('script, style, nav, footer, .advertisement, .ads').remove();
+      
+      // Extract title
+      const title = $('title').text().trim() || $('h1').first().text().trim() || 'No title found';
+      
+      // Extract main content
+      const contentSelectors = [
+        'main',
+        '.main-content',
+        '.content',
+        '.article-content',
+        '.post-content',
+        'article',
+        '.entry-content'
+      ];
+      
+      let content = '';
+      for (const selector of contentSelectors) {
+        const element = $(selector);
+        if (element.length > 0) {
+          content = element.text().trim();
+          break;
+        }
+      }
+      
+      // Fallback to body if no main content found
+      if (!content) {
+        content = $('body').text().trim();
+      }
+      
+      // Clean up content
+      content = content
+        .replace(/\s+/g, ' ')
+        .replace(/\n\s*\n/g, '\n')
+        .trim();
+      
+      // Extract links
+      const links: string[] = [];
+      $('a[href]').each((_, element) => {
+        const href = $(element).attr('href');
+        if (href && href.includes(CRAWLER_CONFIG.targetDomain)) {
+          links.push(href);
+        }
+      });
+      
+      // Determine content type
+      const contentType = this.determineContentType(url, title, content);
+      
+      return {
+        title,
+        content,
+        contentType,
+        wordCount: content.split(/\s+/).length,
+        links: [...new Set(links)] // Remove duplicates
+      };
+      
+    } catch (error: any) {
+      throw new Error(`Failed to scrape URL ${url}: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Create vectors from scraped content
+   */
+  private async createVectorsFromContent(scrapedContent: any, url: string): Promise<VectorData[]> {
+    const vectors: VectorData[] = [];
+    
+    // Chunk content for optimal vector storage
+    const chunks = this.chunkContent(scrapedContent.content, scrapedContent.title, url);
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      
+      // Generate embedding using Bedrock
+      const embedding = await this.generateEmbedding(chunk.content);
+      
+      vectors.push({
+        id: chunk.id,
+        content: chunk.content,
+        embedding,
+        metadata: sanitizeMetadataForGA({
+          url,
+          title: scrapedContent.title,
+          section: this.extractSection(url),
+          contentType: scrapedContent.contentType,
+          chunkIndex: i,
+          totalChunks: chunks.length,
+          wordCount: chunk.content.split(/\s+/).length,
+          timestamp: new Date().toISOString(),
+          source: 'weekly-crawler'
+        })
+      });
+    }
+    
+    return vectors;
+  }
+  
+  /**
+   * Generate embedding using Bedrock
+   */
+  private async generateEmbedding(text: string): Promise<number[]> {
+    try {
+      const command = new InvokeModelCommand({
+        modelId: GA_CONFIG.embeddingModel,
+        body: JSON.stringify({ inputText: text })
+      });
+      
+      const response = await this.bedrockClient.send(command);
+      const result = JSON.parse(new TextDecoder().decode(response.body));
+      return result.embedding;
+      
+    } catch (error: any) {
+      GAErrorLogger.logError(error, {
+        operation: 'generateEmbedding',
+        textLength: text.length
+      });
+      throw new Error(`Failed to generate embedding: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Chunk content for optimal vector storage
+   */
+  private chunkContent(content: string, title: string, url: string, maxChunkSize: number = 1000): Array<{
+    id: string;
+    content: string;
+  }> {
+    const chunks = [];
+    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    
+    let currentChunk = '';
+    let chunkIndex = 0;
+    
+    for (const sentence of sentences) {
+      if (currentChunk.length + sentence.length > maxChunkSize && currentChunk.length > 0) {
+        chunks.push({
+          id: `${this.urlToKey(url)}-chunk-${chunkIndex.toString().padStart(3, '0')}`,
+          content: currentChunk.trim()
+        });
+        currentChunk = '';
+        chunkIndex++;
+      }
+      currentChunk += sentence + '. ';
+    }
+    
+    // Add final chunk
+    if (currentChunk.trim().length > 0) {
+      chunks.push({
+        id: `${this.urlToKey(url)}-chunk-${chunkIndex.toString().padStart(3, '0')}`,
+        content: currentChunk.trim()
+      });
+    }
+    
+    return chunks;
+  }
+  
+  /**
+   * Utility methods
+   */
+  private determineContentType(url: string, title: string, content: string): 'article' | 'faq' | 'resource' | 'event' {
+    const urlLower = url.toLowerCase();
+    const titleLower = title.toLowerCase();
+    const contentLower = content.toLowerCase();
+    
+    if (urlLower.includes('faq') || titleLower.includes('faq') || 
+        contentLower.includes('frequently asked') || contentLower.includes('common questions')) {
+      return 'faq';
+    }
+    
+    if (urlLower.includes('event') || urlLower.includes('calendar') || 
+        titleLower.includes('event') || contentLower.includes('register')) {
+      return 'event';
+    }
+    
+    if (urlLower.includes('resource') || urlLower.includes('tool') || 
+        titleLower.includes('resource') || titleLower.includes('tool')) {
+      return 'resource';
+    }
+    
+    return 'article';
+  }
+  
+  private extractSection(url: string): string {
+    const path = new URL(url).pathname;
+    const segments = path.split('/').filter(s => s.length > 0);
+    return segments[0] || 'home';
+  }
+  
+  private urlToKey(url: string): string {
+    return url.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  }
+  
+  private createUrlBatches(urls: string[], batchSize: number): string[][] {
+    const batches: string[][] = [];
+    for (let i = 0; i < urls.length; i += batchSize) {
+      batches.push(urls.slice(i, i + batchSize));
+    }
+    return batches;
+  }
+  
+  private async processSequentially(promises: Promise<any>[]): Promise<PromiseSettledResult<any>[]> {
+    const results: PromiseSettledResult<any>[] = [];
+    for (const promise of promises) {
+      try {
+        const result = await promise;
+        results.push({ status: 'fulfilled', value: result });
+      } catch (error) {
+        results.push({ status: 'rejected', reason: error });
+      }
+    }
+    return results;
+  }
+  
+}
+
+/**
+ * Event Handler - Determines event type and routes to appropriate handler
+ */
+class CrawlerEventHandler {
+  private scheduler: WeeklyCrawlerScheduler;
+  
+  constructor() {
+    this.scheduler = new WeeklyCrawlerScheduler();
+  }
+  
+  /**
+   * Handle incoming events (EventBridge or API Gateway)
+   */
+  async handleEvent(event: any): Promise<any> {
+    try {
+      // Check if this is an EventBridge event
+      if (event.source === 'eventbridge' || event['detail-type']) {
+        return await this.handleEventBridgeEvent(event);
+      }
+      
+      // Check if this is a manual crawl event
+      if (event.source === 'manual' || event.action === 'manual-crawl') {
+        return await this.scheduler.handleManualCrawl(event as ManualCrawlEvent);
+      }
+      
+      // Check if this is a scheduled crawl event
+      if (event.source === 'eventbridge' && event.action === 'scheduled-crawl') {
+        return await this.scheduler.handleScheduledCrawl(event as ScheduledCrawlEvent);
+      }
+      
+      // Default to existing GA functionality
+      return null;
+      
+    } catch (error: any) {
+      GAErrorLogger.logError(error, {
+        operation: 'handleEvent',
+        eventType: event.source || 'unknown'
+      });
+      throw error;
+    }
+  }
+  
+  /**
+   * Handle EventBridge events
+   */
+  private async handleEventBridgeEvent(event: EventBridgeEvent<string, any>): Promise<CrawlerExecutionResult> {
+    GAErrorLogger.logInfo('Processing EventBridge event', {
+      source: event.source,
+      detailType: event['detail-type'],
+      detail: event.detail
+    });
+    
+    // Convert EventBridge event to ScheduledCrawlEvent
+    const scheduledEvent: ScheduledCrawlEvent = {
+      source: 'eventbridge',
+      action: 'scheduled-crawl',
+      scheduleId: event.detail?.scheduleId || `eventbridge-${Date.now()}`,
+      targetUrls: event.detail?.targetUrls || DEFAULT_CRAWL_URLS,
+      executionId: event.detail?.executionId || `eventbridge-${Date.now()}`,
+      retryAttempt: event.detail?.retryAttempt || 0
+    };
+    
+    return await this.scheduler.handleScheduledCrawl(scheduledEvent);
+  }
+}
+
+/**
  * Legacy GA Vector Storage (for backward compatibility)
  */
 async function storeVectorsGA(vectors: VectorData[]): Promise<void> {
@@ -1471,16 +2346,197 @@ async function hybridSearchGA(
 }
 
 /**
- * Lambda handler
+ * Lambda handler - Enhanced with Weekly Crawler Scheduling Support
  */
-export const handler: Handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  console.log('🚀 S3 Vectors GA Lambda started (minimal version)');
+export const handler: Handler = async (event: APIGatewayProxyEvent | EventBridgeEvent<string, any>): Promise<APIGatewayProxyResult> => {
+  console.log('🚀 S3 Vectors GA Lambda started (enhanced with crawler scheduling)');
   console.log('Event:', JSON.stringify(event, null, 2));
   
   try {
-    const body = event.body ? JSON.parse(event.body) : event;
+    // Initialize crawler event handler
+    const crawlerEventHandler = new CrawlerEventHandler();
+    
+    // Check if this is a crawler-related event
+    const crawlerResult = await crawlerEventHandler.handleEvent(event);
+    if (crawlerResult) {
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          message: 'Crawler execution completed successfully',
+          result: crawlerResult,
+          crawlerFeatures: {
+            contentChangeDetection: 'SHA-256 hash-based change detection',
+            skipUnchangedContent: 'Efficient processing of only changed content',
+            eventBridgeIntegration: 'Automated weekly scheduling support',
+            performanceMonitoring: 'CloudWatch metrics and execution tracking',
+            errorHandling: 'Comprehensive error handling with partial success'
+          }
+        })
+      };
+    }
+    
+    // Handle existing GA functionality
+    const body = (event as APIGatewayProxyEvent).body ? JSON.parse((event as APIGatewayProxyEvent).body!) : event;
     const action = body.action || 'test-ga-access';
     
+    // Add new crawler-specific actions
+    if (action === 'test-crawler-scheduling') {
+      // Test crawler scheduling functionality
+      console.log('🧪 Testing crawler scheduling functionality...');
+      
+      try {
+        const testEvent: ManualCrawlEvent = {
+          source: 'manual',
+          action: 'manual-crawl',
+          targetUrls: body.targetUrls || DEFAULT_CRAWL_URLS.slice(0, 3), // Test with fewer URLs
+          forceRefresh: body.forceRefresh || false,
+          userId: 'test-user'
+        };
+        
+        const scheduler = new WeeklyCrawlerScheduler();
+        const result = await scheduler.handleManualCrawl(testEvent);
+        
+        return {
+          statusCode: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            message: 'Crawler scheduling test successful',
+            crawlerResult: result,
+            testConfiguration: {
+              targetUrls: testEvent.targetUrls,
+              forceRefresh: testEvent.forceRefresh,
+              changeDetectionEnabled: CRAWLER_CONFIG.changeDetectionEnabled,
+              skipUnchangedContent: CRAWLER_CONFIG.skipUnchangedContent
+            },
+            crawlerFeatures: {
+              contentChangeDetection: 'Enabled',
+              eventBridgeSupport: 'Ready for scheduled execution',
+              performanceMonitoring: 'CloudWatch metrics integration',
+              errorHandling: 'Comprehensive with partial success capability'
+            }
+          })
+        };
+      } catch (error: any) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            error: 'Crawler scheduling test failed',
+            details: error.message,
+            crawlerConfig: {
+              contentBucket: CRAWLER_CONFIG.contentBucket,
+              targetDomain: CRAWLER_CONFIG.targetDomain,
+              changeDetectionEnabled: CRAWLER_CONFIG.changeDetectionEnabled
+            }
+          })
+        };
+      }
+      
+    } else if (action === 'test-content-detection') {
+      // Test content change detection
+      console.log('🧪 Testing content change detection...');
+      
+      try {
+        const testUrl = body.testUrl || 'https://diabetes.org/about-diabetes/type-1';
+        const contentDetectionService = new ContentDetectionService();
+        
+        // Simulate content detection
+        const testContent = 'This is test content for change detection validation.';
+        const result = await contentDetectionService.detectChanges(testUrl, testContent);
+        
+        return {
+          statusCode: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            message: 'Content change detection test successful',
+            detectionResult: result,
+            testUrl,
+            contentDetectionFeatures: {
+              hashBasedDetection: 'SHA-256 content hashing',
+              timestampValidation: 'HTTP Last-Modified header comparison',
+              contentNormalization: 'Removes timestamps, ads, and dynamic content',
+              auditLogging: 'Complete change history tracking'
+            }
+          })
+        };
+      } catch (error: any) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            error: 'Content change detection test failed',
+            details: error.message
+          })
+        };
+      }
+      
+    } else if (action === 'test-eventbridge-handler') {
+      // Test EventBridge event handling
+      console.log('🧪 Testing EventBridge event handling...');
+      
+      try {
+        const mockEventBridgeEvent: EventBridgeEvent<string, any> = {
+          version: '0',
+          id: 'test-event-id',
+          'detail-type': 'Scheduled Crawl',
+          source: 'aws.events',
+          account: '123456789012',
+          time: new Date().toISOString(),
+          region: 'us-east-1',
+          resources: [],
+          detail: {
+            scheduleId: 'weekly-crawl-schedule',
+            targetUrls: body.targetUrls || DEFAULT_CRAWL_URLS.slice(0, 2),
+            executionId: `test-eventbridge-${Date.now()}`
+          }
+        };
+        
+        const eventHandler = new CrawlerEventHandler();
+        const result = await eventHandler.handleEvent(mockEventBridgeEvent);
+        
+        return {
+          statusCode: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            message: 'EventBridge event handling test successful',
+            eventBridgeResult: result,
+            mockEvent: {
+              source: mockEventBridgeEvent.source,
+              detailType: mockEventBridgeEvent['detail-type'],
+              scheduleId: mockEventBridgeEvent.detail.scheduleId
+            },
+            eventBridgeFeatures: {
+              scheduledExecution: 'Automated weekly crawl scheduling',
+              eventProcessing: 'EventBridge event parsing and routing',
+              retryLogic: 'Exponential backoff for failed executions',
+              monitoring: 'CloudWatch integration for event tracking'
+            }
+          })
+        };
+      } catch (error: any) {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            error: 'EventBridge event handling test failed',
+            details: error.message
+          })
+        };
+      }
+    }
+    
+    
+    // Handle existing GA functionality (continued from crawler actions)
     if (action === 'test-ga-access') {
       // Test GA infrastructure access
       console.log('🧪 Testing GA infrastructure access...');
@@ -2286,7 +3342,7 @@ export const handler: Handler = async (event: APIGatewayProxyEvent): Promise<API
       return {
         statusCode: 400,
         body: JSON.stringify({
-          error: 'Invalid action. Supported actions: test-ga-access, test-batch-processing, test-optimized-batch, test-throughput-scaling, test-vector-search, test-vector-retrieval, test-hybrid-search, test-search-performance, test-performance-monitoring, test-cost-analysis, test-error-handling, test-logging-system',
+          error: 'Invalid action. Supported actions: test-ga-access, test-batch-processing, test-optimized-batch, test-throughput-scaling, test-vector-search, test-vector-retrieval, test-hybrid-search, test-search-performance, test-performance-monitoring, test-cost-analysis, test-error-handling, test-logging-system, test-crawler-scheduling, test-content-detection, test-eventbridge-handler',
           supportedActions: [
             'test-ga-access - Test basic GA infrastructure access',
             'test-batch-processing - Test GA batch processing with configurable batch size',
@@ -2299,7 +3355,10 @@ export const handler: Handler = async (event: APIGatewayProxyEvent): Promise<API
             'test-performance-monitoring - Test GA performance monitoring and CloudWatch metrics',
             'test-cost-analysis - Test GA cost analysis and monthly projections',
             'test-error-handling - Test GA-specific error handling and recovery mechanisms',
-            'test-logging-system - Test GA comprehensive logging and monitoring system'
+            'test-logging-system - Test GA comprehensive logging and monitoring system',
+            'test-crawler-scheduling - Test weekly crawler scheduling functionality',
+            'test-content-detection - Test content change detection service',
+            'test-eventbridge-handler - Test EventBridge event handling for scheduled crawls'
           ]
         })
       };

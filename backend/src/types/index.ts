@@ -2284,3 +2284,443 @@ export class DataModelUtils {
     };
   }
 }
+
+// ============================================================================
+// WEEKLY CRAWLER SCHEDULING - CONTENT DETECTION TYPES
+// ============================================================================
+
+/**
+ * Content Detection Service Interfaces
+ * For weekly crawler scheduling with intelligent content change detection
+ */
+
+/**
+ * Content Change Detection Result
+ */
+export interface ChangeDetectionResult {
+  hasChanged: boolean;
+  changeType: 'new' | 'modified' | 'unchanged' | 'deleted';
+  previousHash?: string;
+  currentHash: string;
+  lastModified?: Date;
+  contentDiff?: ContentDifference;
+}
+
+/**
+ * Content Record for tracking crawled content
+ */
+export interface ContentRecord {
+  url: string;
+  contentHash: string;
+  lastCrawled: Date;
+  lastModified?: Date;
+  wordCount: number;
+  chunkCount: number;
+  vectorIds: string[];
+  metadata: Record<string, string>;
+}
+
+/**
+ * Content Difference Analysis
+ */
+export interface ContentDifference {
+  addedSections: string[];
+  removedSections: string[];
+  modifiedSections: Array<{
+    section: string;
+    oldContent: string;
+    newContent: string;
+  }>;
+  significanceScore: number; // 0-1 scale
+}
+
+/**
+ * Content Tracking Record (DynamoDB format)
+ */
+export interface ContentTrackingRecord {
+  // Primary Key
+  PK: string; // 'CONTENT#{url_hash}'
+  SK: string; // 'METADATA'
+  
+  // Content Information
+  url: string;
+  contentHash: string;
+  lastCrawled: string; // ISO timestamp
+  lastModified?: string; // ISO timestamp from HTTP headers
+  
+  // Processing Information
+  wordCount: number;
+  chunkCount: number;
+  vectorIds: string[]; // S3 Vectors IDs for cleanup
+  
+  // Status Tracking
+  status: 'active' | 'deleted' | 'error';
+  errorCount: number;
+  lastError?: string;
+  
+  // Metadata
+  title?: string;
+  section?: string;
+  contentType: string;
+  
+  // Timestamps
+  createdAt: string;
+  updatedAt: string;
+  ttl?: number; // For cleanup of old records
+}
+
+/**
+ * Content Detection Service Interface
+ */
+export interface ContentDetectionService {
+  detectChanges(url: string, newContent: string): Promise<ChangeDetectionResult>;
+  updateContentRecord(url: string, content: ContentRecord): Promise<void>;
+  getLastCrawlTimestamp(url: string): Promise<Date | null>;
+  markContentProcessed(url: string, contentHash: string): Promise<void>;
+}
+
+/**
+ * Content Normalization Options
+ */
+export interface ContentNormalizationOptions {
+  removeWhitespace: boolean;
+  removeHtmlTags: boolean;
+  removeTimestamps: boolean;
+  removeAds: boolean;
+  normalizeUrls: boolean;
+  lowercaseText: boolean;
+}
+
+/**
+ * Hash Generation Options
+ */
+export interface HashGenerationOptions {
+  algorithm: 'sha256' | 'md5' | 'sha1';
+  encoding: 'hex' | 'base64';
+  normalization: ContentNormalizationOptions;
+}
+
+// ===== WEEKLY CRAWLER SCHEDULING TYPES =====
+
+/**
+ * Scheduled Crawl Event - EventBridge triggered crawl
+ */
+export interface ScheduledCrawlEvent {
+  source: 'eventbridge';
+  action: 'scheduled-crawl';
+  scheduleId: string;
+  targetUrls: string[];
+  executionId: string;
+  retryAttempt?: number;
+}
+
+/**
+ * Manual Crawl Event - User triggered crawl
+ */
+export interface ManualCrawlEvent {
+  source: 'manual';
+  action: 'manual-crawl';
+  targetUrls: string[];
+  forceRefresh?: boolean; // Skip change detection
+  userId?: string;
+}
+
+/**
+ * Crawler Execution Result
+ */
+export interface CrawlerExecutionResult {
+  executionId: string;
+  startTime: string;
+  endTime: string;
+  duration: number;
+  totalUrls: number;
+  processedUrls: number;
+  skippedUrls: number;
+  failedUrls: number;
+  newContent: number;
+  modifiedContent: number;
+  unchangedContent: number;
+  vectorsCreated: number;
+  vectorsUpdated: number;
+  errors: CrawlerError[];
+  performance: {
+    averageProcessingTime: number;
+    throughput: number;
+    changeDetectionTime: number;
+    embeddingGenerationTime: number;
+    vectorStorageTime: number;
+  };
+  contentChanges: ContentChangesSummary[];
+}
+
+/**
+ * Content Changes Summary
+ */
+export interface ContentChangesSummary {
+  url: string;
+  changeType: 'new' | 'modified' | 'unchanged' | 'deleted';
+  previousHash?: string;
+  currentHash: string;
+  significanceScore?: number;
+  processingDecision: 'processed' | 'skipped' | 'failed' | 'blocked' | 'rate_limited' | 'compliance_blocked';
+  vectorIds?: string[];
+}
+
+/**
+ * Crawler Error - Enhanced error tracking
+ */
+export interface CrawlerError {
+  url: string;
+  errorType: 'network' | 'parsing' | 'storage' | 'security' | 'rate_limit' | 'compliance';
+  errorMessage: string;
+  timestamp: string;
+  retryAttempt: number;
+  recoverable: boolean;
+}
+export interface CrawlerConfiguration {
+  targetUrls: string[];
+  changeDetectionEnabled: boolean;
+  forceRefresh: boolean;
+  maxRetries: number;
+  timeoutSeconds: number;
+  rateLimitDelay: number;
+  batchSize: number;
+  parallelProcessing: boolean;
+  skipUnchangedContent: boolean;
+}
+
+/**
+ * Execution Metrics
+ */
+export interface ExecutionMetrics {
+  executionId: string;
+  timestamp: string;
+  metricType: 'performance' | 'throughput' | 'error' | 'content';
+  metricName: string;
+  value: number;
+  unit: string;
+  dimensions: Record<string, string>;
+}
+
+/**
+ * Schedule Configuration
+ */
+export interface ScheduleConfig {
+  frequency: 'weekly' | 'bi-weekly' | 'monthly';
+  dayOfWeek: number; // 0-6, Sunday = 0
+  hour: number; // 0-23, UTC
+  targetUrls: string[];
+  retryAttempts: number;
+  timeoutMinutes: number;
+}
+
+/**
+ * Execution Record for tracking
+ */
+export interface ExecutionRecord {
+  executionId: string;
+  scheduleId?: string;
+  triggerType: 'scheduled' | 'manual';
+  startTime: string;
+  endTime?: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  result?: CrawlerExecutionResult;
+}
+
+// ============================================================================
+// SECURITY VALIDATION AND COMPLIANCE TYPES - TASK 6
+// Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
+// ============================================================================
+
+/**
+ * URL Validation Result - Security validation for crawler URLs
+ * Requirement 6.2: URL domain whitelist validation
+ */
+export interface URLValidationResult {
+  isValid: boolean;
+  domain: string;
+  protocol: string;
+  path: string;
+  reason?: string;
+  securityFlags: {
+    isHttps: boolean;
+    isDomainWhitelisted: boolean;
+    hasValidPath: boolean;
+    isSuspiciousPattern: boolean;
+  };
+}
+
+/**
+ * Rate Limit Result - Rate limiting compliance
+ * Requirement 6.4: Rate limiting to respect robots.txt and terms of service
+ */
+export interface RateLimitResult {
+  allowed: boolean;
+  remainingRequests: number;
+  resetTime: Date;
+  currentWindow: {
+    requests: number;
+    windowStart: Date;
+    windowEnd: Date;
+  };
+}
+
+/**
+ * Audit Log Entry - Security audit and compliance logging
+ * Requirement 6.5: Audit logging for all crawler activities
+ */
+export interface AuditLogEntry {
+  timestamp: string;
+  executionId: string;
+  action: string;
+  resource: string;
+  userId?: string;
+  sourceIp?: string;
+  userAgent?: string;
+  result: 'success' | 'failure' | 'blocked';
+  details: Record<string, any>;
+  securityLevel: 'low' | 'medium' | 'high' | 'critical';
+}
+
+/**
+ * Encryption Validation Result - Content encryption compliance
+ * Requirement 6.3: Encryption validation for stored content and metadata
+ */
+export interface EncryptionValidationResult {
+  isValid: boolean;
+  encryptionType: string;
+  keyId?: string;
+  algorithm?: string;
+  compliance: {
+    meetsRequirements: boolean;
+    issues: string[];
+  };
+}
+
+/**
+ * Security Validation Configuration
+ * Comprehensive security settings for crawler compliance
+ */
+export interface SecurityValidationConfig {
+  // URL validation
+  allowedDomains: string[];
+  allowedProtocols: string[];
+  blockedPaths: string[];
+  maxUrlLength: number;
+  
+  // Rate limiting
+  requestsPerMinute: number;
+  requestsPerHour: number;
+  requestsPerDay: number;
+  burstLimit: number;
+  
+  // Audit logging
+  auditTableName: string;
+  auditRetentionDays: number;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  
+  // Encryption
+  requiredEncryption: 'SSE-S3' | 'SSE-KMS' | 'SSE-C';
+  allowedKmsKeys?: string[];
+}
+
+/**
+ * Robots.txt Validation Result
+ * Requirement 6.4: Robots.txt compliance validation
+ */
+export interface RobotsTxtValidationResult {
+  compliant: boolean;
+  rules: string[];
+  crawlDelay?: number;
+  disallowedPaths?: string[];
+  userAgent?: string;
+}
+
+/**
+ * Security Metrics - CloudWatch security monitoring
+ */
+export interface SecurityMetrics {
+  timestamp: string;
+  urlValidationAttempts: number;
+  urlValidationFailures: number;
+  rateLimitViolations: number;
+  encryptionValidationFailures: number;
+  auditLogEntries: number;
+  securityIncidents: Array<{
+    type: string;
+    severity: 'low' | 'medium' | 'high' | 'critical';
+    count: number;
+  }>;
+}
+
+/**
+ * IAM Policy Statement - Minimal permissions structure
+ * Requirement 6.1: Minimal IAM permissions for EventBridge execution
+ */
+export interface MinimalIAMPolicy {
+  Version: string;
+  Statement: Array<{
+    Sid?: string;
+    Effect: 'Allow' | 'Deny';
+    Action: string | string[];
+    Resource: string | string[];
+    Condition?: Record<string, any>;
+    NotAction?: string | string[];
+  }>;
+}
+
+/**
+ * Security Compliance Report
+ * Comprehensive security status for crawler operations
+ */
+export interface SecurityComplianceReport {
+  reportId: string;
+  timestamp: string;
+  executionId: string;
+  
+  // URL validation summary
+  urlValidation: {
+    totalUrls: number;
+    validUrls: number;
+    blockedUrls: number;
+    securityViolations: number;
+    domainWhitelistViolations: number;
+  };
+  
+  // Rate limiting summary
+  rateLimiting: {
+    totalRequests: number;
+    allowedRequests: number;
+    rateLimitedRequests: number;
+    averageRequestRate: number;
+    peakRequestRate: number;
+  };
+  
+  // Encryption compliance
+  encryptionCompliance: {
+    totalObjects: number;
+    encryptedObjects: number;
+    complianceViolations: number;
+    encryptionType: string;
+  };
+  
+  // Audit logging
+  auditLogging: {
+    totalEvents: number;
+    securityEvents: number;
+    criticalEvents: number;
+    auditLogRetention: number; // days
+  };
+  
+  // Overall compliance score
+  complianceScore: number; // 0-100
+  complianceLevel: 'excellent' | 'good' | 'fair' | 'poor';
+  
+  // Recommendations
+  recommendations: Array<{
+    category: string;
+    priority: 'high' | 'medium' | 'low';
+    description: string;
+    action: string;
+  }>;
+}

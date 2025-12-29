@@ -21,6 +21,9 @@ export class AdaClaraDynamoDBStack extends Stack {
   public readonly messagesTable: dynamodb.Table;
   public readonly questionsTable: dynamodb.Table;
   public readonly unansweredQuestionsTable: dynamodb.Table;
+  
+  // Content tracking table for weekly crawler scheduling
+  public readonly contentTrackingTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -43,6 +46,40 @@ export class AdaClaraDynamoDBStack extends Stack {
         pointInTimeRecoveryEnabled: true
       },
       removalPolicy: RemovalPolicy.DESTROY, // Change to RETAIN for production
+    });
+
+    // ===== CONTENT TRACKING TABLE FOR WEEKLY CRAWLER SCHEDULING =====
+    // Content Tracking Table - Track content changes for efficient crawling
+    this.contentTrackingTable = new dynamodb.Table(this, 'ContentTrackingTable', {
+      tableName: 'ada-clara-content-tracking',
+      partitionKey: {
+        name: 'PK',
+        type: dynamodb.AttributeType.STRING
+      },
+      sortKey: {
+        name: 'SK',
+        type: dynamodb.AttributeType.STRING
+      },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl', // For automatic cleanup of old tracking records
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true
+      },
+      removalPolicy: RemovalPolicy.DESTROY, // Change to RETAIN for production
+    });
+
+    // GSI for efficient content queries by status and timestamp
+    this.contentTrackingTable.addGlobalSecondaryIndex({
+      indexName: 'GSI-LastCrawled',
+      partitionKey: {
+        name: 'status',
+        type: dynamodb.AttributeType.STRING
+      },
+      sortKey: {
+        name: 'lastCrawled',
+        type: dynamodb.AttributeType.STRING
+      },
+      projectionType: dynamodb.ProjectionType.ALL
     });
 
     // Professional Members Table - Membership data
@@ -538,6 +575,7 @@ export class AdaClaraDynamoDBStack extends Stack {
             this.messagesTable.tableArn,
             this.questionsTable.tableArn,
             this.unansweredQuestionsTable.tableArn,
+            this.contentTrackingTable.tableArn,
             // Include GSI ARNs
             `${this.chatSessionsTable.tableArn}/index/*`,
             `${this.professionalMembersTable.tableArn}/index/*`,
@@ -549,6 +587,7 @@ export class AdaClaraDynamoDBStack extends Stack {
             `${this.messagesTable.tableArn}/index/*`,
             `${this.questionsTable.tableArn}/index/*`,
             `${this.unansweredQuestionsTable.tableArn}/index/*`,
+            `${this.contentTrackingTable.tableArn}/index/*`,
           ],
         }),
         new iam.PolicyStatement({
@@ -583,6 +622,7 @@ export class AdaClaraDynamoDBStack extends Stack {
     this.messagesTable.grantReadWriteData(grantee);
     this.questionsTable.grantReadWriteData(grantee);
     this.unansweredQuestionsTable.grantReadWriteData(grantee);
+    this.contentTrackingTable.grantReadWriteData(grantee);
   }
 
   /**
@@ -600,5 +640,6 @@ export class AdaClaraDynamoDBStack extends Stack {
     this.messagesTable.grantReadData(grantee);
     this.questionsTable.grantReadData(grantee);
     this.unansweredQuestionsTable.grantReadData(grantee);
+    this.contentTrackingTable.grantReadData(grantee);
   }
 }

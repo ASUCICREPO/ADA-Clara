@@ -1,0 +1,21 @@
+{
+  "version": "48.0.0",
+  "files": {
+    "f5d8630bfd500e7ed3b592ced973ac043193e0272cc22ce537694d74db9aa7f4": {
+      "displayName": "AdaClaraEnhancedDynamoDB Template",
+      "source": {
+        "path": "AdaClaraEnhancedDynamoDB.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "023336033519-us-east-1-626ccf2e": {
+          "bucketName": "cdk-hnb659fds-assets-023336033519-us-east-1",
+          "objectKey": "f5d8630bfd500e7ed3b592ced973ac043193e0272cc22ce537694d74db9aa7f4.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::023336033519:role/cdk-hnb659fds-file-publishing-role-023336033519-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}
