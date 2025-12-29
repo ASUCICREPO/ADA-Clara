@@ -49,7 +49,9 @@
     "test:production": "npx ts-node scripts/run-comprehensive-tests.ts",
     "test:infrastructure": "npx ts-node scripts/test-ga-infrastructure-simple.ts",
     "test:deployment": "npx ts-node scripts/test-rag-processor-simple.ts && npx ts-node scripts/test-analytics-simple.ts",
-    "deploy-core": "npx ts-node scripts/deploy-fresh-complete.ts --core-only"
+    "deploy-core": "npx ts-node scripts/deploy-fresh-complete.ts --core-only",
+    "remove-bloat": "npx ts-node scripts/remove-codebase-bloat.ts",
+    "remove-bloat-execute": "npx ts-node scripts/remove-codebase-bloat.ts --execute"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.159",

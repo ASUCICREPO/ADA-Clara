@@ -1811,7 +1811,7 @@ class WeeklyCrawlerScheduler {
   }
   
   /**
-   * Scrape content from URL using Cheerio
+   * Scrape content from URL using Cheerio (improved from bedrock-crawler)
    */
   private async scrapeUrl(url: string): Promise<{
     title: string;
@@ -1831,13 +1831,16 @@ class WeeklyCrawlerScheduler {
       
       const $ = cheerio.load(response.data);
       
-      // Remove unwanted elements
-      $('script, style, nav, footer, .advertisement, .ads').remove();
+      // Remove unwanted elements (improved from bedrock-crawler)
+      $('script, style, nav, footer, .advertisement, .ads, .navigation, .menu, .sidebar').remove();
       
-      // Extract title
-      const title = $('title').text().trim() || $('h1').first().text().trim() || 'No title found';
+      // Extract title (improved logic)
+      const title = $('title').text().trim() || 
+                   $('h1').first().text().trim() || 
+                   $('.page-title').text().trim() ||
+                   'No title found';
       
-      // Extract main content
+      // Extract main content with improved selectors from bedrock-crawler
       const contentSelectors = [
         'main',
         '.main-content',
@@ -1845,7 +1848,9 @@ class WeeklyCrawlerScheduler {
         '.article-content',
         '.post-content',
         'article',
-        '.entry-content'
+        '.entry-content',
+        '.page-content',
+        '#content'
       ];
       
       let content = '';
@@ -1862,35 +1867,64 @@ class WeeklyCrawlerScheduler {
         content = $('body').text().trim();
       }
       
-      // Clean up content
+      // Clean up content (improved from bedrock-crawler)
       content = content
         .replace(/\s+/g, ' ')
         .replace(/\n\s*\n/g, '\n')
+        .replace(/\t/g, ' ')
         .trim();
       
-      // Extract links
+      // Extract links (improved from bedrock-crawler)
       const links: string[] = [];
       $('a[href]').each((_, element) => {
         const href = $(element).attr('href');
         if (href && href.includes(CRAWLER_CONFIG.targetDomain)) {
-          links.push(href);
+          // Convert relative URLs to absolute
+          const absoluteUrl = href.startsWith('http') ? href : `https://${CRAWLER_CONFIG.targetDomain}${href}`;
+          links.push(absoluteUrl);
         }
       });
       
-      // Determine content type
+      // Determine content type (from bedrock-crawler)
       const contentType = this.determineContentType(url, title, content);
       
       return {
         title,
         content,
         contentType,
-        wordCount: content.split(/\s+/).length,
+        wordCount: content.split(/\s+/).filter(word => word.length > 0).length,
         links: [...new Set(links)] // Remove duplicates
       };
       
     } catch (error: any) {
       throw new Error(`Failed to scrape URL ${url}: ${error.message}`);
     }
+  }
+
+  /**
+   * Determine content type based on URL and content (from bedrock-crawler)
+   */
+  private determineContentType(url: string, title: string, content: string): 'article' | 'faq' | 'resource' | 'event' {
+    const urlLower = url.toLowerCase();
+    const titleLower = title.toLowerCase();
+    const contentLower = content.toLowerCase();
+    
+    if (urlLower.includes('faq') || titleLower.includes('faq') || 
+        contentLower.includes('frequently asked') || contentLower.includes('common questions')) {
+      return 'faq';
+    }
+    
+    if (urlLower.includes('event') || urlLower.includes('calendar') || 
+        titleLower.includes('event') || contentLower.includes('register')) {
+      return 'event';
+    }
+    
+    if (urlLower.includes('resource') || urlLower.includes('tool') || 
+        titleLower.includes('resource') || titleLower.includes('tool')) {
+      return 'resource';
+    }
+    
+    return 'article';
   }
   
   /**
