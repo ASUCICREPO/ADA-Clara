@@ -12,6 +12,7 @@
     "deploy-s3-vectors-ga": "cdk deploy AdaClaraS3VectorsGA --app \"npx ts-node scripts/deploy-s3-vectors-ga.ts\"",
     "create-dynamodb-tables": "npx ts-node scripts/create-dynamodb-tables.ts",
     "test-dynamodb": "npx ts-node scripts/test-dynamodb-setup.ts",
+    "test-dynamodb-deployment": "npx ts-node scripts/test-dynamodb-deployment.ts",
     "test-s3": "npx ts-node scripts/test-s3-integration.ts",
     "test-data-service": "npx ts-node scripts/test-data-service.ts",
     "deploy-chat-processor": "cdk deploy --app \"npx ts-node scripts/deploy-chat-processor.ts\"",
