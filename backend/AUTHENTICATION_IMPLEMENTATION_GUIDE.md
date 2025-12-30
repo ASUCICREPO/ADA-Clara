@@ -2,54 +2,40 @@
 
 ## Overview
 
-The ADA Clara authentication system provides enterprise-grade security with role-based access control for healthcare professionals. Built on AWS Cognito with comprehensive security enhancements including WAF, Secrets Manager, and audit logging.
+The ADA Clara authentication system provides secure access control with a simplified two-user model. Public users can access chat functionality without authentication, while admin users have secure dashboard access via AWS Cognito.
 
 ## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Frontend      │───▶│   AWS Cognito    │───▶│   Backend APIs  │
-│   (Next.js)     │    │   User Pool      │    │   (Lambda)      │
+│   Public Users  │───▶│   Public Chat    │───▶│   Backend APIs  │
+│   (No Auth)     │    │   (Direct)       │    │   (Lambda)      │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         │              ┌──────────────────┐             │
-         └─────────────▶│   Identity Pool  │◀────────────┘
-                        │   (AWS Access)   │
-                        └──────────────────┘
-                                 │
-                        ┌──────────────────┐
-                        │   IAM Roles      │
-                        │ • Public         │
-                        │ • Professional   │
-                        │ • Admin          │
-                        └──────────────────┘
+
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Admin Users   │───▶│   AWS Cognito    │───▶│   Admin APIs    │
+│   (Cognito)     │    │   JWT Tokens     │    │   (Lambda)      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                       ┌──────────────────┐
+                       │   Identity Pool  │
+                       │   (AWS Access)   │
+                       └──────────────────┘
 ```
 
 ## User Types & Permissions
 
 ### Public Users
-- **Access**: Basic diabetes information
-- **Permissions**: `chat:basic`, `chat:history`
-- **Authentication**: Email/password
-- **Restrictions**: General information only, no clinical details
-
-### Professional Members
-- **Access**: Enhanced diabetes resources and clinical information
-- **Permissions**: `chat:basic`, `chat:history`, `chat:enhanced`, `professional:resources`
-- **Authentication**: Email/password + membership verification
-- **Verification**: Professional license/membership ID validation
-- **Organizations Supported**:
-  - American Diabetes Association (ADA)
-  - American Medical Association (AMA)
-  - American Nurses Association (ANA)
-  - Academy of Nutrition and Dietetics (AND)
-  - American Association of Diabetes Educators (AADE)
+- **Access**: Full chat functionality without authentication
+- **Permissions**: `chat:basic`, `chat:history`, `chat:sessions`
+- **Authentication**: None required
+- **Use Case**: Diabetes.org visitors seeking information
 
 ### Admin Users
-- **Access**: Full system access including dashboard and analytics
+- **Access**: Dashboard, analytics, system management
 - **Permissions**: `admin:dashboard`, `admin:analytics`, `admin:users`, `admin:system`
-- **Authentication**: Email/password with admin privileges
-- **Capabilities**: User management, system monitoring, analytics access
+- **Authentication**: AWS Cognito JWT tokens
+- **Use Case**: System administrators and content managers
 
 ## Implementation Components
 
@@ -58,73 +44,43 @@ The ADA Clara authentication system provides enterprise-grade security with role
 **Location**: `backend/lib/cognito-auth-stack.ts`
 
 **Key Features**:
-- Custom attributes for healthcare professionals
+- Admin user authentication only
 - Secure password policies (8+ chars, mixed case, numbers)
 - Email verification required
-- OAuth 2.0 support for frontend integration
+- OAuth 2.0 support for admin dashboard
 - Device tracking and security monitoring
 
 **Custom Attributes**:
 ```typescript
 customAttributes: {
-  'user_type': 'public' | 'professional' | 'admin',
-  'membership_id': string,
-  'organization': string,
-  'language_preference': 'en' | 'es',
-  'verified_pro': 'true' | 'false' | 'pending'
+  'user_type': 'admin',
+  'language_preference': 'en' | 'es'
 }
 ```
 
 ### 2. Authentication Lambda Functions
 
-#### Auth Handler (`backend/lambda/auth-handler/index.ts`)
-- **Purpose**: JWT token validation and user context extraction
+#### Simple Auth Handler (`backend/lambda/simple-auth-handler/index.ts`)
+- **Purpose**: JWT token validation for admin users only
 - **Endpoints**:
-  - `POST /auth/validate` - Validate JWT tokens
-  - `GET /auth/user` - Get user context
-  - `POST /auth/verify-professional` - Professional verification
+  - `POST /auth` - Validate admin JWT tokens
+  - `GET /auth` - Get admin user context
   - `GET /auth/health` - Health check
 
 **Key Methods**:
 ```typescript
-validateToken(token: string): Promise<AuthResponse>
-extractUserContext(payload: CognitoJWTPayload): Promise<UserContext>
-handleAuthorizer(event: APIGatewayAuthorizerEvent): Promise<APIGatewayAuthorizerResult>
+validateAdminToken(token: string): Promise<AuthResponse>
+extractAdminUserContext(payload: CognitoJWTPayload): Promise<AdminUserContext>
+handleAuth(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult>
 ```
 
-#### Membership Verification (`backend/lambda/membership-verification/index.ts`)
-- **Purpose**: Professional membership validation
-- **Endpoints**:
-  - `POST /membership/verify` - Verify professional credentials
-  - `GET /membership/status` - Check verification status
-  - `GET /membership/organizations` - List supported organizations
+### 3. Public Chat Integration
 
-**Verification Methods**:
-1. **Third-party API**: Integration with professional licensing databases
-2. **Organization Database**: Direct organization membership validation
-3. **Manual Process**: Human review for complex cases
-
-### 3. Security Enhancements
-
-**Location**: `backend/lib/security-enhancements-stack.ts`
-
-#### AWS WAF Protection
-- **Rate Limiting**: 2000 requests per 5 minutes per IP
-- **Geographic Blocking**: High-risk countries (CN, RU, KP)
-- **SQL Injection Protection**: AWS managed rules
-- **Healthcare Data Protection**: Custom rules for sensitive data patterns
-
-#### Secrets Management
-- **Database Credentials**: Encrypted with KMS
-- **API Keys**: Bedrock, third-party integrations
-- **JWT Signing Keys**: Secure token validation
-- **Professional Verification**: API credentials for licensing databases
-
-#### Audit & Compliance
-- **CloudTrail**: All API calls logged
-- **GuardDuty**: Threat detection enabled
-- **AWS Config**: Compliance rule monitoring
-- **CloudWatch**: Security event alerting
+**No Authentication Required**:
+- Public users access chat endpoints directly
+- No JWT tokens or user registration needed
+- Session management via client-side session IDs
+- Full chat functionality available immediately
 
 ## Deployment Process
 
@@ -134,241 +90,230 @@ handleAuthorizer(event: APIGatewayAuthorizerEvent): Promise<APIGatewayAuthorizer
 export CDK_DEFAULT_ACCOUNT=your-account-id
 export CDK_DEFAULT_REGION=us-east-1
 export ADMIN_EMAIL=admin@your-domain.com
-export SECURITY_NOTIFICATION_EMAIL=security@your-domain.com
 ```
 
-### Step 1: Deploy Cognito Authentication
+### Step 1: Deploy Simplified Authentication
 ```bash
 cd backend
 npm install
 npm run build
-npx ts-node scripts/deploy-cognito-auth.ts
+npx ts-node scripts/deploy-simplified-cognito.ts
 ```
 
 **What this deploys**:
-- Cognito User Pool with custom attributes
+- Cognito User Pool for admin users
 - User Pool Client with OAuth configuration
 - Identity Pool for AWS resource access
-- IAM roles for different user types
-- Auth Lambda functions
-- Membership verification Lambda
+- IAM roles for admin access
+- Simple auth Lambda function
 
-### Step 2: Deploy Security Enhancements
+### Step 2: Deploy Unified API
 ```bash
-npx ts-node scripts/deploy-production-security.ts
+npx ts-node scripts/deploy-simplified-api.ts
 ```
 
 **What this deploys**:
-- AWS WAF with comprehensive rules
-- Secrets Manager with KMS encryption
-- CloudTrail for audit logging
-- GuardDuty for threat detection
-- AWS Config for compliance monitoring
-- CloudWatch security monitoring
+- API Gateway with public and admin endpoints
+- Public chat endpoints (no auth required)
+- Admin authentication endpoints (JWT required)
+- Proper CORS configuration
 
 ### Step 3: Validate Deployment
 ```bash
-npx ts-node scripts/test-cognito-integration.ts
+npx ts-node scripts/test-simplified-api.ts
 ```
 
 **What this tests**:
-- Cognito configuration validation
-- Lambda function deployment
-- IAM roles and permissions
-- Security feature verification
+- Public endpoint accessibility (no auth)
+- Admin endpoint security (JWT required)
+- System health checks
 - Integration readiness
 
 ## Configuration Files Generated
 
 After deployment, these files are created for frontend integration:
 
-### `cognito-config.json`
+### `simplified-config.json`
 ```json
 {
-  "aws_project_region": "us-east-1",
-  "aws_cognito_region": "us-east-1",
-  "aws_user_pools_id": "us-east-1_xxxxxxxxx",
-  "aws_user_pools_web_client_id": "xxxxxxxxxxxxxxxxxx",
-  "aws_cognito_identity_pool_id": "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-  "aws_user_pool_domain": "https://ada-clara-xxxxx.auth.us-east-1.amazoncognito.com",
-  "oauth": {
-    "domain": "ada-clara-xxxxx.auth.us-east-1.amazoncognito.com",
-    "scope": ["email", "openid", "profile"],
-    "redirectSignIn": "http://localhost:3000/auth/callback",
-    "redirectSignOut": "http://localhost:3000",
-    "responseType": "code"
+  "apiUrl": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod",
+  "userModel": "simplified",
+  "userTypes": ["public", "admin"],
+  
+  "publicEndpoints": {
+    "health": "/health",
+    "chat": "/chat",
+    "chatHistory": "/chat/history",
+    "chatSessions": "/chat/sessions"
   },
-  "userTypes": ["public", "professional", "admin"]
+  
+  "adminEndpoints": {
+    "auth": "/auth",
+    "authHealth": "/auth/health"
+  },
+  
+  "authentication": {
+    "userPoolId": "us-east-1_hChjb1rUB",
+    "clientId": "3f8vld6mnr1nsfjci1b61okc46",
+    "identityPoolId": "us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c",
+    "domain": "https://ada-clara-023336033519.auth.us-east-1.amazoncognito.com",
+    "requiredFor": ["admin"]
+  },
+  
+  "features": {
+    "publicChat": true,
+    "adminDashboard": true
+  }
 }
 ```
 
 ### `.env.production`
 ```bash
-# Cognito Configuration
-COGNITO_USER_POOL_ID=us-east-1_xxxxxxxxx
-COGNITO_USER_POOL_CLIENT_ID=xxxxxxxxxxxxxxxxxx
-COGNITO_IDENTITY_POOL_ID=us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+# API Configuration
+NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_USER_MODEL=simplified
 
-# Security Configuration
-WAF_ENABLED=true
-RATE_LIMITING_ENABLED=true
-ENCRYPTION_ENABLED=true
-AUDIT_LOGGING_ENABLED=true
+# Admin Authentication (Cognito)
+NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
+NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID=3f8vld6mnr1nsfjci1b61okc46
+NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c
+NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.com
 ```
 
 ## Authentication Flow
 
-### 1. User Registration
+### 1. Public Users (No Authentication)
 ```typescript
-// Frontend calls Cognito
-const user = await Auth.signUp({
-  username: email,
-  password: password,
-  attributes: {
-    email: email,
-    'custom:user_type': 'public',
-    'custom:language_preference': 'en'
+// Public users access chat directly
+const sendMessage = async (message: string, sessionId?: string) => {
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      message, 
+      sessionId: sessionId || `public-${Date.now()}` 
+    })
+  });
+  return response.json();
+};
+```
+
+### 2. Admin Users (Cognito Authentication)
+```typescript
+// Admin sign in
+const adminSignIn = async (email: string, password: string) => {
+  const user = await Auth.signIn(email, password);
+  const session = await Auth.currentSession();
+  const idToken = session.getIdToken().getJwtToken();
+  
+  // Verify admin privileges
+  const payload = JSON.parse(atob(idToken.split('.')[1]));
+  if (payload['custom:user_type'] !== 'admin') {
+    throw new Error('Admin privileges required');
   }
-});
+  
+  return { user, token: idToken };
+};
 ```
 
-### 2. Email Verification
+### 3. Admin API Access
 ```typescript
-// User receives email with verification code
-await Auth.confirmSignUp(email, verificationCode);
-```
-
-### 3. Sign In
-```typescript
-const user = await Auth.signIn(email, password);
-const session = await Auth.currentSession();
-const idToken = session.getIdToken().getJwtToken();
-```
-
-### 4. Professional Verification (Optional)
-```typescript
-// Call membership verification API
-const response = await fetch('/membership/verify', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${idToken}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    membershipId: 'ADA123456',
-    organization: 'American Diabetes Association',
-    profession: 'Certified Diabetes Educator'
-  })
-});
-```
-
-### 5. API Access with JWT
-```typescript
-// All API calls include JWT token
-const chatResponse = await fetch('/api/chat', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${idToken}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ message: 'What is type 1 diabetes?' })
-});
+// Admin API calls with JWT
+const adminApiCall = async (endpoint: string, options: RequestInit = {}) => {
+  const session = await Auth.currentSession();
+  const token = session.getIdToken().getJwtToken();
+  
+  return fetch(`/api/admin${endpoint}`, {
+    ...options,
+    headers: {
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
+};
 ```
 
 ## Security Features
 
-### Password Policy
+### Public Endpoints
+- **No Authentication**: Immediate access for diabetes.org visitors
+- **Rate Limiting**: Prevents abuse while maintaining accessibility
+- **CORS**: Configured for frontend integration
+- **Session Management**: Client-side session tracking
+
+### Admin Endpoints
+- **JWT Validation**: Secure token-based authentication
+- **Admin Verification**: Ensures only admin users can access
+- **Token Expiration**: 1-hour token validity with refresh capability
+- **Device Security**: Device tracking for admin accounts
+
+### Password Policy (Admin Users)
 - Minimum 8 characters
 - Requires lowercase letters
 - Requires uppercase letters
 - Requires numbers
-- Symbols optional (configurable)
-- Temporary password validity: 7 days
-
-### Token Management
-- Access token validity: 1 hour
-- ID token validity: 1 hour
-- Refresh token validity: 30 days
-- Token revocation enabled
-- Automatic token refresh
-
-### Device Security
-- Device tracking enabled
-- Challenge required on new devices
-- Device remembering on user prompt
-
-### Account Security
 - Email verification required
-- Account recovery via email only
-- User existence errors prevented
-- Failed login attempt monitoring
 
 ## Monitoring & Alerting
 
-### CloudWatch Alarms
-- **WAF Blocked Requests**: >100 blocked requests in 5 minutes
-- **Failed Authentication**: >50 failed attempts in 5 minutes
-- **Unusual API Activity**: >20 4XX errors in 5 minutes
+### CloudWatch Metrics
+- **Public Chat Usage**: Message volume and response times
+- **Admin Authentication**: Login success/failure rates
+- **API Performance**: Response times and error rates
+- **Security Events**: Failed authentication attempts
 
-### Security Notifications
-- Threat detection alerts via GuardDuty
-- Compliance violations via AWS Config
-- Security events via CloudTrail
-- Email notifications to security team
+### Health Checks
+- **System Health**: `GET /health` - Overall system status
+- **Auth Health**: `GET /auth/health` - Admin authentication service status
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### 1. Token Validation Failures
+#### 1. Public Chat Not Working
 ```bash
-# Check token expiration
-aws cognito-idp admin-get-user --user-pool-id <pool-id> --username <username>
+# Test public health check
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health
 
-# Verify JWKS endpoint
-curl https://cognito-idp.<region>.amazonaws.com/<user-pool-id>/.well-known/jwks.json
-```
-
-#### 2. Professional Verification Issues
-```bash
-# Check membership record
-aws dynamodb get-item --table-name ada-clara-professional-members --key '{"membershipId":{"S":"ADA123456"}}'
-
-# Test verification endpoint
-curl -X POST https://api.ada-clara.com/membership/verify \
-  -H "Authorization: Bearer <token>" \
+# Test public chat endpoint
+curl -X POST https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat \
   -H "Content-Type: application/json" \
-  -d '{"membershipId":"ADA123456","organization":"American Diabetes Association"}'
+  -d '{"message":"Test message"}'
 ```
 
-#### 3. WAF Blocking Legitimate Requests
+#### 2. Admin Authentication Issues
 ```bash
-# Check WAF logs
-aws wafv2 get-sampled-requests --web-acl-arn <web-acl-arn> --rule-metric-name <rule-name>
+# Check admin auth health
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth/health
 
-# Temporarily disable rule for testing
-aws wafv2 update-web-acl --scope REGIONAL --id <web-acl-id> --default-action Allow={}
+# Test admin endpoint (should return 401 without token)
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth
 ```
+
+#### 3. CORS Issues
+- Ensure frontend domain is configured in API Gateway CORS settings
+- Check that preflight OPTIONS requests are handled correctly
+- Verify Access-Control-Allow-Origin headers are present
 
 ### Logs and Debugging
 
 #### CloudWatch Log Groups
-- `/aws/lambda/ada-clara-auth-handler`
-- `/aws/lambda/ada-clara-membership-verification`
-- `/aws/cognito/ada-clara-users`
-- `/aws/wafv2/ada-clara-web-acl`
+- `/aws/lambda/ada-clara-simple-auth-handler`
+- `/aws/lambda/ada-clara-chat-processor`
+- `/aws/apigateway/ada-clara-unified-api`
 
 #### Useful CloudWatch Insights Queries
 ```sql
--- Failed authentication attempts
+-- Public chat usage
 fields @timestamp, @message
-| filter @message like /authentication failed/
+| filter @message like /POST \/chat/
 | sort @timestamp desc
 | limit 100
 
--- Professional verification requests
+-- Admin authentication attempts
 fields @timestamp, @message
-| filter @message like /membership verification/
+| filter @message like /admin authentication/
 | sort @timestamp desc
 | limit 50
 ```
@@ -376,81 +321,97 @@ fields @timestamp, @message
 ## Cost Optimization
 
 ### Estimated Monthly Costs (1000 active users)
-- **Cognito User Pool**: ~$5-10
-- **AWS WAF**: ~$10-20
-- **Secrets Manager**: ~$5
-- **CloudTrail**: ~$2-5
-- **GuardDuty**: ~$3-8
-- **Lambda Execution**: ~$1-3
-- **Total**: ~$26-51/month
+- **Cognito User Pool**: ~$0 (admin users only, well within free tier)
+- **API Gateway**: ~$3-5 (based on request volume)
+- **Lambda Execution**: ~$1-3 (optimized for minimal admin usage)
+- **CloudWatch Logs**: ~$1-2
+- **Total**: ~$5-10/month
 
 ### Cost Reduction Tips
-1. Use Cognito free tier (50,000 MAUs)
+1. Leverage Cognito free tier for admin users
 2. Optimize Lambda memory allocation
 3. Set appropriate log retention periods
-4. Use S3 lifecycle policies for audit logs
-5. Monitor and adjust WAF rules
+4. Use efficient session management for public users
 
 ## Production Checklist
 
 ### Before Go-Live
 - [ ] Admin user created and tested
-- [ ] Professional verification tested with real credentials
-- [ ] WAF rules tested and tuned
-- [ ] Security monitoring alerts configured
-- [ ] Backup and recovery procedures documented
-- [ ] Load testing completed
-- [ ] Security audit completed
-- [ ] HIPAA compliance verified
+- [ ] Public chat functionality tested
+- [ ] API Gateway CORS configured for production domain
+- [ ] CloudWatch monitoring configured
+- [ ] Load testing completed for public endpoints
+- [ ] Admin dashboard security tested
 
 ### Post-Deployment
-- [ ] Monitor authentication success rates
-- [ ] Review security alerts daily
-- [ ] Update professional organization list as needed
-- [ ] Regular security policy reviews
-- [ ] Token rotation schedule established
-- [ ] Incident response procedures tested
+- [ ] Monitor public chat usage patterns
+- [ ] Review admin authentication logs
+- [ ] Verify system performance metrics
+- [ ] Test backup and recovery procedures
+
+## Integration Examples
+
+### Frontend Public Chat Component
+```typescript
+const PublicChat = () => {
+  const [messages, setMessages] = useState([]);
+  const [sessionId] = useState(`public-${Date.now()}`);
+
+  const sendMessage = async (message: string) => {
+    // No authentication required
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, sessionId })
+    });
+    
+    const data = await response.json();
+    setMessages(prev => [...prev, { text: message, sender: 'user' }, data]);
+  };
+
+  return (
+    <div>
+      {/* Chat interface - no login required */}
+    </div>
+  );
+};
+```
+
+### Frontend Admin Dashboard
+```typescript
+const AdminDashboard = () => {
+  const { admin, token } = useAdminAuth();
+
+  const fetchDashboardData = async () => {
+    // Requires admin authentication
+    const response = await fetch('/api/admin/dashboard', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return response.json();
+  };
+
+  if (!admin) {
+    return <AdminLogin />;
+  }
+
+  return (
+    <div>
+      {/* Admin dashboard content */}
+    </div>
+  );
+};
+```
 
 ## Support and Maintenance
 
 ### Regular Tasks
-- **Weekly**: Review security alerts and failed authentications
-- **Monthly**: Update professional organization credentials
-- **Quarterly**: Security policy review and updates
-- **Annually**: Full security audit and penetration testing
+- **Weekly**: Review public chat usage and admin access logs
+- **Monthly**: Update admin user credentials as needed
+- **Quarterly**: Review and optimize API performance
 
 ### Emergency Procedures
-- **Security Incident**: Disable affected users, review logs, notify security team
-- **Service Outage**: Check CloudWatch alarms, review CloudFormation events
-- **Data Breach**: Follow incident response plan, notify compliance team
+- **Public Chat Outage**: Check Lambda function health and API Gateway status
+- **Admin Access Issues**: Verify Cognito service status and JWT validation
+- **Security Incident**: Review CloudWatch logs and disable affected accounts
 
-## Integration with Existing Systems
-
-### RAG Processor Integration
-The authentication system integrates seamlessly with the existing RAG processor:
-```typescript
-// RAG queries include user context
-const ragResponse = await fetch('/api/query', {
-  method: 'POST',
-  headers: {
-    'Authorization': `Bearer ${idToken}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    query: 'What medications are used for type 2 diabetes?',
-    userType: 'professional', // Enables enhanced responses
-    language: 'en'
-  })
-});
-```
-
-### Admin Dashboard Integration
-Admin users get full access to analytics and system management:
-```typescript
-// Admin dashboard data
-const dashboardData = await fetch('/api/admin/dashboard', {
-  headers: { 'Authorization': `Bearer ${adminToken}` }
-});
-```
-
-This authentication system provides enterprise-grade security while maintaining ease of use for healthcare professionals and patients accessing diabetes information through ADA Clara.
+This simplified authentication system provides secure admin access while maintaining barrier-free public chat functionality, perfectly aligned with the diabetes.org visitor experience and administrative needs.

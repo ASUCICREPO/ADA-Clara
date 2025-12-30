@@ -8,8 +8,8 @@
 - **User Pool ID**: `us-east-1_hChjb1rUB`
 - **Status**: ✅ Active and configured
 - **Features**:
-  - Email-based sign-in
-  - Custom attributes for user types and professional verification
+  - Email-based sign-in for admin users
+  - Custom attributes for user types
   - Password policy configured
   - Email verification enabled
 
@@ -36,17 +36,16 @@
   - OAuth endpoints configured
 
 #### **5. Lambda Functions**
-- **Auth Handler**: `ada-clara-auth-handler` ✅ Deployed
-- **Membership Verification**: `ada-clara-membership-verification` ✅ Deployed
-- **Status**: Functions deployed (minor dependency issues to be resolved)
+- **Simple Auth Handler**: `ada-clara-simple-auth-handler` ✅ Deployed
+- **Status**: Admin authentication working correctly
 
 ---
 
 ## 🔧 **Configuration for Frontend Team**
 
-### **AWS Amplify Configuration**
+### **AWS Amplify Configuration (Admin Only)**
 ```javascript
-const amplifyConfig = {
+const adminAmplifyConfig = {
   Auth: {
     region: 'us-east-1',
     userPoolId: 'us-east-1_hChjb1rUB',
@@ -55,8 +54,8 @@ const amplifyConfig = {
     oauth: {
       domain: 'ada-clara-023336033519.auth.us-east-1.amazoncognito.com',
       scope: ['email', 'openid', 'profile'],
-      redirectSignIn: 'http://localhost:3000/auth/callback',
-      redirectSignOut: 'http://localhost:3000',
+      redirectSignIn: 'http://localhost:3000/admin/callback',
+      redirectSignOut: 'http://localhost:3000/admin',
       responseType: 'code'
     }
   }
@@ -66,6 +65,9 @@ const amplifyConfig = {
 ### **Environment Variables**
 ```bash
 NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_USER_MODEL=simplified
+
+# Admin Authentication (Cognito)
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID=3f8vld6mnr1nsfjci1b61okc46
 NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c
@@ -76,61 +78,65 @@ NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.c
 
 ## 👥 **User Types & Attributes**
 
-### **Standard Attributes**
-- `email` (required, mutable)
-- `given_name` (optional, mutable)
-- `family_name` (optional, mutable)
-- `preferred_username` (optional, mutable)
+### **Public Users**
+- **Authentication**: None required
+- **Access**: Full chat functionality
+- **Use Case**: Diabetes.org visitors seeking information
 
-### **Custom Attributes**
-- `custom:user_type` - Values: 'public', 'professional', 'admin'
-- `custom:membership_id` - Professional membership identifier
-- `custom:organization` - Professional organization name
-- `custom:language_preference` - User's preferred language ('en', 'es')
-- `custom:verified_pro` - Professional verification status ('true'/'false')
+### **Admin Users**
+- **Authentication**: Cognito JWT required
+- **Access**: Dashboard, analytics, system management
+- **Custom Attributes**:
+  - `custom:user_type` - Value: 'admin'
+  - `custom:language_preference` - User's preferred language ('en', 'es')
 
 ---
 
 ## 🔐 **Authentication Flow**
 
-### **1. User Registration**
+### **Public Users (No Authentication)**
 ```javascript
-const signUp = async (email, password, userType = 'public') => {
-  const result = await Auth.signUp({
-    username: email,
-    password,
-    attributes: {
-      email,
-      'custom:user_type': userType,
-      'custom:language_preference': 'en'
-    }
-  });
-  return result;
-};
+// Public users access chat directly
+const response = await fetch('/api/chat', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: 'What is diabetes?' })
+});
 ```
 
-### **2. User Sign In**
+### **Admin Users (Cognito Authentication)**
 ```javascript
+// Admin sign in
 const signIn = async (email, password) => {
   const user = await Auth.signIn(email, password);
   const session = await Auth.currentSession();
   const idToken = session.getIdToken().getJwtToken();
   return { user, token: idToken };
 };
+
+// Admin API calls
+const adminCall = async (endpoint) => {
+  const session = await Auth.currentSession();
+  const token = session.getIdToken().getJwtToken();
+  
+  return fetch(`/api/admin${endpoint}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  });
+};
 ```
 
-### **3. JWT Token Structure**
+### **JWT Token Structure (Admin Only)**
 ```json
 {
-  "sub": "user-uuid",
-  "email": "user@example.com",
+  "sub": "admin-user-uuid",
+  "email": "admin@example.com",
   "email_verified": true,
-  "cognito:username": "user@example.com",
-  "custom:user_type": "professional",
-  "custom:membership_id": "ADA123456",
-  "custom:organization": "American Diabetes Association",
+  "cognito:username": "admin@example.com",
+  "custom:user_type": "admin",
   "custom:language_preference": "en",
-  "custom:verified_pro": "true",
   "aud": "3f8vld6mnr1nsfjci1b61okc46",
   "iss": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_hChjb1rUB",
   "exp": 1735598400,
@@ -147,32 +153,44 @@ const signIn = async (email, password) => {
 npm install aws-amplify @aws-amplify/ui-react
 ```
 
-### **Step 2: Configure Amplify**
+### **Step 2: Configure Amplify (Admin Routes Only)**
 ```javascript
 import { Amplify } from 'aws-amplify';
-import amplifyConfig from './lib/amplify-config';
+import adminAmplifyConfig from './lib/admin-amplify-config';
 
-Amplify.configure(amplifyConfig);
+// Only configure for admin routes
+if (window.location.pathname.startsWith('/admin')) {
+  Amplify.configure(adminAmplifyConfig);
+}
 ```
 
-### **Step 3: Implement Authentication Hook**
-- Use the `useAuth` hook provided in the integration guide
-- Handles sign up, sign in, sign out, and user context
-
-### **Step 4: Add Authentication to API Calls**
+### **Step 3: Implement Public Chat (No Auth)**
 ```javascript
-const apiCall = async (endpoint, options = {}) => {
-  const session = await Auth.currentSession();
-  const token = session.getIdToken().getJwtToken();
+const PublicChat = () => {
+  const sendMessage = async (message) => {
+    const response = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    });
+    return response.json();
+  };
   
-  return fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      ...options.headers,
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
+  // No authentication required
+};
+```
+
+### **Step 4: Implement Admin Authentication**
+```javascript
+const AdminLogin = () => {
+  const { signIn } = useAdminAuth();
+  
+  const handleLogin = async (email, password) => {
+    const result = await signIn(email, password);
+    if (result.success) {
+      // Redirect to admin dashboard
     }
-  });
+  };
 };
 ```
 
@@ -180,32 +198,15 @@ const apiCall = async (endpoint, options = {}) => {
 
 ## 🔄 **Next Steps**
 
-### **Immediate (24 hours)**
-1. **Add auth endpoints to API Gateway**
-   - POST /auth - token validation
-   - GET /auth/user - user context
-   - POST /auth/verify-professional - professional verification
+### **Immediate (Complete)**
+- ✅ **Simplified API deployed** - Public and admin endpoints working
+- ✅ **Authentication system deployed** - Admin Cognito authentication active
+- ✅ **Test suite passing** - 100% success rate on simplified API
 
-2. **Fix Lambda function dependencies**
-   - Install missing npm packages
-   - Test JWT validation flow
-
-### **Short-term (48 hours)**
-3. **Test end-to-end authentication**
-   - User registration flow
-   - Login and token validation
-   - Professional verification process
-
-4. **Frontend integration testing**
-   - Test with sample frontend application
-   - Verify user context extraction
-   - Test role-based access control
-
-### **Medium-term (1 week)**
-5. **Production hardening**
-   - Add rate limiting
-   - Implement proper error handling
-   - Add monitoring and alerting
+### **Frontend Integration (Ready Now)**
+1. **Implement public chat interface** - No authentication required
+2. **Implement admin login** - Use existing Cognito configuration
+3. **Test end-to-end flows** - Both public and admin user journeys
 
 ---
 
@@ -213,9 +214,6 @@ const apiCall = async (endpoint, options = {}) => {
 
 ### **Check Cognito Resources**
 ```bash
-# List User Pools
-aws cognito-idp list-user-pools --max-results 10
-
 # Describe User Pool
 aws cognito-idp describe-user-pool --user-pool-id us-east-1_hChjb1rUB
 
@@ -223,17 +221,24 @@ aws cognito-idp describe-user-pool --user-pool-id us-east-1_hChjb1rUB
 aws cognito-identity list-identity-pools --max-results 10
 ```
 
-### **Test Lambda Functions**
+### **Test API Endpoints**
 ```bash
-# Test auth handler
-aws lambda invoke --function-name ada-clara-auth-handler \
-  --payload '{"httpMethod":"GET","path":"/auth/health"}' \
-  response.json
+# Test public health check
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health
 
-# Test membership verification
-aws lambda invoke --function-name ada-clara-membership-verification \
-  --payload '{"httpMethod":"GET","path":"/membership/health"}' \
-  response.json
+# Test admin auth health
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth/health
+
+# Test public chat (no auth required)
+curl -X POST https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"What is diabetes?"}'
+```
+
+### **Test Admin Authentication**
+```bash
+# Test admin auth (should return 401 without token)
+curl https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth
 ```
 
 ---
@@ -244,12 +249,17 @@ aws lambda invoke --function-name ada-clara-membership-verification \
 - ✅ User Pool Client configured for web applications
 - ✅ Identity Pool configured for AWS resource access
 - ✅ Custom domain configured and accessible
-- ✅ Lambda functions deployed (minor fixes needed)
+- ✅ Simple auth handler deployed and working
 - ✅ IAM roles and permissions configured
+- ✅ Public endpoints working without authentication
+- ✅ Admin endpoints properly secured with JWT validation
 - ✅ All configuration values provided to frontend team
-- ✅ Integration guide updated with live configuration
-- ✅ Frontend meeting summary updated with deployment status
+- ✅ Integration guide updated with simplified model
+- ✅ Test suite passing with 100% success rate
 
-**🚀 The authentication system is ready for frontend integration!**
+**🚀 The simplified authentication system is ready for frontend integration!**
 
-The frontend team can begin implementing authentication immediately using the provided configuration values and integration guide.
+The frontend team can begin implementing:
+- **Public chat interface** with no authentication barriers
+- **Admin dashboard** with secure Cognito authentication
+- **Simplified user handling** with only 2 user types to manage

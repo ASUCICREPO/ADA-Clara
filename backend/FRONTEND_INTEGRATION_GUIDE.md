@@ -1,24 +1,16 @@
-# ADA Clara Frontend Integration Guide - Simplified User Model
+# ADA Clara Frontend Integration Guide
 
-## 🎯 **SIMPLIFIED USER MODEL**
-
-Based on the original architecture, ADA Clara now uses a **simplified two-user model**:
+## **User Types**
 
 1. **👤 Public Users**: Diabetes.org visitors who can chat freely without authentication
 2. **👨‍💼 Admin Users**: Authenticated users who can access the admin dashboard
 
-**✅ Removed Complexity:**
-- ❌ Professional verification system
-- ❌ Membership validation
-- ❌ Complex user types
-- ❌ Professional-specific features
+## **DEPLOYMENT STATUS**
 
-## 🚀 **DEPLOYMENT STATUS: SIMPLIFIED & READY**
-
-### ✅ **FULLY DEPLOYED & TESTED:**
+### **FULLY DEPLOYED & TESTED:**
 
 1. **API Gateway**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/` ✅ **LIVE & WORKING**
-2. **Public Chat Endpoints**: ✅ **NO AUTHENTICATION REQUIRED**
+2. **Public Chat Endpoints**: ✅ 
    - `POST /chat` - Send message ✅ **ROUTED**
    - `GET /chat/history` - Chat history ✅ **ROUTED**
    - `GET /chat/sessions` - User sessions ✅ **ROUTED**
@@ -29,38 +21,20 @@ Based on the original architecture, ADA Clara now uses a **simplified two-user m
 4. **System Endpoints**: ✅ **WORKING**
    - `GET /health` - System health ✅ **TESTED**
 
-### 🔑 **COGNITO CONFIGURATION (ADMIN ONLY):**
+### **COGNITO CONFIGURATION (ADMIN ONLY):**
 - **User Pool ID**: `us-east-1_hChjb1rUB` ✅ **ACTIVE**
 - **Client ID**: `3f8vld6mnr1nsfjci1b61okc46` ✅ **CONFIGURED**
 - **Identity Pool ID**: `us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c` ✅ **ACTIVE**
 - **Domain**: `https://ada-clara-023336033519.auth.us-east-1.amazoncognito.com` ✅ **ACCESSIBLE**
 
-### 🧪 **TEST RESULTS:**
-- **API Test Suite**: 7/7 tests passed (100% success rate)
-- **Public Endpoints**: All working correctly (no auth required)
-- **Admin Endpoints**: Proper authentication validation
-- **User Model**: Simplified and aligned with original architecture
-
-### 🚀 **READY FOR FRONTEND INTEGRATION:**
-The frontend team can now implement the simplified user model immediately.
-
 ## Overview
-
-This guide provides everything your frontend team needs to integrate with the ADA Clara backend using the **simplified user model**. The system now supports two user types:
 
 1. **👤 Public Users**: Diabetes.org visitors who can use chat without authentication
 2. **👨‍💼 Admin Users**: Authenticated users who can access the admin dashboard via Cognito
 
-**Key Simplifications:**
-- ❌ Removed professional verification system
-- ❌ Removed membership validation
-- ❌ Simplified from 3 user types to 2
-- ✅ Public chat access without signup
-- ✅ Admin authentication for dashboard only
-
 ## Table of Contents
 
-1. [Simplified Configuration](#️-simplified-configuration)
+1. [User Configuration](#️-user-configuration)
 2. [Quick Start](#quick-start)
 3. [Public Chat Integration (No Auth)](#public-chat-integration-no-auth)
 4. [Admin Authentication Integration](#admin-authentication-integration)
@@ -75,14 +49,13 @@ This guide provides everything your frontend team needs to integrate with the AD
 13. [Deployment Checklist](#deployment-checklist)
 14. [Support](#support)
 
-## ⚡ Simplified Configuration
+## ⚡ User Configuration
 
 **The simplified ADA Clara system uses a two-user model:**
 
 ### **👤 Public Users (No Authentication Required)**
 - Can access chat immediately
 - No signup or login required  
-- Perfect for diabetes.org visitors
 - Uses public API endpoints
 
 ### **👨‍💼 Admin Users (Cognito Authentication Required)**
@@ -130,8 +103,6 @@ This guide provides everything your frontend team needs to integrate with the AD
 ## Quick Start
 
 ### 1. Backend Configuration
-
-After backend deployment, you'll receive these configuration files:
 
 **`cognito-config.json`** (Generated after deployment):
 ```json
@@ -858,7 +829,7 @@ export const useAdminDashboard = (refreshInterval = 300000) => { // 5 minutes
 };
 ```
 
-### Simplified Admin Dashboard Component
+### Admin Dashboard Component
 
 **`components/AdminDashboard.jsx`**:
 ```javascript
@@ -1233,15 +1204,3 @@ test('admin can sign in with valid credentials', async () => {
 - Use the `/health` endpoint to verify backend connectivity
 - Use the `/auth/health` endpoint to verify admin auth service
 - Test API endpoints directly with tools like Postman
-- Review the simplified authentication implementation guide
-
-## 🎉 **Simplified Integration Complete!**
-
-This guide provides everything your frontend team needs to integrate with the simplified ADA Clara backend:
-
-✅ **Public users** can chat immediately without any authentication  
-✅ **Admin users** can access the dashboard with Cognito authentication  
-✅ **Professional verification** has been completely removed  
-✅ **System is production-ready** with 100% test success rate  
-
-The simplified user model aligns perfectly with the original architecture and provides a much cleaner, more maintainable system for your frontend team to implement.
