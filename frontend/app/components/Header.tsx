@@ -14,9 +14,14 @@ export default function Header() {
                 <path d="M7 9H17V11H7V9ZM7 12H15V14H7V12Z" fill="white"/>
               </svg>
             </div>
-            <h1 className="text-white text-lg font-normal m-0 truncate" style={{ lineHeight: '22px' }}>
-              Clara – Call & Language Response Assistant
-            </h1>
+            <div className="flex flex-col justify-center" style={{ height: '40px', minWidth: 0 }}>
+              <h1 className="text-white text-xl font-semibold m-0 truncate" style={{ lineHeight: '24px' }}>
+                ADA Clara
+              </h1>
+              <p className="text-white text-sm font-normal m-0 truncate" style={{ lineHeight: '16px' }}>
+                Call & Language Response Assistant
+              </p>
+            </div>
           </div>
           <div className="flex-shrink-0" style={{ marginLeft: '16px' }}>
             <LanguageSwitcher />
