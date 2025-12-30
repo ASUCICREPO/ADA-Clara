@@ -3,15 +3,18 @@
 import { useState, useRef } from 'react';
 import ChatMessage from './ChatMessage';
 import MedicalDisclaimer from './MedicalDisclaimer';
+import TalkToPersonForm from './TalkToPersonForm';
 
 interface Message {
   id: string;
   type: 'user' | 'assistant';
   content: string;
+  showTalkToPersonButton?: boolean;
 }
 
 export default function ChatPanel() {
   const messageIdCounter = useRef(1);
+  const [showTalkToPersonForm, setShowTalkToPersonForm] = useState(false);
   
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -33,18 +36,37 @@ export default function ChatPanel() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    const userInput = inputValue.toLowerCase();
     setInputValue('');
 
     // Simulate assistant response (replace with actual API call)
     setTimeout(() => {
       messageIdCounter.current += 1;
+      
+      // Simulate low confidence scenario - show "Talk to a Person" button
+      const shouldShowButton = userInput.includes('prescribe') || userInput.includes('medication') || userInput.includes('doctor');
+      
       const assistantMessage: Message = {
         id: `assistant-${messageIdCounter.current}`,
         type: 'assistant',
-        content: 'Thank you for your question. I\'m processing your request...',
+        content: shouldShowButton 
+          ? "I understand your concern. However, I cannot provide medical prescriptions or diagnoses. For questions about medications or medical treatment, I recommend speaking with a healthcare professional."
+          : 'Thank you for your question. I\'m processing your request...',
+        showTalkToPersonButton: shouldShowButton,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     }, 1000);
+  };
+
+  const handleTalkToPersonClick = () => {
+    setShowTalkToPersonForm(true);
+  };
+
+  const handleFormSubmit = (formData: any) => {
+    console.log('Form submitted:', formData);
+    // Here you would send the form data to your backend
+    alert('Thank you! Someone will reach out to you shortly.');
+    setShowTalkToPersonForm(false);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -82,11 +104,22 @@ export default function ChatPanel() {
             <MedicalDisclaimer />
           </div>
           {messages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              type={message.type}
-              content={message.content}
-            />
+            <div key={message.id}>
+              <ChatMessage
+                type={message.type}
+                content={message.content}
+              />
+              {message.showTalkToPersonButton && (
+                <div className="flex justify-center mt-4">
+                  <button
+                    onClick={handleTalkToPersonClick}
+                    className="bg-[#a6192e] text-white rounded-[10px] px-6 py-3 text-sm font-normal hover:opacity-90 transition-opacity"
+                  >
+                    Talk to a person
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -130,6 +163,13 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
+
+      {/* Talk to Person Form Modal */}
+      <TalkToPersonForm
+        isOpen={showTalkToPersonForm}
+        onClose={() => setShowTalkToPersonForm(false)}
+        onSubmit={handleFormSubmit}
+      />
     </div>
   );
 }
