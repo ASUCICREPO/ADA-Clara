@@ -8,6 +8,7 @@ import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
 import { AdminAnalyticsStack } from '../lib/admin-analytics-stack';
 import { AdaClaraChatProcessorStack } from '../lib/chat-processor-stack';
 import { UnifiedApiStack } from '../lib/unified-api-stack';
+import { FrontendAlignedApiStack } from '../lib/frontend-aligned-api-stack';
 
 const app = new cdk.App();
 
@@ -95,4 +96,12 @@ new SecurityEnhancementsStack(app, 'AdaClaraSecurityEnhancements', {
   enableConfig: true,
   enableCloudTrail: true,
   retentionDays: 90
+});
+
+// Frontend-Aligned API Stack (New - Simplified Deployment)
+// This stack creates a clean, CDK-managed version of the manually deployed API
+// Use this for future deployments instead of manual Lambda/API Gateway creation
+new FrontendAlignedApiStack(app, 'AdaClaraFrontendAlignedApi', {
+  env,
+  description: 'ADA Clara Frontend-Aligned API - Clean CDK deployment with all working endpoints'
 });

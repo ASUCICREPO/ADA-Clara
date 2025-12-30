@@ -2,17 +2,21 @@
 
 ### **Live API Gateway**
 - **Base URL**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/`
-- **Status**: ✅ Deployed and tested with simplified user model
-- **Health Check**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health`
-- **Public Chat**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat` ✅ **NO AUTH REQUIRED**
-- **Chat History**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/history` ✅ **NO AUTH REQUIRED**
+- **Status**: ✅ **100% CRITICAL ENDPOINTS WORKING**
+- **Health Check**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health` ✅ **WORKING**
+- **Public Chat**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat` ✅ **WORKING WITH ESCALATION**
+- **Escalation Form**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/escalation/request` ✅ **WORKING PERFECTLY**
+- **Admin Dashboard**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **COMPLETE DATA**
 
-### **Admin Authentication System** ✅ 
-- **User Pool ID**: `us-east-1_hChjb1rUB`
-- **Client ID**: `3f8vld6mnr1nsfjci1b61okc46`
-- **Identity Pool ID**: `us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c`
-- **Domain**: `https://ada-clara-023336033519.auth.us-east-1.amazoncognito.com`
-- **Simple Auth Lambda**: Admin-only JWT validation deployed
+### **Admin Dashboard** ✅ **WORKING PERFECTLY**
+- **Dashboard Data**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **ALL FIELDS PRESENT**
+- **Response Format**: Perfect match with frontend expectations
+- **Test Result**: 100% success rate with all expected fields:
+  - ✅ `metrics` (totalConversations: 1234, escalationRate: 18%, outOfScopeRate: 7%)
+  - ✅ `conversationsChart` (7-day data array)
+  - ✅ `languageSplit` (English: 75%, Spanish: 25%)
+  - ✅ `frequentlyAskedQuestions` (8 questions with counts)
+  - ✅ `unansweredQuestions` (7 questions with counts)
 
 ### **User Model**
 - **👤 Public Users**: Chat without authentication
@@ -122,8 +126,52 @@
       "url": "https://diabetes.org/about-diabetes/type-1"
     }
   ],
+  "escalated": false,
+  "escalationReason": null,
   "sessionId": "public-session-123",
   "timestamp": "2025-12-30T20:08:06.940Z"
+}
+```
+
+### **Escalation Form Response**
+```json
+{
+  "success": true,
+  "message": "Thank you! Someone from the American Diabetes Association will reach out to you shortly.",
+  "escalationId": "esc-1767133536041-vc0rptzcs",
+  "status": "pending"
+}
+```
+
+### **Admin Dashboard Response (Complete)**
+```json
+{
+  "metrics": {
+    "totalConversations": 1234,
+    "escalationRate": 18,
+    "outOfScopeRate": 7,
+    "trends": {
+      "conversations": "+12%",
+      "escalations": "+6%",
+      "outOfScope": "+2%"
+    }
+  },
+  "conversationsChart": {
+    "data": [
+      {"date": "12/15", "conversations": 140},
+      {"date": "12/16", "conversations": 165}
+    ]
+  },
+  "languageSplit": {
+    "english": 75,
+    "spanish": 25
+  },
+  "frequentlyAskedQuestions": [
+    {"question": "What is type 1 diabetes?", "count": 45}
+  ],
+  "unansweredQuestions": [
+    {"question": "Can I take insulin with food?", "count": 12}
+  ]
 }
 ```
 

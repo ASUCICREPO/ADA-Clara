@@ -34,6 +34,7 @@ export interface ChatResponse {
     url: string;
     excerpt: string;
   }>;
+  escalated: boolean;
   escalationSuggested: boolean;
   escalationReason?: string;
   timestamp: string;

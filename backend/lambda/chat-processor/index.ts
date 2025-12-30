@@ -387,15 +387,18 @@ class ChatProcessor {
       escalationTriggers: escalationTriggers.map(t => t.type)
     });
     
+    // Frontend expects: { response, confidence, sources, escalated, escalationReason }
     return {
-      sessionId: session.sessionId,
       response,
       confidence,
-      language,
       sources,
+      escalated: escalationSuggested,
       escalationSuggested,
+      escalationReason: escalationSuggested ? (conversationMeta.escalationReason || 'Low confidence or complex query') : undefined,
+      sessionId: session.sessionId,
+      language,
       timestamp: timestamp.toISOString(),
-      // TASK 11: Enhanced response metadata
+      // Additional metadata for internal use
       conversationMetadata: {
         messageCount: conversationMeta.messageCount,
         averageConfidence: conversationMeta.averageConfidenceScore,
@@ -1067,7 +1070,18 @@ export const handler = async (
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
         },
-        body: JSON.stringify(response)
+        body: JSON.stringify({
+          // Frontend expects: { response, confidence, sources, escalated, escalationReason }
+          response: response.response,
+          confidence: response.confidence,
+          sources: response.sources,
+          escalated: response.escalated,
+          escalationReason: response.escalationReason,
+          // Additional metadata for internal use
+          sessionId: response.sessionId,
+          language: response.language,
+          timestamp: response.timestamp
+        })
       };
 
     } else if (method === 'GET' && path === '/chat/history') {

@@ -25,6 +25,7 @@ out/
 # Compiled JavaScript files
 *.js
 !jest.config.js
+!frontend/**/*.js
 *.d.ts
 
 # TypeScript cache
@@ -57,3 +58,22 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+# Build artifacts and temporary files (outside frontend/)
+*.zip
+*.tar.gz
+*.tgz
+
+# Test and debug files (outside frontend/)
+**/test-*.js
+**/debug-*.js
+**/final-*.js
+response.json
+verify-*.json
+test-auth-payload.json
+
+# CDK compiled output
+bin/*.js
+
+# Security audit report (temporary)
+SECURITY_AUDIT_REPORT.md
