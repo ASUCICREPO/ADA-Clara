@@ -77,7 +77,7 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_4px_16px_0px_rgba(0,0,0,0.05)] flex flex-col overflow-hidden w-full" style={{ height: '680px', maxHeight: '85vh' }}>
+    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_4px_16px_0px_rgba(0,0,0,0.05)] flex flex-col overflow-hidden w-full" style={{ height: '700px', maxHeight: '86vh' }}>
       {/* Chat Header */}
       <div className="bg-gradient-to-r from-[#f9fafb] to-white border-b border-[#cbd5e1] flex-shrink-0" style={{ padding: '16px', minHeight: '86px', display: 'flex', alignItems: 'center' }}>
         <div className="flex items-center w-full" style={{ gap: '12px' }}>
@@ -139,30 +139,30 @@ export default function ChatPanel() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-white bg-white flex-shrink-0" style={{ padding: '16px', minHeight: '84px', display: 'flex', alignItems: 'center' }}>
-        <div className="flex items-center w-full" style={{ gap: '12px' }}>
+      <div className="border-t border-white bg-white flex-shrink-0" style={{ padding: '14px 16px', minHeight: '76px', display: 'flex', alignItems: 'center' }}>
+        <div className="flex items-center w-full" style={{ gap: '10px' }}>
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask a question about diabetes…"
-            className="flex-1 border border-[#cbd5e1] rounded-[10px] h-[52px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20"
-            style={{ paddingLeft: '16px', paddingRight: '16px' }}
+            className="flex-1 border border-[#cbd5e1] rounded-[10px] h-[48px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20"
+            style={{ paddingLeft: '14px', paddingRight: '14px' }}
           />
           <button
             onClick={handleSend}
             disabled={!inputValue.trim()}
-            className={`h-[52px] rounded-[10px] text-base font-normal text-white flex items-center justify-center transition-all ${
+            className={`h-[48px] rounded-[10px] text-sm font-normal text-white flex items-center justify-center transition-all ${
               inputValue.trim()
                 ? 'bg-[#a6192e] hover:opacity-90 active:opacity-80'
                 : 'bg-[#a6192e] opacity-50 cursor-not-allowed'
             }`}
-            style={{ gap: '8px', paddingLeft: '24px', paddingRight: '24px' }}
+            style={{ gap: '6px', paddingLeft: '20px', paddingRight: '20px' }}
           >
             <svg
-              width="20"
-              height="20"
+              width="18"
+              height="18"
               viewBox="0 0 20 20"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
