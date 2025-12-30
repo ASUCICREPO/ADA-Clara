@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useImperativeHandle, forwardRef } from 'react';
 import ChatMessage from './ChatMessage';
 import MedicalDisclaimer from './MedicalDisclaimer';
 import TalkToPersonForm from './TalkToPersonForm';
@@ -12,7 +12,11 @@ interface Message {
   showTalkToPersonButton?: boolean;
 }
 
-export default function ChatPanel() {
+export interface ChatPanelHandle {
+  handleSend: (inputValue: string) => void;
+}
+
+const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   const messageIdCounter = useRef(1);
   const [showTalkToPersonForm, setShowTalkToPersonForm] = useState(false);
   
@@ -23,9 +27,8 @@ export default function ChatPanel() {
       content: "Hi, I'm Clara. I can help with questions about diabetes using trusted ADA resources. What would you like to know?",
     },
   ]);
-  const [inputValue, setInputValue] = useState('');
 
-  const handleSend = () => {
+  const handleSend = (inputValue: string) => {
     if (!inputValue.trim()) return;
 
     messageIdCounter.current += 1;
@@ -37,7 +40,6 @@ export default function ChatPanel() {
 
     setMessages((prev) => [...prev, userMessage]);
     const userInput = inputValue.toLowerCase();
-    setInputValue('');
 
     // Simulate assistant response (replace with actual API call)
     setTimeout(() => {
@@ -58,6 +60,10 @@ export default function ChatPanel() {
     }, 1000);
   };
 
+  useImperativeHandle(ref, () => ({
+    handleSend,
+  }));
+
   const handleTalkToPersonClick = () => {
     setShowTalkToPersonForm(true);
   };
@@ -69,49 +75,11 @@ export default function ChatPanel() {
     setShowTalkToPersonForm(false);
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   return (
-    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_4px_16px_0px_rgba(0,0,0,0.05)] flex flex-col overflow-hidden w-full" style={{ height: '700px', maxHeight: '86vh' }}>
-      {/* Chat Header */}
-      <div className="bg-gradient-to-r from-[#f9fafb] to-white border-b border-[#cbd5e1] flex-shrink-0" style={{ padding: '16px', minHeight: '86px', display: 'flex', alignItems: 'center' }}>
-        <div className="flex items-center w-full" style={{ gap: '12px' }}>
-          <div className="bg-[#a6192e] rounded-full w-12 h-12 flex items-center justify-center flex-shrink-0">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              {/* Main outlet body */}
-              <rect x="7" y="9" width="10" height="7" rx="1.5" stroke="white" strokeWidth="2" fill="none"/>
-              {/* Left vertical slot */}
-              <ellipse cx="9.5" cy="12.5" rx="1" ry="2.5" fill="white"/>
-              {/* Right vertical slot */}
-              <ellipse cx="14.5" cy="12.5" rx="1" ry="2.5" fill="white"/>
-              {/* Left side connector */}
-              <line x1="4" y1="12.5" x2="7" y2="12.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-              {/* Right side connector */}
-              <line x1="17" y1="12.5" x2="20" y2="12.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-              {/* Top ground pin */}
-              <path d="M9.5 6L9.5 9L12 9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-            </svg>
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-[#020617] text-xl font-normal m-0" style={{ lineHeight: '30px', marginBottom: '4px' }}>Clara</h2>
-            <div className="flex items-center" style={{ gap: '8px' }}>
-              <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
-              <p className="text-[#64748b] text-sm font-normal m-0" style={{ lineHeight: '20px' }}>
-                Online – Here to help with diabetes questions based on ADA resources
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
+    <>
       {/* Messages Area */}
-      <div className="flex-1 bg-[#f8fafc] overflow-y-auto min-h-0" style={{ padding: '16px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <div className="flex-1 overflow-y-auto min-h-0 flex justify-center" style={{ paddingBottom: '40px' }}>
+        <div className="w-full max-w-[900px] mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' }}>
           {/* Medical Disclaimer at the beginning */}
           <div style={{ marginBottom: '8px' }}>
             <MedicalDisclaimer />
@@ -135,46 +103,8 @@ export default function ChatPanel() {
               )}
             </div>
           ))}
-        </div>
-      </div>
-
-      {/* Input Area */}
-      <div className="border-t border-white bg-white flex-shrink-0" style={{ padding: '14px 16px', minHeight: '76px', display: 'flex', alignItems: 'center' }}>
-        <div className="flex items-center w-full" style={{ gap: '10px' }}>
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Ask a question about diabetes…"
-            className="flex-1 border border-[#cbd5e1] rounded-[10px] h-[48px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20"
-            style={{ paddingLeft: '14px', paddingRight: '14px' }}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!inputValue.trim()}
-            className={`h-[48px] rounded-[10px] text-sm font-normal text-white flex items-center justify-center transition-all ${
-              inputValue.trim()
-                ? 'bg-[#a6192e] hover:opacity-90 active:opacity-80'
-                : 'bg-[#a6192e] opacity-50 cursor-not-allowed'
-            }`}
-            style={{ gap: '6px', paddingLeft: '20px', paddingRight: '20px' }}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 20 20"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              className="flex-shrink-0"
-            >
-              <path
-                d="M2.5 18.75L18.75 10L2.5 1.25L2.5 8.33333L13.75 10L2.5 11.6667L2.5 18.75Z"
-                fill="white"
-              />
-            </svg>
-            <span>Send</span>
-          </button>
+          {/* Spacer for bottom padding */}
+          <div style={{ height: '10px', flexShrink: 0 }}></div>
         </div>
       </div>
 
@@ -184,7 +114,11 @@ export default function ChatPanel() {
         onClose={() => setShowTalkToPersonForm(false)}
         onSubmit={handleFormSubmit}
       />
-    </div>
+    </>
   );
-}
+});
+
+ChatPanel.displayName = 'ChatPanel';
+
+export default ChatPanel;
 
