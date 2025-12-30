@@ -23,8 +23,6 @@ export default function MedicalDisclaimer() {
           <div className="text-[#475569] text-sm font-normal" style={{ lineHeight: '22px' }}>
             <p className="m-0" style={{ marginBottom: '6px' }}>
               <strong className="text-[#e17100]">Clara does not provide medical advice, diagnosis, or treatment.</strong> This assistant is designed to provide general information about diabetes based on trusted ADA resources.
-            </p>
-            <p className="m-0" style={{ marginTop: '6px' }}>
               In a medical emergency, call <strong>911</strong> or your local emergency number immediately. For all medical decisions, please consult with your healthcare provider.
             </p>
           </div>
