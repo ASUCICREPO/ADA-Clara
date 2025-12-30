@@ -1,0 +1,7 @@
+{
+  "name": "ada-clara-simple-chat-processor",
+  "version": "1.0.0",
+  "description": "ADA Clara Simple Chat Processor Lambda Function",
+  "main": "index.js",
+  "dependencies": {}
+}

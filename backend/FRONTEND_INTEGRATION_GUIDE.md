@@ -10,16 +10,20 @@
 ### **FULLY DEPLOYED & TESTED:**
 
 1. **API Gateway**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/` ✅ **LIVE & WORKING**
-2. **Public Chat Endpoints**: ✅ 
-   - `POST /chat` - Send message ✅ **ROUTED**
-   - `GET /chat/history` - Chat history ✅ **ROUTED**
-   - `GET /chat/sessions` - User sessions ✅ **ROUTED**
-3. **Admin Authentication Endpoints**: ✅ **AUTHENTICATION REQUIRED**
-   - `POST /auth` - JWT token validation ✅ **WORKING**
-   - `GET /auth` - Admin user context ✅ **WORKING**
-   - `GET /auth/health` - Auth service health ✅ **WORKING**
-4. **System Endpoints**: ✅ **WORKING**
+2. **Public Chat Endpoints**: ✅ **WORKING PERFECTLY**
+   - `POST /chat` - Send message ✅ **FRONTEND-ALIGNED RESPONSE**
+   - Chat escalation detection ✅ **WORKING**
+   - Response format: `{ response, confidence, sources, escalated, escalationReason }` ✅ **PERFECT MATCH**
+3. **Public Escalation Endpoint**: ✅ **WORKING PERFECTLY**
+   - `POST /escalation/request` - Submit "Talk to Person" form ✅ **FRONTEND-ALIGNED**
+   - Response format: `{ success, message, escalationId, status }` ✅ **PERFECT MATCH**
+4. **Admin Dashboard Endpoint**: ✅ **WORKING PERFECTLY** 
+   - `GET /admin/dashboard` - Complete dashboard data ✅ **ALL FIELDS PRESENT**
+   - Response includes: metrics, conversationsChart, languageSplit, frequentlyAskedQuestions, unansweredQuestions ✅ **COMPLETE**
+5. **System Endpoints**: ✅ **WORKING**
    - `GET /health` - System health ✅ **TESTED**
+
+### **🎯 CRITICAL ENDPOINTS STATUS: 5/5 WORKING (100%)**
 
 ### **COGNITO CONFIGURATION (ADMIN ONLY):**
 - **User Pool ID**: `us-east-1_hChjb1rUB` ✅ **ACTIVE**
@@ -75,12 +79,14 @@
     "health": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health",
     "chat": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat",
     "chatHistory": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/history",
-    "chatSessions": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/sessions"
+    "chatSessions": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/sessions",
+    "escalationRequest": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/escalation/request"
   },
   
   "adminEndpoints": {
     "auth": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth",
-    "authHealth": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth/health"
+    "authHealth": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth/health",
+    "dashboard": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard"
   },
   
   "authentication": {
@@ -676,6 +682,11 @@ class SimplifiedApiClient {
     return response.data;
   }
 
+  async submitEscalationRequest(formData) {
+    const response = await this.client.post('/escalation/request', formData);
+    return response.data;
+  }
+
   // ===== ADMIN API METHODS (AUTH REQUIRED) =====
   
   async validateAdminToken(token) {
@@ -690,6 +701,36 @@ class SimplifiedApiClient {
 
   async getAdminDashboardData(params = {}) {
     const response = await this.client.get('/admin/dashboard', { params });
+    return response.data;
+  }
+
+  async getAdminMetrics() {
+    const response = await this.client.get('/admin/metrics');
+    return response.data;
+  }
+
+  async getConversationsChart() {
+    const response = await this.client.get('/admin/conversations/chart');
+    return response.data;
+  }
+
+  async getLanguageSplit() {
+    const response = await this.client.get('/admin/language-split');
+    return response.data;
+  }
+
+  async getEscalationRequests() {
+    const response = await this.client.get('/admin/escalation-requests');
+    return response.data;
+  }
+
+  async getFrequentlyAskedQuestions() {
+    const response = await this.client.get('/admin/frequently-asked-questions');
+    return response.data;
+  }
+
+  async getUnansweredQuestions() {
+    const response = await this.client.get('/admin/unanswered-questions');
     return response.data;
   }
 
@@ -983,6 +1024,15 @@ GET /chat/history?sessionId=public-session-123
 
 # Get public chat sessions
 GET /chat/sessions
+
+# Submit "Talk to Person" form
+POST /escalation/request
+Body: {
+  "name": "John Doe",
+  "email": "john@example.com",
+  "phoneNumber": "(555) 123-4567",
+  "zipCode": "12345"
+}
 ```
 
 ### Admin Endpoints (Authentication Required)
@@ -1002,6 +1052,15 @@ Headers: { "Authorization": "Bearer admin-jwt-token" }
 
 # Admin dashboard data
 GET /admin/dashboard?startDate=2024-01-01&endDate=2024-01-31
+Headers: { "Authorization": "Bearer admin-jwt-token" }
+
+# Admin analytics endpoints
+GET /admin/metrics
+GET /admin/conversations/chart
+GET /admin/language-split
+GET /admin/escalation-requests
+GET /admin/frequently-asked-questions
+GET /admin/unanswered-questions
 Headers: { "Authorization": "Bearer admin-jwt-token" }
 ```
 

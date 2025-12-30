@@ -1,0 +1,7 @@
+{
+  "name": "ada-clara-admin-analytics",
+  "version": "1.0.0",
+  "description": "ADA Clara Admin Analytics Lambda Function",
+  "main": "index.js",
+  "dependencies": {}
+}
