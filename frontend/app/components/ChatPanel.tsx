@@ -50,7 +50,7 @@ export default function ChatPanel() {
         id: `assistant-${messageIdCounter.current}`,
         type: 'assistant',
         content: shouldShowButton 
-          ? "I understand your concern. However, I cannot provide medical prescriptions or diagnoses. For questions about medications or medical treatment, I recommend speaking with a healthcare professional."
+          ? "I'm not able to answer that based on the information I have. I cannot provide medical advice, diagnoses, or prescriptions. Would you like to talk to a person from the American Diabetes Association?"
           : 'Thank you for your question. I\'m processing your request...',
         showTalkToPersonButton: shouldShowButton,
       };
@@ -110,10 +110,11 @@ export default function ChatPanel() {
                 content={message.content}
               />
               {message.showTalkToPersonButton && (
-                <div className="flex justify-center mt-4">
+                <div className="flex justify-center" style={{ marginTop: '16px' }}>
                   <button
                     onClick={handleTalkToPersonClick}
-                    className="bg-[#a6192e] text-white rounded-[10px] px-6 py-3 text-sm font-normal hover:opacity-90 transition-opacity"
+                    className="bg-[#a6192e] text-white rounded-[10px] text-sm font-normal hover:opacity-90 transition-opacity"
+                    style={{ padding: '12px 24px', height: '48px' }}
                   >
                     Talk to a person
                   </button>
