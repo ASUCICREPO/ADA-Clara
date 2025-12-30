@@ -25,7 +25,7 @@ export default function AdminHeader() {
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value)}
             className="border border-white/20 rounded-[10px] text-xs text-[#a6192e] bg-white focus:outline-none focus:ring-2 focus:ring-white/20"
-            style={{ height: '36px', minWidth: '110px', paddingLeft: '12px', paddingRight: '32px' }}
+            style={{ height: '36px', minWidth: '110px', paddingLeft: '12px', paddingRight: '12px' }}
           >
             <option value="All Time">All Time</option>
             <option value="Last 7 Days">Last 7 Days</option>
