@@ -5,7 +5,8 @@ import MetricCards from './MetricCards';
 import ConversationsChart from './ConversationsChart';
 import LanguageSplitChart from './LanguageSplitChart';
 import EscalationRequestsTable from './EscalationRequestsTable';
-import QuestionsLists from './QuestionsLists';
+import FrequentlyAskedQuestions from './FrequentlyAskedQuestions';
+import TopUnansweredQuestions from './TopUnansweredQuestions';
 
 export default function AdminDashboard() {
   return (
@@ -28,13 +29,15 @@ export default function AdminDashboard() {
             <LanguageSplitChart />
           </div>
 
+          {/* Escalation Requests - Full Width */}
+          <div style={{ marginBottom: '32px' }}>
+            <EscalationRequestsTable />
+          </div>
+
+          {/* FAQ and Top Unanswered - Side by Side */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-            <div>
-              <EscalationRequestsTable />
-            </div>
-            <div>
-              <QuestionsLists />
-            </div>
+            <FrequentlyAskedQuestions />
+            <TopUnansweredQuestions />
           </div>
         </div>
       </div>
