@@ -23,7 +23,7 @@ function MetricCard({ title, value, description, trend, trendPositive, icon }: M
       </div>
       
       {/* Middle: Value */}
-      <p className="text-[#a6192e] text-3xl font-bold m-0">{value}</p>
+      <p className="text-[#a6192e] text-3xl font-bold m-0" style={{ marginBottom: '8px' }}>{value}</p>
       
       {/* Bottom row: Description on left, Trend on right */}
       <div className="flex items-end justify-between">
