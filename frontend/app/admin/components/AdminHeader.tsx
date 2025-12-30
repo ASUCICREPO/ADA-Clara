@@ -24,7 +24,7 @@ export default function AdminHeader() {
           <select
             value={timeFilter}
             onChange={(e) => setTimeFilter(e.target.value)}
-            className="border border-white/20 rounded-[10px] text-xs text-white bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+            className="border border-white/20 rounded-[10px] text-xs text-[#a6192e] bg-white focus:outline-none focus:ring-2 focus:ring-white/20"
             style={{ height: '36px', minWidth: '110px', paddingLeft: '12px', paddingRight: '32px' }}
           >
             <option value="All Time">All Time</option>
@@ -33,14 +33,14 @@ export default function AdminHeader() {
             <option value="Last 90 Days">Last 90 Days</option>
           </select>
           
-          <div className="flex items-center bg-white/10 border border-white/20 rounded-full" style={{ gap: '8px', height: '36px', paddingLeft: '12px', paddingRight: '12px' }}>
-            <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+          <div className="flex items-center bg-white border border-white/20 rounded-full" style={{ gap: '8px', height: '36px', paddingLeft: '12px', paddingRight: '12px' }}>
+            <div className="w-6 h-6 bg-[#a6192e] rounded-full flex items-center justify-center flex-shrink-0">
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 8C9.65685 8 11 6.65685 11 5C11 3.34315 9.65685 2 8 2C6.34315 2 5 3.34315 5 5C5 6.65685 6.34315 8 8 8Z" fill="#a6192e"/>
-                <path d="M8 9C5.79086 9 4 10.7909 4 13V14H12V13C12 10.7909 10.2091 9 8 9Z" fill="#a6192e"/>
+                <path d="M8 8C9.65685 8 11 6.65685 11 5C11 3.34315 9.65685 2 8 2C6.34315 2 5 3.34315 5 5C5 6.65685 6.34315 8 8 8Z" fill="white"/>
+                <path d="M8 9C5.79086 9 4 10.7909 4 13V14H12V13C12 10.7909 10.2091 9 8 9Z" fill="white"/>
               </svg>
             </div>
-            <span className="text-white text-xs font-normal">Admin</span>
+            <span className="text-[#a6192e] text-xs font-normal">Admin</span>
           </div>
           </div>
         </div>
