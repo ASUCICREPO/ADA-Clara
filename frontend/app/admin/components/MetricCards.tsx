@@ -12,9 +12,9 @@ interface MetricCardProps {
 function MetricCard({ title, value, description, trend, trendPositive, icon }: MetricCardProps) {
   return (
     <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '140px' }}>
-      {/* Top row: Title on left, Icon on right */}
-      <div className="flex items-start justify-between">
-        <p className="text-[#64748b] text-sm font-normal m-0">{title}</p>
+          {/* Top row: Title on left, Icon on right */}
+          <div className="flex items-start justify-between">
+            <p className="text-[#020617] text-sm font-semibold m-0">{title}</p>
         <div className="bg-[#fef2f2] rounded-[10px] w-10 h-10 flex items-center justify-center flex-shrink-0">
           <div className="text-[#a6192e]">
             {icon}
@@ -23,7 +23,7 @@ function MetricCard({ title, value, description, trend, trendPositive, icon }: M
       </div>
       
       {/* Middle: Value */}
-      <p className="text-[#a6192e] text-3xl font-bold m-0">{value}</p>
+      <p className="text-[#a6192e] text-3xl font-bold m-0" style={{ marginBottom: '8px' }}>{value}</p>
       
       {/* Bottom row: Description on left, Trend on right */}
       <div className="flex items-end justify-between">
