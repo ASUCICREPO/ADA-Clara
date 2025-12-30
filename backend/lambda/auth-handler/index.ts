@@ -22,7 +22,7 @@ interface CognitoJWTPayload {
   'custom:membership_id'?: string;
   'custom:organization'?: string;
   'custom:language_preference'?: string;
-  'custom:verified_professional'?: string;
+  'custom:verified_pro'?: string;
   aud: string;
   iss: string;
   exp: number;
@@ -80,7 +80,7 @@ class AuthHandler {
    */
   async handleAuth(event: APIGatewayProxyEvent | APIGatewayAuthorizerEvent): Promise<APIGatewayProxyResult | APIGatewayAuthorizerResult> {
     console.log('🔐 Auth Handler started');
-    console.log('Event type:', event.type || 'API Gateway Proxy');
+    console.log('Event type:', ('type' in event) ? event.type : 'API Gateway Proxy');
 
     try {
       // Handle different event types
@@ -119,7 +119,11 @@ class AuthHandler {
     console.log('🔍 Processing authorizer request');
     
     try {
-      const token = this.extractToken(event.authorizationToken);
+      // Check if this is a token-based authorizer
+      const token = ('authorizationToken' in event) 
+        ? this.extractToken(event.authorizationToken)
+        : this.extractTokenFromHeaders(event.headers || {});
+        
       if (!token) {
         console.log('❌ No token provided');
         return this.generateAuthorizerResponse('Deny', event.methodArn, {});
@@ -150,10 +154,10 @@ class AuthHandler {
     const method = event.httpMethod;
 
     try {
-      if (method === 'POST' && path === '/auth/validate') {
+      if (method === 'POST' && path === '/auth') {
         return await this.handleTokenValidation(event);
-      } else if (method === 'POST' && path === '/auth/refresh') {
-        return await this.handleTokenRefresh(event);
+      } else if (method === 'GET' && path === '/auth') {
+        return await this.handleGetUser(event);
       } else if (method === 'GET' && path === '/auth/user') {
         return await this.handleGetUser(event);
       } else if (method === 'POST' && path === '/auth/verify-professional') {
@@ -170,11 +174,11 @@ class AuthHandler {
           body: JSON.stringify({
             error: 'Endpoint not found',
             availableEndpoints: [
-              'POST /auth/validate',
-              'POST /auth/refresh', 
-              'GET /auth/user',
-              'POST /auth/verify-professional',
-              'GET /auth/health'
+              'POST /auth - validate token',
+              'GET /auth - get user context',
+              'GET /auth/user - get user context',
+              'POST /auth/verify-professional - verify professional credentials',
+              'GET /auth/health - health check'
             ]
           })
         };
@@ -193,6 +197,42 @@ class AuthHandler {
         })
       };
     }
+  }
+
+  /**
+   * Handle get user context
+   */
+  async handleGetUser(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+    const token = this.extractTokenFromHeaders(event.headers);
+
+    if (!token) {
+      return {
+        statusCode: 401,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          error: 'Authorization required',
+          message: 'Please provide a JWT token in Authorization header'
+        })
+      };
+    }
+
+    const authResult = await this.validateToken(token);
+    
+    return {
+      statusCode: authResult.statusCode,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      },
+      body: JSON.stringify({
+        isAuthenticated: authResult.isAuthorized,
+        userContext: authResult.userContext,
+        error: authResult.error
+      })
+    };
   }
 
   /**
@@ -245,7 +285,7 @@ class AuthHandler {
    */
   async extractUserContext(payload: CognitoJWTPayload): Promise<UserContext> {
     const userType = (payload['custom:user_type'] || 'public') as 'public' | 'professional' | 'admin';
-    const isVerified = payload.email_verified && (payload['custom:verified_professional'] === 'true' || userType === 'admin');
+    const isVerified = payload.email_verified && (payload['custom:verified_pro'] === 'true' || userType === 'admin');
     
     // Get additional user data from DynamoDB if professional
     let membershipData = null;
@@ -507,7 +547,7 @@ class AuthHandler {
           Value: organization
         },
         {
-          Name: 'custom:verified_professional',
+          Name: 'custom:verified_pro',
           Value: 'true'
         }
       ]

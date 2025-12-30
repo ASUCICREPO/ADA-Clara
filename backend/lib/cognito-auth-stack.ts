@@ -35,10 +35,10 @@ export class CognitoAuthStack extends Stack {
   public readonly membershipVerificationLambda: lambda.Function;
 
   // IAM roles for different user types
-  public readonly authenticatedRole: iam.Role;
-  public readonly unauthenticatedRole: iam.Role;
-  public readonly adminRole: iam.Role;
-  public readonly professionalRole: iam.Role;
+  public authenticatedRole!: iam.Role;
+  public unauthenticatedRole!: iam.Role;
+  public adminRole!: iam.Role;
+  public professionalRole!: iam.Role;
 
   constructor(scope: Construct, id: string, props?: CognitoAuthStackProps) {
     super(scope, id, props);
@@ -97,23 +97,18 @@ export class CognitoAuthStack extends Stack {
       },
       customAttributes: {
         'user_type': new cognito.StringAttribute({
-          description: 'User type: public, professional, admin',
           mutable: true
         }),
         'membership_id': new cognito.StringAttribute({
-          description: 'Professional membership ID',
           mutable: true
         }),
         'organization': new cognito.StringAttribute({
-          description: 'Healthcare organization',
           mutable: true
         }),
         'language_preference': new cognito.StringAttribute({
-          description: 'Preferred language: en, es',
           mutable: true
         }),
-        'verified_professional': new cognito.StringAttribute({
-          description: 'Professional verification status',
+        'verified_pro': new cognito.StringAttribute({
           mutable: true
         })
       },
@@ -144,7 +139,7 @@ export class CognitoAuthStack extends Stack {
       userInvitation: {
         emailSubject: 'Welcome to ADA Clara',
         emailBody: 'Hello {username}, you have been invited to join ADA Clara. Your temporary password is {####}',
-        smsMessage: 'Your ADA Clara temporary password is {####}'
+        smsMessage: 'Hello {username}, your ADA Clara temporary password is {####}'
       }
     });
 
@@ -195,10 +190,7 @@ export class CognitoAuthStack extends Stack {
       }
     });
 
-    // Create IAM roles for different user types
-    this.createIAMRoles();
-
-    // Create Identity Pool for AWS resource access
+    // Create Identity Pool for AWS resource access FIRST
     this.identityPool = new cognito.CfnIdentityPool(this, 'AdaClaraIdentityPool', {
       identityPoolName: 'ada-clara-identity-pool',
       allowUnauthenticatedIdentities: true,
@@ -208,6 +200,9 @@ export class CognitoAuthStack extends Stack {
         serverSideTokenCheck: true
       }]
     });
+
+    // Create IAM roles for different user types (after identity pool is created)
+    this.createIAMRoles();
 
     // Attach roles to Identity Pool
     new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
@@ -509,7 +504,7 @@ export class CognitoAuthStack extends Stack {
       ],
       resources: [
         this.userPool.userPoolArn,
-        this.identityPool.attrArn || `arn:aws:cognito-identity:${this.region}:${this.account}:identitypool/${this.identityPool.ref}`
+        `arn:aws:cognito-identity:${this.region}:${this.account}:identitypool/${this.identityPool.ref}`
       ]
     }));
 
@@ -575,7 +570,6 @@ export class CognitoAuthStack extends Stack {
         }
       ],
       messageAction: 'SUPPRESS', // Don't send welcome email
-      temporaryPassword: 'TempPass123!', // Will be forced to change on first login
       desiredDeliveryMediums: ['EMAIL']
     });
   }

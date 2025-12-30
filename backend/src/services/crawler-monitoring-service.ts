@@ -23,6 +23,7 @@ export interface ExecutionMetrics {
   totalUrls: number;
   processedUrls: number;
   failedUrls: number;
+  skippedUrls: number;
   successRate: number;
   averageProcessingTime: number;
   throughput: number;
@@ -33,7 +34,11 @@ export interface AlertConfiguration {
   successRateThreshold: number;
   errorRateThreshold: number;
   performanceThreshold: number;
+  executionFailureThreshold: number;
+  highLatencyThreshold: number;
+  lowEfficiencyThreshold: number;
   notificationTopic?: string;
+  notificationTopicArn?: string;
   enableAlerts: boolean;
 }
 
@@ -45,11 +50,11 @@ export class CrawlerMonitoringService {
   private alertConfig: AlertConfiguration;
 
   constructor(
-    cloudWatchClient: CloudWatchClient,
     executionHistoryTable: string,
-    alertConfig: AlertConfiguration
+    alertConfig: AlertConfiguration,
+    cloudWatchClient?: CloudWatchClient
   ) {
-    this.cloudWatchClient = cloudWatchClient;
+    this.cloudWatchClient = cloudWatchClient || new CloudWatchClient({ region: process.env.AWS_REGION || 'us-east-1' });
     this.snsClient = new SNSClient({ region: process.env.AWS_REGION || 'us-east-1' });
     
     const dynamoDbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -226,6 +231,7 @@ export class CrawlerMonitoringService {
         totalUrls: item.totalUrls || 0,
         processedUrls: item.processedUrls || 0,
         failedUrls: item.failedUrls || 0,
+        skippedUrls: item.skippedUrls || 0,
         successRate: item.successRate || 0,
         averageProcessingTime: item.performance?.averageProcessingTime || 0,
         throughput: item.performance?.throughput || 0,

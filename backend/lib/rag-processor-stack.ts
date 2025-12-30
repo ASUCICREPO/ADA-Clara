@@ -1,4 +1,4 @@
-import { Stack, StackProps, Duration, CfnOutput } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -6,7 +6,7 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 
 export interface RAGProcessorStackProps extends StackProps {
-  contentBucket: s3.IBucket;
+  contentBucket?: s3.IBucket; // Optional - will create one if not provided
   vectorsBucket: string;
   vectorIndex: string;
 }
@@ -20,9 +20,22 @@ export interface RAGProcessorStackProps extends StackProps {
 export class RAGProcessorStack extends Stack {
   public readonly ragFunction: lambda.Function;
   public readonly api: apigateway.RestApi;
+  public readonly contentBucket: s3.IBucket;
 
   constructor(scope: Construct, id: string, props: RAGProcessorStackProps) {
     super(scope, id, props);
+
+    // Create or use provided content bucket
+    this.contentBucket = props.contentBucket || new s3.Bucket(this, 'RAGContentBucket', {
+      bucketName: `ada-clara-rag-content-${Stack.of(this).account}-${Stack.of(this).region}`,
+      versioned: true,
+      lifecycleRules: [{
+        id: 'DeleteOldVersions',
+        expiration: Duration.days(90),
+        noncurrentVersionExpiration: Duration.days(30),
+      }],
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
     // Create RAG processing Lambda function
     this.ragFunction = new lambda.Function(this, 'RAGProcessorFunction', {
@@ -35,10 +48,9 @@ export class RAGProcessorStack extends Stack {
       environment: {
         VECTORS_BUCKET: props.vectorsBucket,
         VECTOR_INDEX: props.vectorIndex,
-        CONTENT_BUCKET: props.contentBucket.bucketName,
+        CONTENT_BUCKET: this.contentBucket.bucketName,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
-        AWS_REGION: Stack.of(this).region
+        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0'
       },
       description: 'RAG query processing for ADA Clara chatbot'
     });
@@ -75,7 +87,7 @@ export class RAGProcessorStack extends Stack {
     }));
 
     // Grant content bucket read access
-    props.contentBucket.grantRead(this.ragFunction);
+    this.contentBucket.grantRead(this.ragFunction);
 
     // Create API Gateway for RAG processing
     this.api = new apigateway.RestApi(this, 'RAGProcessorAPI', {

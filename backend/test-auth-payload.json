@@ -1,0 +1,8 @@
+{
+  "httpMethod": "GET",
+  "path": "/auth/health",
+  "headers": {},
+  "body": null,
+  "pathParameters": null,
+  "queryStringParameters": null
+}

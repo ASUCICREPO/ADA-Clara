@@ -71,7 +71,7 @@ customAttributes: {
   'membership_id': string,
   'organization': string,
   'language_preference': 'en' | 'es',
-  'verified_professional': 'true' | 'false' | 'pending'
+  'verified_pro': 'true' | 'false' | 'pending'
 }
 ```
 

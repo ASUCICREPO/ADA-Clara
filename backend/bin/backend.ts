@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { BackendStack } from '../lib/backend-stack';
-import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
 import { AdaClaraDynamoDBStack } from '../lib/dynamodb-stack';
 import { CognitoAuthStack } from '../lib/cognito-auth-stack';
 import { RAGProcessorStack } from '../lib/rag-processor-stack';
 import { SecurityEnhancementsStack } from '../lib/security-enhancements-stack';
+import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
+import { AdminAnalyticsStack } from '../lib/admin-analytics-stack';
+import { AdaClaraChatProcessorStack } from '../lib/chat-processor-stack';
+import { UnifiedApiStack } from '../lib/unified-api-stack';
 
 const app = new cdk.App();
 
@@ -14,11 +16,6 @@ const env = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
   region: process.env.CDK_DEFAULT_REGION || 'us-east-1'
 };
-
-// Original backend stack
-new BackendStack(app, 'BackendStack', {
-  env
-});
 
 // DynamoDB stack for enhanced data storage
 const dynamoDBStack = new AdaClaraDynamoDBStack(app, 'AdaClaraEnhancedDynamoDB', {
@@ -60,10 +57,39 @@ const ragProcessorStack = new RAGProcessorStack(app, 'AdaClaraRAGProcessor', {
   vectorIndex: s3VectorsStack.vectorIndex.indexName
 });
 
+// Admin Analytics stack
+const adminAnalyticsStack = new AdminAnalyticsStack(app, 'AdaClaraAdminAnalytics', {
+  env
+});
+
+// Chat Processor stack
+const chatProcessorStack = new AdaClaraChatProcessorStack(app, 'AdaClaraChatProcessor', {
+  env
+});
+
+// Unified API stack - consolidates all endpoints
+const unifiedApiStack = new UnifiedApiStack(app, 'AdaClaraUnifiedAPI', {
+  env,
+  chatFunction: chatProcessorStack.chatFunction,
+  ragFunction: ragProcessorStack.ragFunction,
+  adminFunction: adminAnalyticsStack.analyticsLambda,
+  authFunction: cognitoStack.authLambda,
+  membershipFunction: cognitoStack.membershipVerificationLambda,
+  description: 'ADA Clara Unified API Gateway - Single endpoint for all services'
+});
+
+// Add dependencies for unified API
+unifiedApiStack.addDependency(dynamoDBStack);
+unifiedApiStack.addDependency(cognitoStack);
+unifiedApiStack.addDependency(s3VectorsStack);
+unifiedApiStack.addDependency(ragProcessorStack);
+unifiedApiStack.addDependency(adminAnalyticsStack);
+unifiedApiStack.addDependency(chatProcessorStack);
+
 // Security Enhancements stack
 new SecurityEnhancementsStack(app, 'AdaClaraSecurityEnhancements', {
   env,
-  apiGatewayArn: ragProcessorStack.api.arnForExecuteApi(),
+  apiGatewayArn: unifiedApiStack.api.arnForExecuteApi(), // Use unified API
   notificationEmail: process.env.SECURITY_NOTIFICATION_EMAIL,
   enableGuardDuty: true,
   enableConfig: true,

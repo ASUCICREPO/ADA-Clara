@@ -59,7 +59,7 @@ export class S3VectorsGAStack extends Stack {
     super(scope, id, props);
 
     console.log('🚀 Starting S3VectorsGAStack construction...');
-    console.log('📋 Props:', JSON.stringify(props, null, 2));
+    console.log('📋 Props received (DynamoDB stack provided)');
     console.log('🔍 DEBUG: Constructor started successfully');
 
     // Regular S3 bucket for storing raw scraped content
@@ -109,7 +109,32 @@ export class S3VectorsGAStack extends Stack {
       throw error;
     }
 
-    // Lambda function optimized for GA performance
+    // Create SNS Topic for failure notifications early (needed for IAM policies)
+    console.log('📧 Creating SNS failure notification topic...');
+    this.failureNotificationTopic = new sns.Topic(this, 'CrawlerFailureNotifications', {
+      topicName: 'ada-clara-crawler-failures',
+      displayName: 'ADA Clara Crawler Failure Notifications',
+    });
+    console.log('✅ Created SNS failure notification topic');
+
+    // Add email subscription if provided
+    if (props?.notificationEmail) {
+      this.failureNotificationTopic.addSubscription(
+        new subscriptions.EmailSubscription(props.notificationEmail)
+      );
+      console.log('✅ Added email subscription to failure notification topic');
+    }
+
+    // Create Dead Letter Queue for failed crawler executions early (needed for IAM policies)
+    console.log('📦 Creating SQS dead letter queue...');
+    this.crawlerDeadLetterQueue = new sqs.Queue(this, 'CrawlerDeadLetterQueue', {
+      queueName: 'ada-clara-crawler-dlq',
+      retentionPeriod: Duration.days(14), // Keep failed messages for 14 days
+      visibilityTimeout: Duration.minutes(5)
+    });
+    console.log('✅ Created SQS dead letter queue');
+
+    // Lambda function optimized for GA performance (create before EventBridge rule)
     this.crawlerFunction = new lambda.Function(this, 'CrawlerFunction', {
       runtime: lambda.Runtime.NODEJS_20_X, // Updated to Node.js 20 for better compatibility
       handler: 'index.handler',
@@ -367,6 +392,16 @@ export class S3VectorsGAStack extends Stack {
 
     console.log('✅ Security validation and compliance features configured successfully!');
 
+    // ===== CREATE EVENTBRIDGE RULE AFTER LAMBDA FUNCTION =====
+    console.log('⏰ Creating EventBridge rule...');
+    this.weeklyScheduleRule = new events.Rule(this, 'WeeklyCrawlerSchedule', {
+      ruleName: 'ada-clara-weekly-crawler-schedule',
+      description: 'Triggers the web crawler every week to update diabetes.org content',
+      schedule: events.Schedule.expression(props?.scheduleExpression || 'rate(7 days)'),
+      enabled: props?.scheduleEnabled ?? true
+    });
+    console.log('✅ Created EventBridge rule');
+
     // ===== END SECURITY VALIDATION SECTION =====
     
     // ===== MONITORING AND ALERTING INFRASTRUCTURE =====
@@ -529,17 +564,18 @@ export class S3VectorsGAStack extends Stack {
             metrics: [
               new cloudwatch.MathExpression({
                 expression: '(successful / (successful + failed)) * 100',
+                period: Duration.minutes(5), // Explicit period for math expression
                 usingMetrics: {
                   successful: new cloudwatch.Metric({
                     namespace: 'ADA-Clara/Crawler',
                     metricName: 'SuccessfulExecutions',
-                    period: Duration.hours(1),
+                    period: Duration.minutes(5), // Match math expression period
                     statistic: 'Sum'
                   }),
                   failed: new cloudwatch.Metric({
                     namespace: 'ADA-Clara/Crawler',
                     metricName: 'FailedExecutions',
-                    period: Duration.hours(1),
+                    period: Duration.minutes(5), // Match math expression period
                     statistic: 'Sum'
                   })
                 }
@@ -661,31 +697,6 @@ export class S3VectorsGAStack extends Stack {
     try {
       console.log('🚀 Starting EventBridge section...');
 
-      // SNS Topic for failure notifications
-      console.log('📧 Creating SNS failure notification topic...');
-      this.failureNotificationTopic = new sns.Topic(this, 'CrawlerFailureNotifications', {
-        topicName: 'ada-clara-crawler-failures',
-        displayName: 'ADA Clara Crawler Failure Notifications',
-      });
-      console.log('✅ Created SNS failure notification topic');
-
-      // Add email subscription if provided
-      if (props?.notificationEmail) {
-        this.failureNotificationTopic.addSubscription(
-          new subscriptions.EmailSubscription(props.notificationEmail)
-        );
-        console.log('✅ Added email subscription to failure notification topic');
-      }
-
-      // Dead Letter Queue for failed crawler executions
-      console.log('📦 Creating SQS dead letter queue...');
-      this.crawlerDeadLetterQueue = new sqs.Queue(this, 'CrawlerDeadLetterQueue', {
-        queueName: 'ada-clara-crawler-dlq',
-        retentionPeriod: Duration.days(14), // Keep failed messages for 14 days
-        visibilityTimeout: Duration.minutes(5),
-      });
-      console.log('✅ Created SQS dead letter queue');
-
       // Connect DLQ to SNS for notifications
       const dlqTopic = new sns.Topic(this, 'CrawlerDLQNotifications', {
         topicName: 'ada-clara-crawler-dlq-notifications',
@@ -699,17 +710,8 @@ export class S3VectorsGAStack extends Stack {
         );
       }
 
-      // EventBridge Rule for weekly crawler scheduling with minimal IAM role
-      console.log('⏰ Creating EventBridge rule with minimal IAM permissions...');
-      this.weeklyScheduleRule = new events.Rule(this, 'WeeklyCrawlerSchedule', {
-        ruleName: 'ada-clara-weekly-crawler-schedule',
-        description: 'Triggers the web crawler every week to update diabetes.org content',
-        schedule: events.Schedule.expression(props?.scheduleExpression || 'rate(7 days)'),
-        enabled: props?.scheduleEnabled !== false, // Default to enabled
-        // Use the minimal IAM role for security compliance
-        // Note: CDK doesn't directly support setting role on Rule, so we'll use the target's role
-      });
-      console.log('✅ Created EventBridge rule');
+      // Configure EventBridge target (rule was created earlier)
+      console.log('⏰ Configuring EventBridge target...');
 
       // Configure EventBridge target with retry and DLQ using minimal IAM role
       const crawlerTarget = new targets.LambdaFunction(this.crawlerFunction, {
@@ -742,13 +744,8 @@ export class S3VectorsGAStack extends Stack {
       console.log('✅ Added target to EventBridge rule');
 
       console.log('🔐 Configuring IAM permissions...');
-      // Grant EventBridge permissions to invoke the Lambda function
-      this.crawlerFunction.addPermission('AllowEventBridgeInvocation', {
-        principal: new iam.ServicePrincipal('events.amazonaws.com'),
-        action: 'lambda:InvokeFunction',
-        sourceArn: this.weeklyScheduleRule.ruleArn,
-      });
-
+      // Note: LambdaFunction target automatically grants EventBridge permission to invoke the function
+      
       // Grant Lambda permissions to publish to SNS topics and access SQS DLQ
       this.crawlerFunction.addToRolePolicy(new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,
@@ -817,9 +814,9 @@ export class S3VectorsGAStack extends Stack {
 
       console.log('✅ EventBridge scheduling configuration completed successfully!');
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ ERROR in EventBridge section:', error);
-      console.error('❌ Stack trace:', (error as Error).stack);
+      console.error('❌ Stack trace:', error.stack);
       throw error; // Re-throw to ensure the build fails
     }
 
@@ -957,7 +954,7 @@ export class S3VectorsGAStack extends Stack {
       description: 'EventBridge scheduling configuration for weekly crawler'
     });
 
-    // Security and compliance outputs
+    // Security and compliance outputs (eventBridgeExecutionRole was defined earlier)
     new CfnOutput(this, 'EventBridgeExecutionRoleArn', {
       value: eventBridgeExecutionRole.roleArn,
       description: 'ARN of the minimal IAM role for EventBridge crawler execution'

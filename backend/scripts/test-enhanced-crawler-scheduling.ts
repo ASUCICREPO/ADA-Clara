@@ -7,4 +7,5 @@
  * - EventBridge rule configuration and status
  * - SNS topic setup and subscriptions
  * - Content tracking table creation and GSI
- * - Lam
+ * - Lambda function permissions and environment variables
+ */

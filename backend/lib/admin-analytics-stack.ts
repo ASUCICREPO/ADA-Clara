@@ -1,4 +1,4 @@
-import { Stack, StackProps, Duration, CfnOutput } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
@@ -19,6 +19,13 @@ export class AdminAnalyticsStack extends Stack {
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
+
+    // Create CloudWatch Log Group for analytics Lambda
+    const analyticsLogGroup = new logs.LogGroup(this, 'AnalyticsLambdaLogGroup', {
+      logGroupName: '/aws/lambda/ada-clara-admin-analytics',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
 
     // ===== LAMBDA FUNCTION =====
 
@@ -44,8 +51,8 @@ export class AdminAnalyticsStack extends Stack {
         // Enhanced unanswered question tracking table (Task 6)
         UNANSWERED_QUESTIONS_TABLE: 'ada-clara-unanswered-questions'
       },
-      logRetention: logs.RetentionDays.ONE_MONTH,
-      reservedConcurrentExecutions: 20
+      logGroup: analyticsLogGroup
+      // Note: Removed reservedConcurrentExecutions to avoid account limits
     });
 
     // ===== IAM PERMISSIONS =====
@@ -123,62 +130,50 @@ export class AdminAnalyticsStack extends Stack {
     // Dashboard endpoint (enhanced)
     const dashboardResource = adminResource.addResource('dashboard');
     dashboardResource.addMethod('GET', lambdaIntegration);
-    dashboardResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Conversations endpoint (new)
     const conversationsResource = adminResource.addResource('conversations');
     conversationsResource.addMethod('GET', lambdaIntegration);
-    conversationsResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Specific conversation endpoint (new)
     const conversationDetailResource = conversationsResource.addResource('{conversationId}');
     conversationDetailResource.addMethod('GET', lambdaIntegration);
-    conversationDetailResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Questions endpoint (existing)
     const questionsResource = adminResource.addResource('questions');
     questionsResource.addMethod('GET', lambdaIntegration);
-    questionsResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Enhanced questions endpoint (new)
     const questionsEnhancedResource = questionsResource.addResource('enhanced');
     questionsEnhancedResource.addMethod('GET', lambdaIntegration);
-    questionsEnhancedResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Question ranking endpoint (new)
     const questionsRankingResource = questionsResource.addResource('ranking');
     questionsRankingResource.addMethod('GET', lambdaIntegration);
-    questionsRankingResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Escalations endpoint (new)
     const escalationsResource = adminResource.addResource('escalations');
     escalationsResource.addMethod('GET', lambdaIntegration);
-    escalationsResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Escalation triggers endpoint (new)
     const escalationTriggersResource = escalationsResource.addResource('triggers');
     escalationTriggersResource.addMethod('GET', lambdaIntegration);
-    escalationTriggersResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Escalation reasons endpoint (new)
     const escalationReasonsResource = escalationsResource.addResource('reasons');
     escalationReasonsResource.addMethod('GET', lambdaIntegration);
-    escalationReasonsResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Real-time metrics endpoint (enhanced)
     const realtimeResource = adminResource.addResource('realtime');
     realtimeResource.addMethod('GET', lambdaIntegration);
-    realtimeResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Chat history endpoint (legacy - maintained for backward compatibility)
     const chatHistoryResource = adminResource.addResource('chat-history');
     chatHistoryResource.addMethod('GET', lambdaIntegration);
-    chatHistoryResource.addMethod('OPTIONS', lambdaIntegration);
 
     // Health endpoint
     const healthResource = adminResource.addResource('health');
     healthResource.addMethod('GET', lambdaIntegration);
-    healthResource.addMethod('OPTIONS', lambdaIntegration);
 
     // ===== SCHEDULED ANALYTICS PROCESSING =====
 

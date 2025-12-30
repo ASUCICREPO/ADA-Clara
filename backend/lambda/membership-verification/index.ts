@@ -442,7 +442,7 @@ class MembershipVerificationService {
       organization: request.organization,
       profession: request.profession,
       status: result.status as any,
-      verificationMethod: result.verificationMethod,
+      verificationMethod: result.verificationMethod as 'manual' | 'automated' | 'third-party',
       verifiedAt: result.isValid ? now : undefined,
       expiresAt: result.expiresAt,
       credentials: request.credentials || {},
@@ -488,7 +488,7 @@ class MembershipVerificationService {
             Value: request.organization
           },
           {
-            Name: 'custom:verified_professional',
+            Name: 'custom:verified_pro',
             Value: result.isValid ? 'true' : 'pending'
           }
         ]
@@ -565,6 +565,91 @@ class MembershipVerificationService {
         },
         body: JSON.stringify({
           error: 'Failed to retrieve membership status',
+          message: error.message
+        })
+      };
+    }
+  }
+
+  /**
+   * Update membership information
+   */
+  async updateMembership(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+    try {
+      const body = JSON.parse(event.body || '{}');
+      const membershipId = body.membershipId;
+      
+      if (!membershipId) {
+        return {
+          statusCode: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            error: 'Missing membershipId in request body'
+          })
+        };
+      }
+
+      // Get existing membership record
+      const getCommand = new GetCommand({
+        TableName: process.env.PROFESSIONAL_MEMBERS_TABLE!,
+        Key: {
+          pk: `MEMBERSHIP#${membershipId}`,
+          sk: 'DETAILS'
+        }
+      });
+
+      const existingRecord = await this.dynamoClient.send(getCommand);
+      if (!existingRecord.Item) {
+        return {
+          statusCode: 404,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            error: 'Membership record not found'
+          })
+        };
+      }
+
+      // Update the record with new information
+      const updateData = {
+        ...existingRecord.Item,
+        ...body,
+        updatedAt: new Date().toISOString()
+      };
+
+      const putCommand = new PutCommand({
+        TableName: process.env.PROFESSIONAL_MEMBERS_TABLE!,
+        Item: updateData
+      });
+
+      await this.dynamoClient.send(putCommand);
+
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          message: 'Membership updated successfully',
+          membershipId: membershipId
+        })
+      };
+    } catch (error: any) {
+      console.error('❌ Failed to update membership:', error);
+      return {
+        statusCode: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          error: 'Failed to update membership',
           message: error.message
         })
       };

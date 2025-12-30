@@ -1299,11 +1299,15 @@ class WeeklyCrawlerScheduler {
     
     // Initialize monitoring service
     const alertConfig: AlertConfiguration = {
+      successRateThreshold: 80, // 80%
+      errorRateThreshold: 20, // 20%
+      performanceThreshold: 900000, // 15 minutes
       executionFailureThreshold: 3,
       highLatencyThreshold: 900000, // 15 minutes
       lowEfficiencyThreshold: 70, // 70%
-      errorRateThreshold: 20, // 20%
-      notificationTopicArn: process.env.FAILURE_NOTIFICATION_TOPIC || ''
+      notificationTopic: process.env.FAILURE_NOTIFICATION_TOPIC || '',
+      notificationTopicArn: process.env.FAILURE_NOTIFICATION_TOPIC || '',
+      enableAlerts: true
     };
     
     this.monitoringService = new CrawlerMonitoringService(
@@ -1348,30 +1352,7 @@ class WeeklyCrawlerScheduler {
       
       const result = await this.executeCrawl(executionId, config);
       
-      // Record execution completion with comprehensive metrics
-      const executionMetrics: ExecutionMetrics = {
-        executionId,
-        startTime,
-        endTime: new Date().toISOString(),
-        duration: result.duration,
-        status: result.failedUrls > 0 && result.processedUrls === 0 ? 'failed' : 'completed',
-        totalUrls: result.totalUrls,
-        processedUrls: result.processedUrls,
-        skippedUrls: result.skippedUrls,
-        failedUrls: result.failedUrls,
-        newContent: result.newContent,
-        modifiedContent: result.modifiedContent,
-        unchangedContent: result.unchangedContent,
-        vectorsCreated: result.vectorsCreated,
-        vectorsUpdated: result.vectorsUpdated,
-        changeDetectionTime: result.performance?.changeDetectionTime || 0,
-        embeddingGenerationTime: result.performance?.embeddingGenerationTime || 0,
-        vectorStorageTime: result.performance?.vectorStorageTime || 0,
-        errorCount: result.errors.length,
-        errors: result.errors.map(e => e.errorMessage)
-      };
-
-      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      await this.monitoringService.recordExecutionCompletion(result);
       
       GAErrorLogger.logInfo('Scheduled crawl execution completed', {
         executionId,
@@ -1391,12 +1372,11 @@ class WeeklyCrawlerScheduler {
       
     } catch (error: any) {
       // Record failed execution
-      const executionMetrics: ExecutionMetrics = {
+      const failedResult: CrawlerExecutionResult = {
         executionId,
         startTime,
         endTime: new Date().toISOString(),
         duration: Date.now() - new Date(startTime).getTime(),
-        status: 'failed',
         totalUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
         processedUrls: 0,
         skippedUrls: 0,
@@ -1406,14 +1386,25 @@ class WeeklyCrawlerScheduler {
         unchangedContent: 0,
         vectorsCreated: 0,
         vectorsUpdated: 0,
-        changeDetectionTime: 0,
-        embeddingGenerationTime: 0,
-        vectorStorageTime: 0,
-        errorCount: 1,
-        errors: [error.message]
+        errors: [{
+          url: 'system',
+          errorType: 'storage',
+          errorMessage: error.message,
+          timestamp: new Date().toISOString(),
+          retryAttempt: 0,
+          recoverable: false
+        }],
+        performance: {
+          averageProcessingTime: 0,
+          throughput: 0,
+          changeDetectionTime: 0,
+          embeddingGenerationTime: 0,
+          vectorStorageTime: 0
+        },
+        contentChanges: []
       };
 
-      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      await this.monitoringService.recordExecutionCompletion(failedResult);
       
       GAErrorLogger.logError(error, {
         operation: 'handleScheduledCrawl',
@@ -1465,30 +1456,7 @@ class WeeklyCrawlerScheduler {
       
       const result = await this.executeCrawl(executionId, config);
       
-      // Record execution completion with comprehensive metrics
-      const executionMetrics: ExecutionMetrics = {
-        executionId,
-        startTime,
-        endTime: new Date().toISOString(),
-        duration: result.duration,
-        status: result.failedUrls > 0 && result.processedUrls === 0 ? 'failed' : 'completed',
-        totalUrls: result.totalUrls,
-        processedUrls: result.processedUrls,
-        skippedUrls: result.skippedUrls,
-        failedUrls: result.failedUrls,
-        newContent: result.newContent,
-        modifiedContent: result.modifiedContent,
-        unchangedContent: result.unchangedContent,
-        vectorsCreated: result.vectorsCreated,
-        vectorsUpdated: result.vectorsUpdated,
-        changeDetectionTime: result.performance?.changeDetectionTime || 0,
-        embeddingGenerationTime: result.performance?.embeddingGenerationTime || 0,
-        vectorStorageTime: result.performance?.vectorStorageTime || 0,
-        errorCount: result.errors.length,
-        errors: result.errors.map(e => e.errorMessage)
-      };
-
-      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      await this.monitoringService.recordExecutionCompletion(result);
       
       GAErrorLogger.logInfo('Manual crawl execution completed', {
         executionId,
@@ -1509,12 +1477,11 @@ class WeeklyCrawlerScheduler {
       
     } catch (error: any) {
       // Record failed execution
-      const executionMetrics: ExecutionMetrics = {
+      const failedResult: CrawlerExecutionResult = {
         executionId,
         startTime,
         endTime: new Date().toISOString(),
         duration: Date.now() - new Date(startTime).getTime(),
-        status: 'failed',
         totalUrls: (event.targetUrls || DEFAULT_CRAWL_URLS).length,
         processedUrls: 0,
         skippedUrls: 0,
@@ -1524,14 +1491,25 @@ class WeeklyCrawlerScheduler {
         unchangedContent: 0,
         vectorsCreated: 0,
         vectorsUpdated: 0,
-        changeDetectionTime: 0,
-        embeddingGenerationTime: 0,
-        vectorStorageTime: 0,
-        errorCount: 1,
-        errors: [error.message]
+        errors: [{
+          url: 'system',
+          errorType: 'storage',
+          errorMessage: error.message,
+          timestamp: new Date().toISOString(),
+          retryAttempt: 0,
+          recoverable: false
+        }],
+        performance: {
+          averageProcessingTime: 0,
+          throughput: 0,
+          changeDetectionTime: 0,
+          embeddingGenerationTime: 0,
+          vectorStorageTime: 0
+        },
+        contentChanges: []
       };
 
-      await this.monitoringService.recordExecutionCompletion(executionMetrics);
+      await this.monitoringService.recordExecutionCompletion(failedResult);
       
       GAErrorLogger.logError(error, {
         operation: 'handleManualCrawl',
@@ -2025,29 +2003,6 @@ class WeeklyCrawlerScheduler {
   /**
    * Utility methods
    */
-  private determineContentType(url: string, title: string, content: string): 'article' | 'faq' | 'resource' | 'event' {
-    const urlLower = url.toLowerCase();
-    const titleLower = title.toLowerCase();
-    const contentLower = content.toLowerCase();
-    
-    if (urlLower.includes('faq') || titleLower.includes('faq') || 
-        contentLower.includes('frequently asked') || contentLower.includes('common questions')) {
-      return 'faq';
-    }
-    
-    if (urlLower.includes('event') || urlLower.includes('calendar') || 
-        titleLower.includes('event') || contentLower.includes('register')) {
-      return 'event';
-    }
-    
-    if (urlLower.includes('resource') || urlLower.includes('tool') || 
-        titleLower.includes('resource') || titleLower.includes('tool')) {
-      return 'resource';
-    }
-    
-    return 'article';
-  }
-  
   private extractSection(url: string): string {
     const path = new URL(url).pathname;
     const segments = path.split('/').filter(s => s.length > 0);

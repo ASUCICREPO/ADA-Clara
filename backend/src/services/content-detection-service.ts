@@ -40,8 +40,7 @@ export class ContentDetectionService {
         return {
           hasChanged: true,
           changeType: 'new',
-          currentHash,
-          processingDecision: 'processed'
+          currentHash
         };
       }
 
@@ -53,8 +52,7 @@ export class ContentDetectionService {
         changeType: hasChanged ? 'modified' : 'unchanged',
         previousHash: previousRecord.contentHash,
         currentHash,
-        lastCrawled: previousRecord.lastCrawled,
-        processingDecision: hasChanged ? 'processed' : 'skipped'
+        lastModified: previousRecord.lastModified
       };
 
     } catch (error) {
@@ -63,8 +61,7 @@ export class ContentDetectionService {
       return {
         hasChanged: true,
         changeType: 'new',
-        currentHash: this.generateContentHash(newContent),
-        processingDecision: 'processed'
+        currentHash: this.generateContentHash(newContent)
       };
     }
   }

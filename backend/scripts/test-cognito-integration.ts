@@ -125,7 +125,7 @@ class CognitoIntegrationTester {
         'membership_id',
         'organization',
         'language_preference',
-        'verified_professional'
+        'verified_pro'
       ];
 
       const implementedAttributes = customAttributes.filter(attr => 

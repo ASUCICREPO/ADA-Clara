@@ -73,6 +73,13 @@ export class SESEscalationStack extends Stack {
 
     // ===== LAMBDA FUNCTION =====
 
+    // Create CloudWatch Log Group for escalation Lambda
+    const escalationLogGroup = new logs.LogGroup(this, 'EscalationLambdaLogGroup', {
+      logGroupName: '/aws/lambda/ada-clara-ses-escalation',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+
     this.escalationLambda = new lambda.Function(this, 'EscalationLambda', {
       functionName: `ada-clara-ses-escalation-${this.account}-${this.region}`,
       runtime: lambda.Runtime.NODEJS_18_X,
@@ -88,9 +95,9 @@ export class SESEscalationStack extends Stack {
         SES_CONFIGURATION_SET: configurationSet.configurationSetName,
         AWS_REGION: this.region
       },
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      logGroup: escalationLogGroup,
       deadLetterQueue: this.escalationDLQ,
-      reservedConcurrentExecutions: 10
+      reservedConcurrentExecutions: 5
     });
 
     // ===== SQS EVENT SOURCE =====

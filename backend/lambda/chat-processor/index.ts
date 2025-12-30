@@ -859,6 +859,168 @@ class ChatProcessor {
     }
     return Math.abs(hash).toString(36);
   }
+
+  /**
+   * Get user sessions (chat history overview)
+   */
+  async getUserSessions(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+    try {
+      // Extract user ID from JWT token (simplified - in production would validate token)
+      const authHeader = event.headers.Authorization || event.headers.authorization;
+      if (!authHeader) {
+        return {
+          statusCode: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            error: 'Authorization required',
+            message: 'Please provide a valid JWT token'
+          })
+        };
+      }
+
+      // For now, return mock data - in production this would query DynamoDB
+      const sessions = [
+        {
+          sessionId: 'session-1',
+          startTime: '2024-01-15T10:00:00Z',
+          lastActivity: '2024-01-15T10:30:00Z',
+          messageCount: 5,
+          language: 'en',
+          summary: 'Questions about Type 1 diabetes management'
+        },
+        {
+          sessionId: 'session-2', 
+          startTime: '2024-01-14T14:00:00Z',
+          lastActivity: '2024-01-14T14:15:00Z',
+          messageCount: 3,
+          language: 'en',
+          summary: 'Insulin dosage questions'
+        }
+      ];
+
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        body: JSON.stringify({
+          sessions,
+          total: sessions.length
+        })
+      };
+
+    } catch (error: any) {
+      console.error('Get user sessions error:', error);
+      return {
+        statusCode: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          error: 'Failed to retrieve sessions',
+          message: error.message
+        })
+      };
+    }
+  }
+
+  /**
+   * Get specific session history
+   */
+  async getSessionHistory(event: APIGatewayProxyEvent, sessionId: string): Promise<APIGatewayProxyResult> {
+    try {
+      // Extract user ID from JWT token (simplified - in production would validate token)
+      const authHeader = event.headers.Authorization || event.headers.authorization;
+      if (!authHeader) {
+        return {
+          statusCode: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            error: 'Authorization required',
+            message: 'Please provide a valid JWT token'
+          })
+        };
+      }
+
+      if (!sessionId) {
+        return {
+          statusCode: 400,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          },
+          body: JSON.stringify({
+            error: 'Session ID required',
+            message: 'Please provide a valid session ID'
+          })
+        };
+      }
+
+      // For now, return mock data - in production this would query DynamoDB
+      const messages = [
+        {
+          id: 'msg-1',
+          sessionId,
+          timestamp: '2024-01-15T10:00:00Z',
+          sender: 'user',
+          message: 'What is Type 1 diabetes?',
+          language: 'en'
+        },
+        {
+          id: 'msg-2',
+          sessionId,
+          timestamp: '2024-01-15T10:00:30Z',
+          sender: 'bot',
+          message: 'Type 1 diabetes is an autoimmune condition where the pancreas produces little or no insulin...',
+          language: 'en',
+          confidence: 0.95,
+          sources: [
+            {
+              title: 'Understanding Type 1 Diabetes',
+              url: 'https://diabetes.org/about-diabetes/type-1'
+            }
+          ]
+        }
+      ];
+
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        },
+        body: JSON.stringify({
+          sessionId,
+          messages,
+          total: messages.length
+        })
+      };
+
+    } catch (error: any) {
+      console.error('Get session history error:', error);
+      return {
+        statusCode: 500,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          error: 'Failed to retrieve session history',
+          message: error.message
+        })
+      };
+    }
+  }
 }
 
 /**
@@ -873,75 +1035,97 @@ export const handler = async (
   const processor = new ChatProcessor();
 
   try {
-    // Handle different HTTP methods
-    switch (event.httpMethod) {
-      case 'POST':
-        // Process chat message
-        if (!event.body) {
-          return {
-            statusCode: 400,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Headers': 'Content-Type',
-              'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
-            },
-            body: JSON.stringify({
-              error: 'Request body is required'
-            })
-          };
-        }
+    const path = event.path;
+    const method = event.httpMethod;
 
-        const request: ChatRequest = JSON.parse(event.body);
-        const response = await processor.processMessage(request);
-
+    // Route based on path and method
+    if (method === 'POST' && path === '/chat') {
+      // Process chat message
+      if (!event.body) {
         return {
-          statusCode: 200,
+          statusCode: 400,
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
-          },
-          body: JSON.stringify(response)
-        };
-
-      case 'GET':
-        // Health check
-        const health = await processor.healthCheck();
-        
-        return {
-          statusCode: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          },
-          body: JSON.stringify(health)
-        };
-
-      case 'OPTIONS':
-        // CORS preflight
-        return {
-          statusCode: 200,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
-          },
-          body: ''
-        };
-
-      default:
-        return {
-          statusCode: 405,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
           },
           body: JSON.stringify({
-            error: 'Method not allowed'
+            error: 'Request body is required'
           })
         };
+      }
+
+      const request: ChatRequest = JSON.parse(event.body);
+      const response = await processor.processMessage(request);
+
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
+        },
+        body: JSON.stringify(response)
+      };
+
+    } else if (method === 'GET' && path === '/chat/history') {
+      // Get all user sessions
+      return await processor.getUserSessions(event);
+
+    } else if (method === 'GET' && path.startsWith('/chat/history/')) {
+      // Get specific session history
+      const sessionId = path.split('/').pop();
+      return await processor.getSessionHistory(event, sessionId!);
+
+    } else if (method === 'GET' && path === '/chat/sessions') {
+      // Get user sessions (alias for /chat/history)
+      return await processor.getUserSessions(event);
+
+    } else if (method === 'GET' && (path === '/chat' || path === '/health')) {
+      // Health check
+      const health = await processor.healthCheck();
+      
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify(health)
+      };
+
+    } else if (method === 'OPTIONS') {
+      // CORS preflight
+      return {
+        statusCode: 200,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
+        },
+        body: ''
+      };
+
+    } else {
+      return {
+        statusCode: 404,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        },
+        body: JSON.stringify({
+          error: 'Endpoint not found',
+          availableEndpoints: [
+            'POST /chat',
+            'GET /chat/history',
+            'GET /chat/history/{sessionId}',
+            'GET /chat/sessions',
+            'GET /health'
+          ]
+        })
+      };
     }
   } catch (error) {
     console.error('Chat processor error:', error);

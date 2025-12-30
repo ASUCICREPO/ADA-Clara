@@ -1,4 +1,4 @@
-import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy, SecretValue } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -9,6 +9,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as guardduty from 'aws-cdk-lib/aws-guardduty';
 import * as config from 'aws-cdk-lib/aws-config';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as logs from 'aws-cdk-lib/aws-logs';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 
@@ -34,11 +35,11 @@ export interface SecurityEnhancementsStackProps extends StackProps {
  * - Security monitoring and alerting
  */
 export class SecurityEnhancementsStack extends Stack {
-  public readonly webAcl: wafv2.CfnWebACL;
-  public readonly secretsManagerKey: kms.Key;
-  public readonly auditLogsBucket: s3.Bucket;
-  public readonly cloudTrail: cloudtrail.Trail;
-  public readonly securityNotificationTopic: sns.Topic;
+  public webAcl!: wafv2.CfnWebACL;
+  public secretsManagerKey!: kms.Key;
+  public auditLogsBucket!: s3.Bucket;
+  public cloudTrail!: cloudtrail.Trail;
+  public securityNotificationTopic!: sns.Topic;
 
   constructor(scope: Construct, id: string, props?: SecurityEnhancementsStackProps) {
     super(scope, id, props);
@@ -85,7 +86,6 @@ export class SecurityEnhancementsStack extends Stack {
       alias: 'ada-clara-secrets-key',
       description: 'KMS key for ADA Clara secrets encryption',
       enableKeyRotation: true,
-      keyRotation: kms.KeyRotation.ENABLED,
       keySpec: kms.KeySpec.SYMMETRIC_DEFAULT,
       keyUsage: kms.KeyUsage.ENCRYPT_DECRYPT,
       policy: new iam.PolicyDocument({
@@ -336,10 +336,10 @@ export class SecurityEnhancementsStack extends Stack {
       description: 'API keys and tokens for ADA Clara integrations',
       encryptionKey: this.secretsManagerKey,
       secretObjectValue: {
-        bedrockApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-bedrock-key'),
-        openaiApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-openai-key'),
-        twilioApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-twilio-key'),
-        sendgridApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-sendgrid-key')
+        bedrockApiKey: SecretValue.unsafePlainText('placeholder-bedrock-key'),
+        openaiApiKey: SecretValue.unsafePlainText('placeholder-openai-key'),
+        twilioApiKey: SecretValue.unsafePlainText('placeholder-twilio-key'),
+        sendgridApiKey: SecretValue.unsafePlainText('placeholder-sendgrid-key')
       },
       removalPolicy: RemovalPolicy.DESTROY
     });
@@ -350,6 +350,7 @@ export class SecurityEnhancementsStack extends Stack {
       description: 'JWT signing key for ADA Clara authentication',
       encryptionKey: this.secretsManagerKey,
       generateSecretString: {
+        secretStringTemplate: JSON.stringify({ algorithm: 'HS256' }),
         generateStringKey: 'signingKey',
         passwordLength: 64,
         excludeCharacters: '"@/\\\'',
@@ -364,9 +365,9 @@ export class SecurityEnhancementsStack extends Stack {
       description: 'Credentials for professional membership verification services',
       encryptionKey: this.secretsManagerKey,
       secretObjectValue: {
-        npiRegistryApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-npi-key'),
-        medicalBoardApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-board-key'),
-        nursingBoardApiKey: secretsmanager.SecretValue.unsafePlainText('placeholder-nursing-key')
+        npiRegistryApiKey: SecretValue.unsafePlainText('placeholder-npi-key'),
+        medicalBoardApiKey: SecretValue.unsafePlainText('placeholder-board-key'),
+        nursingBoardApiKey: SecretValue.unsafePlainText('placeholder-nursing-key')
       },
       removalPolicy: RemovalPolicy.DESTROY
     });
@@ -436,9 +437,9 @@ export class SecurityEnhancementsStack extends Stack {
       enableFileValidation: true,
       encryptionKey: this.secretsManagerKey,
       sendToCloudWatchLogs: true,
-      cloudWatchLogGroup: new cloudwatch.LogGroup(this, 'CloudTrailLogGroup', {
+      cloudWatchLogGroup: new logs.LogGroup(this, 'CloudTrailLogGroup', {
         logGroupName: '/aws/cloudtrail/ada-clara',
-        retention: cloudwatch.RetentionDays.ONE_MONTH,
+        retention: logs.RetentionDays.ONE_MONTH,
         removalPolicy: RemovalPolicy.DESTROY
       })
     });
@@ -449,8 +450,10 @@ export class SecurityEnhancementsStack extends Stack {
       objectPrefix: 'sensitive-data/'
     }]);
 
-    // Add Lambda data events
-    this.cloudTrail.addLambdaEventSelector(['arn:aws:lambda:*:*:function:ada-clara-*']);
+    // Add Lambda data events using event selectors
+    this.cloudTrail.addEventSelector(cloudtrail.DataResourceType.LAMBDA_FUNCTION, [
+      'arn:aws:lambda:*:*:function:ada-clara-*'
+    ]);
   }
 
   /**
@@ -548,8 +551,7 @@ export class SecurityEnhancementsStack extends Stack {
       source: {
         owner: 'AWS',
         sourceIdentifier: 'S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED'
-      },
-      dependsOn: ['ConfigRecorder']
+      }
     });
 
     // Lambda function encryption rule
@@ -559,10 +561,10 @@ export class SecurityEnhancementsStack extends Stack {
         owner: 'AWS',
         sourceIdentifier: 'LAMBDA_FUNCTION_SETTINGS_CHECK'
       },
-      inputParameters: JSON.stringify({
+      inputParameters: {
         runtime: 'nodejs20.x',
         timeout: '300'
-      })
+      }
     });
 
     // IAM password policy rule
@@ -572,13 +574,13 @@ export class SecurityEnhancementsStack extends Stack {
         owner: 'AWS',
         sourceIdentifier: 'IAM_PASSWORD_POLICY'
       },
-      inputParameters: JSON.stringify({
+      inputParameters: {
         RequireUppercaseCharacters: 'true',
         RequireLowercaseCharacters: 'true',
         RequireSymbols: 'false',
         RequireNumbers: 'true',
         MinimumPasswordLength: '8'
-      })
+      }
     });
   }
 
