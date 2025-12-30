@@ -82,7 +82,20 @@ export default function ChatPanel() {
       <div className="bg-gradient-to-r from-[#f9fafb] to-white border-b border-[#cbd5e1] flex-shrink-0" style={{ padding: '16px', minHeight: '86px', display: 'flex', alignItems: 'center' }}>
         <div className="flex items-center w-full" style={{ gap: '12px' }}>
           <div className="bg-[#a6192e] rounded-full w-12 h-12 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-lg font-bold">C</span>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Main outlet body */}
+              <rect x="7" y="9" width="10" height="7" rx="1.5" stroke="white" strokeWidth="2" fill="none"/>
+              {/* Left vertical slot */}
+              <ellipse cx="9.5" cy="12.5" rx="1" ry="2.5" fill="white"/>
+              {/* Right vertical slot */}
+              <ellipse cx="14.5" cy="12.5" rx="1" ry="2.5" fill="white"/>
+              {/* Left side connector */}
+              <line x1="4" y1="12.5" x2="7" y2="12.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+              {/* Right side connector */}
+              <line x1="17" y1="12.5" x2="20" y2="12.5" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+              {/* Top ground pin */}
+              <path d="M9.5 6L9.5 9L12 9" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            </svg>
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-[#020617] text-xl font-normal m-0" style={{ lineHeight: '30px', marginBottom: '4px' }}>Clara</h2>
