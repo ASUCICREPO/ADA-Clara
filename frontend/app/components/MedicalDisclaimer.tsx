@@ -1,6 +1,6 @@
 export default function MedicalDisclaimer() {
   return (
-    <div className="bg-[rgba(225,113,0,0.05)] rounded-[15px] w-full" style={{ padding: '16px', minHeight: '104px' }}>
+    <div className="bg-[rgba(225,113,0,0.05)] rounded-[15px] w-full" style={{ padding: '16px' }}>
       <div className="flex items-start w-full" style={{ gap: '8px' }}>
         <div className="w-5 h-5 flex-shrink-0" style={{ marginTop: '2px' }}>
           <svg

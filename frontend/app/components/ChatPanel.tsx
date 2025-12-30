@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import ChatMessage from './ChatMessage';
+import MedicalDisclaimer from './MedicalDisclaimer';
 
 interface Message {
   id: string;
@@ -54,7 +55,7 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_4px_16px_0px_rgba(0,0,0,0.05)] flex flex-col overflow-hidden w-full" style={{ height: '752px' }}>
+    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_4px_16px_0px_rgba(0,0,0,0.05)] flex flex-col overflow-hidden w-full" style={{ height: '680px', maxHeight: '85vh' }}>
       {/* Chat Header */}
       <div className="bg-gradient-to-r from-[#f9fafb] to-white border-b border-[#cbd5e1] flex-shrink-0" style={{ padding: '16px', minHeight: '86px', display: 'flex', alignItems: 'center' }}>
         <div className="flex items-center w-full" style={{ gap: '12px' }}>
@@ -76,6 +77,10 @@ export default function ChatPanel() {
       {/* Messages Area */}
       <div className="flex-1 bg-[#f8fafc] overflow-y-auto min-h-0" style={{ padding: '16px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {/* Medical Disclaimer at the beginning */}
+          <div style={{ marginBottom: '8px' }}>
+            <MedicalDisclaimer />
+          </div>
           {messages.map((message) => (
             <ChatMessage
               key={message.id}
