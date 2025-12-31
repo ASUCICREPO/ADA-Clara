@@ -106,3 +106,15 @@ SECURITY_AUDIT_REPORT.md
 CLEANUP_SUMMARY.md
 STACKS_ANALYSIS.md
 LAMBDA_ANALYSIS.md
+
+# Documentation files that tend to be temporary/generated
+*_ANALYSIS.md
+*_DEPLOYMENT_SUMMARY.md
+*_IMPLEMENTATION_GUIDE.md
+*_DEPLOYMENT_GUIDE.md
+*_API_SPEC.md
+*_GUIDE.md
+*_README.md
+!README.md
+!backend/README.md
+!frontend/README.md
