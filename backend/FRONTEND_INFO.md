@@ -1,15 +1,15 @@
 # ADA Clara Frontend Integration 
 
 ### **Live API Gateway**
-- **Base URL**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/`
+- **Base URL**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/`
 - **Status**: ✅ **100% CRITICAL ENDPOINTS WORKING**
-- **Health Check**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health` ✅ **WORKING**
-- **Public Chat**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat` ✅ **WORKING WITH ESCALATION**
-- **Escalation Form**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/escalation/request` ✅ **WORKING PERFECTLY**
-- **Admin Dashboard**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **COMPLETE DATA**
+- **Health Check**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/health` ✅ **WORKING**
+- **Public Chat**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/chat` ✅ **WORKING WITH ESCALATION**
+- **Escalation Form**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/escalation/request` ✅ **WORKING PERFECTLY**
+- **Admin Dashboard**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **COMPLETE DATA**
 
 ### **Admin Dashboard** ✅ **WORKING PERFECTLY**
-- **Dashboard Data**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **ALL FIELDS PRESENT**
+- **Dashboard Data**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard` ✅ **ALL FIELDS PRESENT**
 - **Response Format**: Perfect match with frontend expectations
 - **Test Result**: 100% success rate with all expected fields:
   - ✅ `metrics` (totalConversations: 1234, escalationRate: 18%, outOfScopeRate: 7%)
@@ -91,7 +91,7 @@
 
 3. **Environment Variables**:
    ```bash
-   NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+   NEXT_PUBLIC_API_URL=https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod
    NEXT_PUBLIC_USER_MODEL=simplified
    
    # Admin Only

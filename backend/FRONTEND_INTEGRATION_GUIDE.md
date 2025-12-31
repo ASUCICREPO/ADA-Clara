@@ -9,7 +9,7 @@
 
 ### **FULLY DEPLOYED & TESTED:**
 
-1. **API Gateway**: `https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/` ✅ **LIVE & WORKING**
+1. **API Gateway**: `https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/` ✅ **LIVE & WORKING**
 2. **Public Chat Endpoints**: ✅ **WORKING PERFECTLY**
    - `POST /chat` - Send message ✅ **FRONTEND-ALIGNED RESPONSE**
    - Chat escalation detection ✅ **WORKING**
@@ -73,22 +73,22 @@
 
 ```json
 {
-  "apiUrl": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod",
+  "apiUrl": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod",
   "userModel": "simplified",
   "userTypes": ["public", "admin"],
   
   "publicEndpoints": {
-    "health": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/health",
-    "chat": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat",
-    "chatHistory": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/history",
-    "chatSessions": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/chat/sessions",
-    "escalationRequest": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/escalation/request"
+    "health": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/health",
+    "chat": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/chat",
+    "chatHistory": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/chat/history",
+    "chatSessions": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/chat/sessions",
+    "escalationRequest": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/escalation/request"
   },
   
   "adminEndpoints": {
-    "auth": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth",
-    "authHealth": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/auth/health",
-    "dashboard": "https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard"
+    "auth": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/auth",
+    "authHealth": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/auth/health",
+    "dashboard": "https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod/admin/dashboard"
   },
   
   "authentication": {
@@ -135,7 +135,7 @@
 **API Base URLs**:
 ```bash
 # Development & Production (Same API Gateway)
-NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_API_URL=https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod
 ```
 
 **✅ Unified API Endpoints Available:**
@@ -973,7 +973,7 @@ export default AdminDashboard;
 
 ```bash
 # API Configuration
-NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_API_URL=https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod
 
 # Cognito Configuration (Admin Only)
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
@@ -991,7 +991,7 @@ NEXT_PUBLIC_USER_MODEL=simplified
 
 ```bash
 # API Configuration
-NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
+NEXT_PUBLIC_API_URL=https://drc24q02xb.execute-api.us-east-1.amazonaws.com/prod
 
 # Cognito Configuration (Admin Only)
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB

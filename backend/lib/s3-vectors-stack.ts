@@ -40,6 +40,7 @@ export class S3VectorsStack extends Stack {
   public readonly vectorsBucket: Bucket;
   public readonly vectorIndex: Index;
   public readonly crawlerFunction: lambda.Function;
+  public readonly webScraperFunction: lambda.Function; // New standalone web scraper
   public readonly kbTestFunction: lambda.Function;
   // public readonly knowledgeBaseStack: BedrockKnowledgeBaseGAStack; // Temporarily commented out for debugging
   
@@ -50,10 +51,6 @@ export class S3VectorsStack extends Stack {
 
   constructor(scope: Construct, id: string, props?: S3VectorsGAStackProps) {
     super(scope, id, props);
-
-    console.log('🚀 Starting S3VectorsGAStack construction...');
-    console.log('📋 Props received (DynamoDB stack provided)');
-    console.log('🔍 DEBUG: Constructor started successfully');
 
     // Regular S3 bucket for storing raw scraped content
     this.contentBucket = new s3.Bucket(this, 'ContentBucket', {
@@ -68,15 +65,12 @@ export class S3VectorsStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY, // For development - change for production
     });
 
-    console.log('🔍 DEBUG: About to create S3 Vectors bucket...');
-    
     try {
       // GA S3 Vectors bucket with enhanced features
       this.vectorsBucket = new Bucket(this, 'VectorsBucket', {
         vectorBucketName: `ada-clara-vectors-ga-${this.account}-${this.region}`,
         // GA features - encryption handled at bucket level
       });
-      console.log('✅ S3 Vectors bucket created successfully');
 
       // Create the index that Knowledge Base will use
       this.vectorIndex = new Index(this, 'VectorIndex', {
@@ -96,36 +90,30 @@ export class S3VectorsStack extends Stack {
           // GA metadata limits: 50 keys max, 2KB total size, 10 non-filterable keys max
         }
       });
-      console.log('✅ S3 Vectors index created for Knowledge Base use');
     } catch (error) {
       console.error('❌ ERROR creating S3 Vectors resources:', error);
       throw error;
     }
 
     // Create SNS Topic for failure notifications early (needed for IAM policies)
-    console.log('📧 Creating SNS failure notification topic...');
     this.failureNotificationTopic = new sns.Topic(this, 'CrawlerFailureNotifications', {
       topicName: 'ada-clara-crawler-failures',
       displayName: 'ADA Clara Crawler Failure Notifications',
     });
-    console.log('✅ Created SNS failure notification topic');
 
     // Add email subscription if provided
     if (props?.notificationEmail) {
       this.failureNotificationTopic.addSubscription(
         new subscriptions.EmailSubscription(props.notificationEmail)
       );
-      console.log('✅ Added email subscription to failure notification topic');
     }
 
     // Create Dead Letter Queue for failed crawler executions early (needed for IAM policies)
-    console.log('📦 Creating SQS dead letter queue...');
     this.crawlerDeadLetterQueue = new sqs.Queue(this, 'CrawlerDeadLetterQueue', {
       queueName: 'ada-clara-crawler-dlq',
       retentionPeriod: Duration.days(14), // Keep failed messages for 14 days
       visibilityTimeout: Duration.minutes(5)
     });
-    console.log('✅ Created SQS dead letter queue');
 
     // Lambda function optimized for GA performance (create before EventBridge rule)
     this.crawlerFunction = new lambda.Function(this, 'CrawlerFunction', {
@@ -215,34 +203,66 @@ export class S3VectorsStack extends Stack {
       resources: ['*'],
     }));
 
-    console.log('🔍 DEBUG: About to check DynamoDB stack dependency...');
-    
     // Grant DynamoDB permissions for content tracking (weekly crawler scheduling)
-    console.log('🔍 Checking DynamoDB stack dependency...');
     if (props?.dynamoDBStack) {
-      console.log('🗄️ Adding DynamoDB permissions...');
       try {
         // Grant access to content tracking table for change detection
         props.dynamoDBStack.contentTrackingTable.grantReadWriteData(this.crawlerFunction);
         
         // Add content tracking table name to environment variables
         this.crawlerFunction.addEnvironment('CONTENT_TRACKING_TABLE', props.dynamoDBStack.contentTrackingTable.tableName);
-        console.log('✅ DynamoDB permissions added');
       } catch (error) {
         console.error('❌ ERROR adding DynamoDB permissions:', error);
         throw error;
       }
-    } else {
-      console.log('⚠️ No DynamoDB stack provided');
     }
+
+    // ===== NEW STANDALONE WEB SCRAPER LAMBDA =====
+    // Dedicated Lambda for web scraping (separated from S3 Vectors operations)
+    
+    this.webScraperFunction = new lambda.Function(this, 'WebScraperFunction', {
+      functionName: `AdaClaraWebScraper-${Stack.of(this).region}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/web-scraper'),
+      timeout: Duration.minutes(10), // Shorter timeout for focused scraping
+      memorySize: 1024, // Less memory needed for scraping only
+      environment: {
+        CONTENT_BUCKET: this.contentBucket.bucketName,
+        CONTENT_TRACKING_TABLE: props?.dynamoDBStack?.contentTrackingTable.tableName || 'ada-clara-content-tracking',
+        TARGET_DOMAIN: 'diabetes.org',
+        MAX_PAGES: '10',
+        RATE_LIMIT_DELAY: '2000',
+        REQUEST_TIMEOUT: '30000',
+        USER_AGENT: 'ADA Clara Scraper/1.0 (Educational Purpose)',
+        ALLOWED_PATHS: '/about-diabetes,/living-with-diabetes,/tools-and-resources,/community,/professionals',
+        BLOCKED_PATHS: '/admin,/login,/api/internal,/private'
+      },
+    });
+
+    // Grant S3 permissions for content bucket (web scraper only needs content bucket)
+    this.contentBucket.grantReadWrite(this.webScraperFunction);
+    
+    // Grant DynamoDB permissions for content tracking
+    if (props?.dynamoDBStack) {
+      props.dynamoDBStack.contentTrackingTable.grantReadWriteData(this.webScraperFunction);
+    }
+
+    // Grant CloudWatch permissions for logging
+    this.webScraperFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'logs:CreateLogGroup',
+        'logs:CreateLogStream',
+        'logs:PutLogEvents',
+      ],
+      resources: ['*'],
+    }));
 
     // ===== SECURITY VALIDATION AND COMPLIANCE =====
     // Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
 
-    console.log('🔐 Implementing security validation and compliance features...');
-
     // ENCRYPTION REQUIREMENTS - Requirement 6.3: Ensure all stored content uses AWS managed encryption
-    console.log('🔐 Configuring encryption requirements...');
     
     // Update content bucket to enforce encryption
     this.contentBucket.addToResourcePolicy(new iam.PolicyStatement({
@@ -274,7 +294,6 @@ export class S3VectorsStack extends Stack {
     }));
 
     // AUDIT LOGGING - Requirement 6.5: Security audit and compliance logging
-    console.log('🔐 Configuring audit logging...');
     
     // Grant audit logging permissions to crawler function
     this.crawlerFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -308,7 +327,6 @@ export class S3VectorsStack extends Stack {
     }));
 
     // URL VALIDATION - Requirement 6.2: Add domain whitelist configuration
-    console.log('🔐 Configuring URL validation...');
     
     // Add security configuration to Lambda environment
     this.crawlerFunction.addEnvironment('ALLOWED_DOMAINS', 'diabetes.org,www.diabetes.org');
@@ -317,7 +335,6 @@ export class S3VectorsStack extends Stack {
     this.crawlerFunction.addEnvironment('MAX_URL_LENGTH', '2048');
 
     // RATE LIMITING - Requirement 6.4: Configure rate limiting for compliance
-    console.log('🔐 Configuring rate limiting...');
     
     // Add rate limiting configuration to Lambda environment
     this.crawlerFunction.addEnvironment('REQUESTS_PER_MINUTE', '10');
@@ -330,27 +347,11 @@ export class S3VectorsStack extends Stack {
     this.crawlerFunction.addEnvironment('AUDIT_RETENTION_DAYS', '90');
     this.crawlerFunction.addEnvironment('REQUIRED_ENCRYPTION', 'SSE-S3');
 
-    console.log('✅ Security validation and compliance features configured successfully!');
-
-    // ===== LAMBDA FUNCTION CREATION =====
-    console.log('🔧 Creating Lambda function...');
-
-    // ===== END SECURITY VALIDATION SECTION =====
-    
     // ===== BASIC CLOUDWATCH LOGGING =====
     // Only basic CloudWatch logging as shown in architecture diagram
-    
-    console.log('📊 Configuring basic CloudWatch logging (per architecture diagram)...');
-    
-    // Basic CloudWatch permissions for Lambda logging (already handled by CDK)
-    // No complex monitoring dashboard needed - architecture only shows CloudWatch Logs
-    
-    console.log('✅ Basic CloudWatch logging configured');
 
     // ===== EVENTBRIDGE SCHEDULING TEMPORARILY DISABLED =====
     // TODO: Add EventBridge scheduling in a separate deployment phase
-    console.log('⏰ EventBridge scheduling temporarily disabled to resolve circular dependency...');
-    
     // Create a placeholder rule for outputs (not actually used)
     this.weeklyScheduleRule = new events.Rule(this, 'PlaceholderScheduleRule', {
       ruleName: 'ada-clara-placeholder-schedule',
@@ -361,21 +362,15 @@ export class S3VectorsStack extends Stack {
     
     // Set the rule name in Lambda environment (for compatibility)
     this.crawlerFunction.addEnvironment('SCHEDULE_RULE_NAME', this.weeklyScheduleRule.ruleName);
-    
-    console.log('✅ Placeholder EventBridge rule created (disabled)');
 
     // ===== END LOGGING SECTION =====
     
     // ===== BASIC ENVIRONMENT CONFIGURATION =====
-    console.log('🔧 Adding basic environment configuration...');
-    
     // Add basic environment variables (no EventBridge targets to avoid circular dependency)
     this.crawlerFunction.addEnvironment('FAILURE_NOTIFICATION_TOPIC', this.failureNotificationTopic.topicArn);
     this.crawlerFunction.addEnvironment('DEAD_LETTER_QUEUE_URL', this.crawlerDeadLetterQueue.queueUrl);
     this.crawlerFunction.addEnvironment('MONITORING_ENABLED', 'false'); // Simplified
     this.crawlerFunction.addEnvironment('EXECUTION_HISTORY_TABLE', props?.dynamoDBStack?.contentTrackingTable.tableName || 'ada-clara-content-tracking');
-    
-    console.log('✅ Basic environment configuration completed');
 
     // Knowledge Base test Lambda function for GA integration
     this.kbTestFunction = new lambda.Function(this, 'KBTestFunction', {
@@ -408,15 +403,10 @@ export class S3VectorsStack extends Stack {
     }));
 
     // Knowledge Base is deployed as a separate stack (AdaClaraBedrockKnowledgeBase)
-    console.log('🔧 Knowledge Base will be deployed as separate stack...');
-    console.log('✅ S3 Vectors infrastructure ready for Knowledge Base integration');
-
     // Update KB test function environment with GA S3 Vectors configuration
-    console.log('🔧 Updating KB test function environment...');
     this.kbTestFunction.addEnvironment('VECTORS_BUCKET', this.vectorsBucket.vectorBucketName);
     this.kbTestFunction.addEnvironment('VECTOR_INDEX', this.vectorIndex.indexName);
     this.kbTestFunction.addEnvironment('CONTENT_BUCKET', this.contentBucket.bucketName);
-    console.log('✅ KB test function environment updated');
 
     // Outputs for GA infrastructure
     new CfnOutput(this, 'ContentBucketName', {
@@ -437,6 +427,11 @@ export class S3VectorsStack extends Stack {
     new CfnOutput(this, 'CrawlerFunctionName', {
       value: this.crawlerFunction.functionName,
       description: 'Name of the GA-optimized crawler Lambda function'
+    });
+
+    new CfnOutput(this, 'WebScraperFunctionName', {
+      value: this.webScraperFunction.functionName,
+      description: 'Name of the standalone web scraper Lambda function'
     });
 
     new CfnOutput(this, 'KBTestFunctionName', {
