@@ -15,8 +15,8 @@
 
 import { Handler, APIGatewayProxyEvent, APIGatewayProxyResult, EventBridgeEvent } from 'aws-lambda';
 import { CloudWatchClient, PutMetricDataCommand, MetricDatum } from '@aws-sdk/client-cloudwatch';
-import { ContentDetectionService } from '../src/services/content-detection-service';
-import { CrawlerMonitoringService, ExecutionMetrics, AlertConfiguration } from '../src/services/crawler-monitoring-service';
+import { ContentDetectionService } from '../../src/services/content-detection-service';
+import { CrawlerMonitoringService, ExecutionMetrics, AlertConfiguration } from '../../src/services/crawler-monitoring-service';
 import { 
   ScheduledCrawlEvent, 
   ManualCrawlEvent, 
@@ -25,7 +25,7 @@ import {
   ContentChangesSummary,
   CrawlerConfiguration,
   ExecutionMetrics as CrawlerExecutionMetrics
-} from '../src/types/index';
+} from '../../src/types/index';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';

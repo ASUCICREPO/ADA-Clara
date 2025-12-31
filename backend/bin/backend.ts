@@ -4,10 +4,8 @@ import { AdaClaraDynamoDBStack } from '../lib/dynamodb-stack';
 import { CognitoAuthStack } from '../lib/cognito-auth-stack';
 import { RAGProcessorStack } from '../lib/rag-processor-stack';
 import { SecurityEnhancementsStack } from '../lib/security-enhancements-stack';
-import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
-import { AdminAnalyticsStack } from '../lib/legacy/admin-analytics-stacks-stack';
-import { AdaClaraChatProcessorStack } from '../lib/legacy/chat-processor-stackr-stack';
-import { UnifiedApiStack } from '../lib/legacy/unified-api-stack';
+import { S3VectorsStack } from '../lib/s3-vectors-stack';
+import { BedrockKnowledgeBaseStack } from '../lib/bedrock-knowledge-base-stack';
 import { FrontendAlignedApiStack } from '../lib/frontend-aligned-api-stack';
 
 const app = new cdk.App();
@@ -39,69 +37,32 @@ const cognitoStack = new CognitoAuthStack(app, 'AdaClaraCognitoAuth', {
   }
 });
 
-// S3 Vectors GA stack with EventBridge scheduling
-const s3VectorsStack = new S3VectorsGAStack(app, 'AdaClaraS3VectorsGA', {
+// S3 Vectors stack with EventBridge scheduling
+const s3VectorsStack = new S3VectorsStack(app, 'AdaClaraS3Vectors', {
   env,
   dynamoDBStack: dynamoDBStack,
-  // EventBridge scheduling configuration
+  // EventBridge scheduling configuration - RE-ENABLED after fixing circular dependency
   scheduleExpression: 'rate(7 days)', // Weekly scheduling
-  scheduleEnabled: true,
+  scheduleEnabled: true, // Re-enabled after fixing circular dependency
   retryAttempts: 3,
   retryBackoffRate: 2.0,
 });
 
-// RAG Processor stack
-const ragProcessorStack = new RAGProcessorStack(app, 'AdaClaraRAGProcessor', {
+// Bedrock Knowledge Base stack
+const bedrockKnowledgeBaseStack = new BedrockKnowledgeBaseStack(app, 'AdaClaraBedrockKnowledgeBase', {
   env,
   contentBucket: s3VectorsStack.contentBucket,
-  vectorsBucket: s3VectorsStack.vectorsBucket.vectorBucketName,
-  vectorIndex: s3VectorsStack.vectorIndex.indexName
+  vectorsBucket: s3VectorsStack.vectorsBucket,
+  vectorIndex: s3VectorsStack.vectorIndex
 });
 
-// Admin Analytics stack
-const adminAnalyticsStack = new AdminAnalyticsStack(app, 'AdaClaraAdminAnalytics', {
-  env
-});
-
-// Chat Processor stack
-const chatProcessorStack = new AdaClaraChatProcessorStack(app, 'AdaClaraChatProcessor', {
-  env
-});
-
-// Unified API stack - consolidates all endpoints
-const unifiedApiStack = new UnifiedApiStack(app, 'AdaClaraUnifiedAPI', {
-  env,
-  chatFunction: chatProcessorStack.chatFunction,
-  ragFunction: ragProcessorStack.ragFunction,
-  adminFunction: adminAnalyticsStack.analyticsLambda,
-  authFunction: cognitoStack.authLambda,
-  membershipFunction: cognitoStack.membershipVerificationLambda,
-  description: 'ADA Clara Unified API Gateway - Single endpoint for all services'
-});
-
-// Add dependencies for unified API
-unifiedApiStack.addDependency(dynamoDBStack);
-unifiedApiStack.addDependency(cognitoStack);
-unifiedApiStack.addDependency(s3VectorsStack);
-unifiedApiStack.addDependency(ragProcessorStack);
-unifiedApiStack.addDependency(adminAnalyticsStack);
-unifiedApiStack.addDependency(chatProcessorStack);
-
-// Security Enhancements stack
-new SecurityEnhancementsStack(app, 'AdaClaraSecurityEnhancements', {
-  env,
-  apiGatewayArn: unifiedApiStack.api.arnForExecuteApi(), // Use unified API
-  notificationEmail: process.env.SECURITY_NOTIFICATION_EMAIL,
-  enableGuardDuty: true,
-  enableConfig: true,
-  enableCloudTrail: true,
-  retentionDays: 90
-});
-
-// Frontend-Aligned API Stack (New - Simplified Deployment)
-// This stack creates a clean, CDK-managed version of the manually deployed API
-// Use this for future deployments instead of manual Lambda/API Gateway creation
-new FrontendAlignedApiStack(app, 'AdaClaraFrontendAlignedApi', {
+// Frontend-Aligned API Stack (Current Working API)
+const frontendAlignedApiStack = new FrontendAlignedApiStack(app, 'AdaClaraFrontendAlignedApi', {
   env,
   description: 'ADA Clara Frontend-Aligned API - Clean CDK deployment with all working endpoints'
 });
+
+// Add dependencies
+bedrockKnowledgeBaseStack.addDependency(s3VectorsStack);
+frontendAlignedApiStack.addDependency(dynamoDBStack);
+frontendAlignedApiStack.addDependency(cognitoStack);

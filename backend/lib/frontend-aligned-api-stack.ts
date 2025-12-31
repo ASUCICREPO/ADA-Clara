@@ -47,6 +47,25 @@ export class FrontendAlignedApiStack extends Stack {
       ]
     });
 
+    // CloudWatch Log Groups for Lambda functions
+    const chatProcessorLogGroup = new logs.LogGroup(this, 'ChatProcessorLogGroup', {
+      logGroupName: '/aws/lambda/ada-clara-simple-chat-processor',
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+
+    const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
+      logGroupName: '/aws/lambda/ada-clara-escalation-handler-v2',
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+
+    const adminAnalyticsLogGroup = new logs.LogGroup(this, 'AdminAnalyticsLogGroup', {
+      logGroupName: '/aws/lambda/ada-clara-admin-analytics-v2',
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+
     // Simple Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'SimpleChatProcessor', {
       functionName: 'ada-clara-simple-chat-processor',
@@ -56,7 +75,7 @@ export class FrontendAlignedApiStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 256,
       role: lambdaExecutionRole,
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: chatProcessorLogGroup,
       description: 'Simple chat processor with frontend-aligned responses'
     });
 
@@ -72,7 +91,7 @@ export class FrontendAlignedApiStack extends Stack {
       environment: {
         ESCALATION_REQUESTS_TABLE: escalationRequestsTable.tableName
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: escalationHandlerLogGroup,
       description: 'Handles Talk to Person form submissions'
     });
 
@@ -85,7 +104,7 @@ export class FrontendAlignedApiStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 256,
       role: lambdaExecutionRole,
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logGroup: adminAnalyticsLogGroup,
       description: 'Provides admin dashboard analytics data'
     });
 
