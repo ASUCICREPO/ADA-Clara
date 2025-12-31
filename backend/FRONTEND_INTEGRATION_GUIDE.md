@@ -29,7 +29,9 @@
 - **User Pool ID**: `us-east-1_hChjb1rUB` ✅ **ACTIVE**
 - **Client ID**: `3f8vld6mnr1nsfjci1b61okc46` ✅ **CONFIGURED**
 - **Identity Pool ID**: `us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c` ✅ **ACTIVE**
-- **Domain**: `https://ada-clara-023336033519.auth.us-east-1.amazoncognito.com` ✅ **ACCESSIBLE**
+- **Domain**: `https://ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com` ✅ **ACCESSIBLE**
+
+> **Note**: These are the actual deployed resource IDs for the current environment. In production deployments, these values should be retrieved from environment variables or AWS Systems Manager Parameter Store.
 
 ## Overview
 
@@ -93,7 +95,7 @@
     "userPoolId": "us-east-1_hChjb1rUB",
     "clientId": "3f8vld6mnr1nsfjci1b61okc46",
     "identityPoolId": "us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c",
-    "domain": "https://ada-clara-023336033519.auth.us-east-1.amazoncognito.com",
+    "domain": "https://ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com",
     "requiredFor": ["admin"]
   },
   
@@ -118,9 +120,9 @@
   "aws_user_pools_id": "us-east-1_hChjb1rUB",
   "aws_user_pools_web_client_id": "3f8vld6mnr1nsfjci1b61okc46",
   "aws_cognito_identity_pool_id": "us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c",
-  "aws_user_pool_domain": "ada-clara-023336033519.auth.us-east-1.amazoncognito.com",
+  "aws_user_pool_domain": "ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com",
   "oauth": {
-    "domain": "ada-clara-023336033519.auth.us-east-1.amazoncognito.com",
+    "domain": "ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com",
     "scope": ["email", "openid", "profile"],
     "redirectSignIn": "http://localhost:3000/auth/callback",
     "redirectSignOut": "http://localhost:3000",
@@ -394,7 +396,7 @@ const adminAmplifyConfig = {
     userPoolWebClientId: '3f8vld6mnr1nsfjci1b61okc46',
     identityPoolId: 'us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c',
     oauth: {
-      domain: 'ada-clara-023336033519.auth.us-east-1.amazoncognito.com',
+      domain: 'ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com',
       scope: ['email', 'openid', 'profile'],
       redirectSignIn: process.env.NODE_ENV === 'production' 
         ? 'https://YOUR_PRODUCTION_DOMAIN.com/admin/callback' // Update this!
@@ -977,7 +979,7 @@ NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID=3f8vld6mnr1nsfjci1b61okc46
 NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c
-NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.com
+NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com
 
 # App Configuration
 NEXT_PUBLIC_APP_NAME=ADA Clara
@@ -995,7 +997,7 @@ NEXT_PUBLIC_API_URL=https://gew0atxbl4.execute-api.us-east-1.amazonaws.com/prod
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
 NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID=3f8vld6mnr1nsfjci1b61okc46
 NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c
-NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.com
+NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com
 
 # App Configuration
 NEXT_PUBLIC_APP_NAME=ADA Clara

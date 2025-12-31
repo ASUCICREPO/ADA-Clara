@@ -1,6 +1,7 @@
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+**/cdk.out/
 
 # Dependencies
 node_modules
@@ -36,10 +37,12 @@ next-env.d.ts
 .DS_Store
 *.pem
 
-# IDE
+# IDE and Kiro files
 .idea
 .vscode
-.kiro
+.kiro/
+.kiro/specs/
+.kiro/steering/
 *.swp
 *.swo
 
@@ -75,5 +78,31 @@ test-auth-payload.json
 # CDK compiled output
 bin/*.js
 
-# Security audit report (temporary)
+# Lambda packages (build artifacts)
+backend/lambda-packages/
+backend/lambda-ga/
+backend/lambda-kb-ga/
+
+# Temporary documentation
+docs/kiroDocs/
+
+# Legacy/archived code
+backend/lib/legacy/
+backend/lambda/legacy/
+
+# Experimental/temporary scripts (keep only essential ones)
+backend/scripts/deploy-*.ts
+!backend/scripts/deploy-frontend-aligned-stack.ts
+backend/scripts/test-*.ts
+!backend/scripts/test-frontend-aligned-api.ts
+backend/scripts/add-*.ts
+backend/scripts/add-*.sh
+backend/scripts/create-*.ts
+backend/scripts/*-cli.sh
+backend/scripts/simplify-*.sh
+
+# Temporary files
 SECURITY_AUDIT_REPORT.md
+CLEANUP_SUMMARY.md
+STACKS_ANALYSIS.md
+LAMBDA_ANALYSIS.md

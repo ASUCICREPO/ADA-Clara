@@ -11,7 +11,7 @@ import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import { Bucket, Index } from 'cdk-s3-vectors';
-// import { BedrockKnowledgeBaseGAStack } from './bedrock-knowledge-base-ga-stack'; // Temporarily commented out for debugging
+// import { BedrockKnowledgeBaseStack } from './bedrock-knowledge-base-stack'; // Temporarily commented out for debugging
 import { AdaClaraDynamoDBStack } from './dynamodb-stack';
 
 /**
@@ -36,7 +36,7 @@ interface S3VectorsGAStackProps extends StackProps {
   retryBackoffRate?: number; // Default: 2.0 (exponential backoff)
 }
 
-export class S3VectorsGAStack extends Stack {
+export class S3VectorsStack extends Stack {
   public readonly contentBucket: s3.Bucket;
   public readonly vectorsBucket: Bucket;
   public readonly vectorIndex: Index;
@@ -138,7 +138,7 @@ export class S3VectorsGAStack extends Stack {
     this.crawlerFunction = new lambda.Function(this, 'CrawlerFunction', {
       runtime: lambda.Runtime.NODEJS_20_X, // Updated to Node.js 20 for better compatibility
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda-ga'), // Compiled JavaScript
+      code: lambda.Code.fromAsset('lambda/s3-vectors'), // Standardized path
       timeout: Duration.minutes(15),
       memorySize: 3008, // Increased for GA throughput (1,000 vectors/second)
       environment: {
@@ -824,7 +824,7 @@ export class S3VectorsGAStack extends Stack {
     this.kbTestFunction = new lambda.Function(this, 'KBTestFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda-kb-ga'),
+      code: lambda.Code.fromAsset('lambda/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {

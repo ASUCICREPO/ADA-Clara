@@ -9,8 +9,8 @@ export class S3Service {
   private client: S3Client;
   
   // Bucket names from environment variables or defaults
-  private readonly CONTENT_BUCKET = process.env.CONTENT_BUCKET || 'ada-clara-content-minimal-023336033519-us-east-1';
-  private readonly VECTORS_BUCKET = process.env.VECTORS_BUCKET || 'ada-clara-vectors-minimal-023336033519-us-east-1';
+  private readonly CONTENT_BUCKET = process.env.CONTENT_BUCKET || `ada-clara-content-${process.env.AWS_ACCOUNT_ID || 'dev'}-${process.env.AWS_REGION || 'us-east-1'}`;
+  private readonly VECTORS_BUCKET = process.env.VECTORS_BUCKET || `ada-clara-vectors-${process.env.AWS_ACCOUNT_ID || 'dev'}-${process.env.AWS_REGION || 'us-east-1'}`;
 
   constructor() {
     this.client = new S3Client({

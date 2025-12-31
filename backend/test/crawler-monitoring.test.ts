@@ -22,7 +22,7 @@ describe('CrawlerMonitoringService', () => {
       highLatencyThreshold: 900000, // 15 minutes
       lowEfficiencyThreshold: 70, // 70%
       errorRateThreshold: 20, // 20%
-      notificationTopicArn: 'arn:aws:sns:us-east-1:123456789012:test-topic'
+      notificationTopicArn: 'arn:aws:sns:us-east-1:123456789012:test-topic' // Generic test account ID
     };
 
     monitoringService = new CrawlerMonitoringService(

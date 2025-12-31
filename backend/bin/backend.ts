@@ -5,9 +5,9 @@ import { CognitoAuthStack } from '../lib/cognito-auth-stack';
 import { RAGProcessorStack } from '../lib/rag-processor-stack';
 import { SecurityEnhancementsStack } from '../lib/security-enhancements-stack';
 import { S3VectorsGAStack } from '../lib/s3-vectors-ga-stack';
-import { AdminAnalyticsStack } from '../lib/admin-analytics-stack';
-import { AdaClaraChatProcessorStack } from '../lib/chat-processor-stack';
-import { UnifiedApiStack } from '../lib/unified-api-stack';
+import { AdminAnalyticsStack } from '../lib/legacy/admin-analytics-stacks-stack';
+import { AdaClaraChatProcessorStack } from '../lib/legacy/chat-processor-stackr-stack';
+import { UnifiedApiStack } from '../lib/legacy/unified-api-stack';
 import { FrontendAlignedApiStack } from '../lib/frontend-aligned-api-stack';
 
 const app = new cdk.App();

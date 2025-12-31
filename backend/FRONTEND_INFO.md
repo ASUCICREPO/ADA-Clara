@@ -79,7 +79,7 @@
        userPoolWebClientId: '3f8vld6mnr1nsfjci1b61okc46',
        identityPoolId: 'us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c',
        oauth: {
-         domain: 'ada-clara-023336033519.auth.us-east-1.amazoncognito.com',
+         domain: 'ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com',
          scope: ['email', 'openid', 'profile'],
          redirectSignIn: 'http://localhost:3000/admin/callback',
          redirectSignOut: 'http://localhost:3000/admin',
@@ -98,7 +98,7 @@
    NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_hChjb1rUB
    NEXT_PUBLIC_COGNITO_USER_POOL_CLIENT_ID=3f8vld6mnr1nsfjci1b61okc46
    NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=us-east-1:7d2a7873-1502-4d74-b042-57cdee6d600c
-   NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.com
+   NEXT_PUBLIC_COGNITO_DOMAIN=ada-clara-{ACCOUNT_ID}.auth.us-east-1.amazoncognito.com
    ```
 ---
 

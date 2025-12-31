@@ -5,7 +5,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Bucket, Index } from 'cdk-s3-vectors';
 
-export interface BedrockKnowledgeBaseGAProps extends StackProps {
+export interface BedrockKnowledgeBaseProps extends StackProps {
   contentBucket: s3.Bucket;
   vectorsBucket: Bucket;
   vectorIndex: Index;
@@ -19,11 +19,11 @@ export interface BedrockKnowledgeBaseGAProps extends StackProps {
  * may not be fully available in CDK yet, this focuses on testing the
  * GA S3 Vectors functionality that will integrate with Knowledge Base.
  */
-export class BedrockKnowledgeBaseGAStack extends Stack {
+export class BedrockKnowledgeBaseStack extends Stack {
   public readonly knowledgeBaseRole: iam.Role;
   public readonly testFunction: lambda.Function;
 
-  constructor(scope: Construct, id: string, props: BedrockKnowledgeBaseGAProps) {
+  constructor(scope: Construct, id: string, props: BedrockKnowledgeBaseProps) {
     super(scope, id, props);
 
     // IAM role for future Knowledge Base integration with S3 Vectors GA
@@ -78,7 +78,7 @@ export class BedrockKnowledgeBaseGAStack extends Stack {
       functionName: `AdaClaraKBGATest-${Stack.of(this).region}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda-kb-ga'),
+      code: lambda.Code.fromAsset('lambda/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {
