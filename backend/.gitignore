@@ -1,3 +1,24 @@
 node_modules
 cdk.out
 cdk-out-*
+
+# Build artifacts
+dist/
+
+# Test files (temporary)
+test-*.js
+debug-*.js
+quick-system-test.js
+rigorous-system-tests.js
+final-status-test.js
+
+# Lambda packages (generated)
+*.zip
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

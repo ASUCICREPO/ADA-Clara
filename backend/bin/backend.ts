@@ -59,7 +59,8 @@ const bedrockKnowledgeBaseStack = new BedrockKnowledgeBaseStack(app, 'AdaClaraBe
 // Frontend-Aligned API Stack (Current Working API)
 const frontendAlignedApiStack = new FrontendAlignedApiStack(app, 'AdaClaraFrontendAlignedApi', {
   env,
-  description: 'ADA Clara Frontend-Aligned API - Clean CDK deployment with all working endpoints'
+  description: 'ADA Clara Frontend-Aligned API - Clean CDK deployment with all working endpoints',
+  dynamoDBStack: dynamoDBStack
 });
 
 // Add dependencies

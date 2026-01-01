@@ -5,6 +5,11 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import { AdaClaraDynamoDBStack } from './dynamodb-stack';
+
+export interface FrontendAlignedApiStackProps extends StackProps {
+  dynamoDBStack: AdaClaraDynamoDBStack;
+}
 
 /**
  * Frontend-Aligned API Stack
@@ -13,11 +18,10 @@ import * as logs from 'aws-cdk-lib/aws-logs';
  * that were manually deployed for frontend alignment.
  * 
  * Includes:
- * - Simple Chat Processor Lambda
+ * - Simple Chat Processor Lambda (NEW ARCHITECTURE)
  * - Escalation Handler Lambda  
  * - Admin Analytics Lambda
  * - Complete API Gateway with all routes
- * - DynamoDB tables
  * - Proper permissions and CORS
  */
 export class FrontendAlignedApiStack extends Stack {
@@ -26,8 +30,10 @@ export class FrontendAlignedApiStack extends Stack {
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: FrontendAlignedApiStackProps) {
     super(scope, id, props);
+
+    const { dynamoDBStack } = props;
 
     // DynamoDB Tables
     const escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
@@ -44,7 +50,31 @@ export class FrontendAlignedApiStack extends Stack {
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
         iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess')
-      ]
+      ],
+      inlinePolicies: {
+        BedrockAndComprehendAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream'
+              ],
+              resources: [
+                'arn:aws:bedrock:*::foundation-model/*'
+              ]
+            }),
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'comprehend:DetectDominantLanguage',
+                'comprehend:DetectSentiment'
+              ],
+              resources: ['*']
+            })
+          ]
+        })
+      }
     });
 
     // CloudWatch Log Groups for Lambda functions
@@ -66,50 +96,69 @@ export class FrontendAlignedApiStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY
     });
 
-    // Simple Chat Processor Lambda
+    // Simple Chat Processor Lambda (NEW ARCHITECTURE)
     this.chatProcessor = new lambda.Function(this, 'SimpleChatProcessor', {
       functionName: 'ada-clara-simple-chat-processor',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-processor'),
+      code: lambda.Code.fromAsset('dist/chat-processor'), // ← Using built assets
       timeout: Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
       logGroup: chatProcessorLogGroup,
-      description: 'Simple chat processor with frontend-aligned responses'
+      description: 'Chat processor with clean architecture - TypeScript bundled',
+      environment: {
+        SESSIONS_TABLE: dynamoDBStack.chatSessionsTable.tableName,
+        MESSAGES_TABLE: dynamoDBStack.messagesTable.tableName,
+        ANALYTICS_TABLE: dynamoDBStack.analyticsTable.tableName,
+        ESCALATION_REQUESTS_TABLE: escalationRequestsTable.tableName,
+        // Add correct table names for the service
+        CHAT_SESSIONS_TABLE: dynamoDBStack.chatSessionsTable.tableName,
+        CONVERSATIONS_TABLE: dynamoDBStack.conversationsTable.tableName
+      }
     });
 
-    // Escalation Handler Lambda
+    // Escalation Handler Lambda (NEW ARCHITECTURE)
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
-      functionName: 'ada-clara-escalation-handler-v2',
+      functionName: 'ada-clara-escalation-handler-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/escalation-handler'),
+      code: lambda.Code.fromAsset('dist/escalation-handler'), // ← Using built assets
       timeout: Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: escalationRequestsTable.tableName
       },
       logGroup: escalationHandlerLogGroup,
-      description: 'Handles Talk to Person form submissions'
+      description: 'Escalation handler with clean architecture - TypeScript bundled'
     });
 
-    // Admin Analytics Lambda
+    // Admin Analytics Lambda (NEW ARCHITECTURE)
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
-      functionName: 'ada-clara-admin-analytics-v2',
+      functionName: 'ada-clara-admin-analytics-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/admin-analytics'),
+      code: lambda.Code.fromAsset('dist/admin-analytics'), // ← Using built assets
       timeout: Duration.seconds(30),
-      memorySize: 256,
+      memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
       logGroup: adminAnalyticsLogGroup,
-      description: 'Provides admin dashboard analytics data'
+      description: 'Admin analytics with clean architecture - TypeScript bundled',
+      environment: {
+        ANALYTICS_TABLE: dynamoDBStack.analyticsTable.tableName,
+        CONVERSATIONS_TABLE: dynamoDBStack.conversationsTable.tableName,
+        QUESTIONS_TABLE: dynamoDBStack.questionsTable.tableName,
+        UNANSWERED_QUESTIONS_TABLE: dynamoDBStack.unansweredQuestionsTable.tableName
+      }
     });
 
     // Grant DynamoDB permissions
     escalationRequestsTable.grantReadWriteData(this.escalationHandler);
+    
+    // Grant access to DynamoDB tables from the main stack
+    dynamoDBStack.grantFullAccess(this.chatProcessor);
+    dynamoDBStack.grantReadAccess(this.adminAnalytics);
 
     // API Gateway
     this.api = new apigateway.RestApi(this, 'FrontendAlignedApi', {
@@ -165,7 +214,7 @@ export class FrontendAlignedApiStack extends Stack {
     
     // Admin escalation requests
     const adminEscalationResource = adminResource.addResource('escalation-requests');
-    adminEscalationResource.addMethod('GET', new apigateway.LambdaIntegration(this.escalationHandler));
+    adminEscalationResource.addMethod('GET', escalationIntegration); // Use escalation integration for proper handling
     
     // Additional admin endpoints
     const conversationsResource = adminResource.addResource('conversations');

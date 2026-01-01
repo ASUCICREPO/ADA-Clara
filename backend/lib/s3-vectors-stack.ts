@@ -3,12 +3,9 @@ import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import { Bucket, Index } from 'cdk-s3-vectors';
 // import { BedrockKnowledgeBaseStack } from './bedrock-knowledge-base-stack'; // Temporarily commented out for debugging
 import { AdaClaraDynamoDBStack } from './dynamodb-stack';
@@ -44,8 +41,7 @@ export class S3VectorsStack extends Stack {
   public readonly kbTestFunction: lambda.Function;
   // public readonly knowledgeBaseStack: BedrockKnowledgeBaseGAStack; // Temporarily commented out for debugging
   
-  // EventBridge scheduling components
-  public readonly weeklyScheduleRule: events.Rule;
+  // Notification components (managed by EventBridge scheduling stack)
   public readonly failureNotificationTopic: sns.Topic;
   public readonly crawlerDeadLetterQueue: sqs.Queue;
 
@@ -350,18 +346,9 @@ export class S3VectorsStack extends Stack {
     // ===== BASIC CLOUDWATCH LOGGING =====
     // Only basic CloudWatch logging as shown in architecture diagram
 
-    // ===== EVENTBRIDGE SCHEDULING TEMPORARILY DISABLED =====
-    // TODO: Add EventBridge scheduling in a separate deployment phase
-    // Create a placeholder rule for outputs (not actually used)
-    this.weeklyScheduleRule = new events.Rule(this, 'PlaceholderScheduleRule', {
-      ruleName: 'ada-clara-placeholder-schedule',
-      description: 'Placeholder rule - EventBridge scheduling will be added later',
-      schedule: events.Schedule.expression('rate(1 day)'),
-      enabled: false // Disabled placeholder
-    });
-    
-    // Set the rule name in Lambda environment (for compatibility)
-    this.crawlerFunction.addEnvironment('SCHEDULE_RULE_NAME', this.weeklyScheduleRule.ruleName);
+    // ===== EVENTBRIDGE SCHEDULING MOVED TO SEPARATE STACK =====
+    // EventBridge scheduling is now handled by EventBridgeSchedulingStack
+    // to eliminate circular dependencies and centralize scheduling logic
 
     // ===== END LOGGING SECTION =====
     
@@ -462,43 +449,6 @@ export class S3VectorsStack extends Stack {
       description: 'GA feature capabilities'
     });
 
-    // EventBridge scheduling outputs
-    new CfnOutput(this, 'WeeklyScheduleRuleName', {
-      value: this.weeklyScheduleRule.ruleName,
-      description: 'Name of the EventBridge rule for weekly crawler scheduling'
-    });
-
-    new CfnOutput(this, 'WeeklyScheduleRuleArn', {
-      value: this.weeklyScheduleRule.ruleArn,
-      description: 'ARN of the EventBridge rule for weekly crawler scheduling'
-    });
-
-    new CfnOutput(this, 'FailureNotificationTopicArn', {
-      value: this.failureNotificationTopic.topicArn,
-      description: 'ARN of the SNS topic for crawler failure notifications'
-    });
-
-    new CfnOutput(this, 'CrawlerDeadLetterQueueUrl', {
-      value: this.crawlerDeadLetterQueue.queueUrl,
-      description: 'URL of the SQS queue used as dead letter queue for failed crawler executions'
-    });
-
-    new CfnOutput(this, 'CrawlerDeadLetterQueueArn', {
-      value: this.crawlerDeadLetterQueue.queueArn,
-      description: 'ARN of the SQS queue used as dead letter queue for failed crawler executions'
-    });
-
-    new CfnOutput(this, 'SchedulingConfiguration', {
-      value: JSON.stringify({
-        scheduleExpression: props?.scheduleExpression || 'rate(7 days)',
-        scheduleEnabled: props?.scheduleEnabled !== false,
-        retryAttempts: props?.retryAttempts || 3,
-        retryBackoffRate: props?.retryBackoffRate || 2.0,
-        notificationEmail: props?.notificationEmail || 'not-configured'
-      }),
-      description: 'EventBridge scheduling configuration for weekly crawler'
-    });
-
     new CfnOutput(this, 'SecurityConfiguration', {
       value: JSON.stringify({
         allowedDomains: ['diabetes.org', 'www.diabetes.org'],
@@ -527,6 +477,11 @@ export class S3VectorsStack extends Stack {
         minimalIAM: 'Least privilege principle applied'
       }),
       description: 'Implemented security and compliance features'
+    });
+
+    new CfnOutput(this, 'EventBridgeSchedulingNote', {
+      value: 'EventBridge scheduling is handled by EventBridgeSchedulingStack to eliminate circular dependencies',
+      description: 'EventBridge scheduling architecture note'
     });
 
   }

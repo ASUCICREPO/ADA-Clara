@@ -1,0 +1,240 @@
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
+import { AdminServiceContainer } from './admin-container';
+import { AnalyticsService } from '../../business/analytics/analytics.service';
+
+export class AdminAnalyticsController {
+  private analyticsService: AnalyticsService;
+
+  constructor(private container: AdminServiceContainer) {
+    this.analyticsService = new AnalyticsService(
+      this.container.dynamoService
+    );
+  }
+
+  /**
+   * Handle incoming API Gateway requests
+   */
+  async handleRequest(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
+    console.log('Admin analytics controller invoked:', JSON.stringify(event, null, 2));
+
+    try {
+      const path = event.path;
+      const method = event.httpMethod;
+
+      // Check for admin authentication (simplified - in production would validate JWT)
+      const authHeader = event.headers.Authorization || event.headers.authorization;
+      if (!authHeader && !path.includes('/health')) {
+        return this.createResponse(401, {
+          error: 'Authentication required',
+          message: 'Admin access required for analytics data'
+        });
+      }
+
+      // Route requests based on path and method
+      if (method === 'GET') {
+        return await this.handleGetRequest(path);
+      } else if (method === 'OPTIONS') {
+        return this.handleOptionsRequest();
+      } else {
+        return this.createResponse(405, {
+          error: 'Method not allowed',
+          message: `${method} method is not supported`
+        });
+      }
+
+    } catch (error) {
+      console.error('Admin analytics controller error:', error);
+      return this.createResponse(500, {
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
+  }
+
+  /**
+   * Handle GET requests
+   */
+  private async handleGetRequest(path: string): Promise<APIGatewayProxyResult> {
+    switch (path) {
+      case '/admin/dashboard':
+        return await this.getDashboardData();
+      
+      case '/admin/metrics':
+        return await this.getMetrics();
+      
+      case '/admin/conversations/chart':
+        return await this.getConversationsChart();
+      
+      case '/admin/language-split':
+        return await this.getLanguageSplit();
+      
+      case '/admin/frequently-asked-questions':
+        return await this.getFrequentlyAskedQuestions();
+      
+      case '/admin/unanswered-questions':
+        return await this.getUnansweredQuestions();
+      
+      case '/admin/health':
+      case '/admin':
+        return await this.getHealthCheck();
+      
+      default:
+        return this.createResponse(404, {
+          error: 'Endpoint not found',
+          availableEndpoints: [
+            'GET /admin/dashboard',
+            'GET /admin/metrics',
+            'GET /admin/conversations/chart',
+            'GET /admin/language-split',
+            'GET /admin/frequently-asked-questions',
+            'GET /admin/unanswered-questions',
+            'GET /admin/health'
+          ]
+        });
+    }
+  }
+
+  /**
+   * Get comprehensive dashboard data
+   */
+  private async getDashboardData(): Promise<APIGatewayProxyResult> {
+    try {
+      const dashboardData = await this.analyticsService.getDashboardData();
+      return this.createResponse(200, dashboardData);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch dashboard data',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get metrics data only
+   */
+  private async getMetrics(): Promise<APIGatewayProxyResult> {
+    try {
+      const metrics = await this.analyticsService.getMetrics();
+      return this.createResponse(200, metrics);
+    } catch (error) {
+      console.error('Error fetching metrics:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch metrics',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get conversations chart data
+   */
+  private async getConversationsChart(): Promise<APIGatewayProxyResult> {
+    try {
+      const chartData = await this.analyticsService.getConversationsChart();
+      return this.createResponse(200, chartData);
+    } catch (error) {
+      console.error('Error fetching conversations chart:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch conversations chart',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get language distribution data
+   */
+  private async getLanguageSplit(): Promise<APIGatewayProxyResult> {
+    try {
+      const languageData = await this.analyticsService.getLanguageSplit();
+      return this.createResponse(200, languageData);
+    } catch (error) {
+      console.error('Error fetching language split:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch language split',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get frequently asked questions
+   */
+  private async getFrequentlyAskedQuestions(): Promise<APIGatewayProxyResult> {
+    try {
+      const faqData = await this.analyticsService.getFrequentlyAskedQuestions();
+      return this.createResponse(200, { questions: faqData });
+    } catch (error) {
+      console.error('Error fetching FAQ data:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch FAQ data',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get unanswered questions
+   */
+  private async getUnansweredQuestions(): Promise<APIGatewayProxyResult> {
+    try {
+      const unansweredData = await this.analyticsService.getUnansweredQuestions();
+      return this.createResponse(200, { questions: unansweredData });
+    } catch (error) {
+      console.error('Error fetching unanswered questions:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch unanswered questions',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get health check
+   */
+  private async getHealthCheck(): Promise<APIGatewayProxyResult> {
+    try {
+      const health = await this.analyticsService.healthCheck();
+      return this.createResponse(200, health);
+    } catch (error) {
+      console.error('Error in health check:', error);
+      return this.createResponse(503, {
+        status: 'unhealthy',
+        service: 'admin-analytics',
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Handle OPTIONS requests for CORS
+   */
+  private handleOptionsRequest(): APIGatewayProxyResult {
+    return {
+      statusCode: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS'
+      },
+      body: ''
+    };
+  }
+
+  /**
+   * Create standardized API response
+   */
+  private createResponse(statusCode: number, body: any): APIGatewayProxyResult {
+    return {
+      statusCode,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      },
+      body: JSON.stringify(body)
+    };
+  }
+}
