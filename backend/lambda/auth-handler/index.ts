@@ -19,10 +19,7 @@ interface CognitoJWTPayload {
   'cognito:username': string;
   'cognito:groups'?: string[];
   'custom:user_type'?: string;
-  'custom:membership_id'?: string;
-  'custom:organization'?: string;
   'custom:language_preference'?: string;
-  'custom:verified_pro'?: string;
   aud: string;
   iss: string;
   exp: number;
@@ -34,10 +31,8 @@ interface UserContext {
   userId: string;
   username: string;
   email: string;
-  userType: 'public' | 'professional' | 'admin';
+  userType: 'public' | 'admin';
   isVerified: boolean;
-  membershipId?: string;
-  organization?: string;
   languagePreference: 'en' | 'es';
   permissions: string[];
   sessionId?: string;
@@ -160,8 +155,6 @@ class AuthHandler {
         return await this.handleGetUser(event);
       } else if (method === 'GET' && path === '/auth/user') {
         return await this.handleGetUser(event);
-      } else if (method === 'POST' && path === '/auth/verify-professional') {
-        return await this.handleProfessionalVerification(event);
       } else if (method === 'GET' && path === '/auth/health') {
         return this.handleHealthCheck();
       } else {
@@ -177,7 +170,6 @@ class AuthHandler {
               'POST /auth - validate token',
               'GET /auth - get user context',
               'GET /auth/user - get user context',
-              'POST /auth/verify-professional - verify professional credentials',
               'GET /auth/health - health check'
             ]
           })
@@ -284,15 +276,9 @@ class AuthHandler {
    * Extract user context from JWT payload
    */
   async extractUserContext(payload: CognitoJWTPayload): Promise<UserContext> {
-    const userType = (payload['custom:user_type'] || 'public') as 'public' | 'professional' | 'admin';
-    const isVerified = payload.email_verified && (payload['custom:verified_pro'] === 'true' || userType === 'admin');
+    const userType = (payload['custom:user_type'] || 'public') as 'public' | 'admin';
+    const isVerified = payload.email_verified || userType === 'admin';
     
-    // Get additional user data from DynamoDB if professional
-    let membershipData = null;
-    if (userType === 'professional' && payload['custom:membership_id']) {
-      membershipData = await this.getProfessionalMembershipData(payload['custom:membership_id']);
-    }
-
     const permissions = this.getUserPermissions(userType, isVerified);
 
     return {
@@ -301,8 +287,6 @@ class AuthHandler {
       email: payload.email,
       userType,
       isVerified,
-      membershipId: payload['custom:membership_id'],
-      organization: payload['custom:organization'] || membershipData?.organization,
       languagePreference: (payload['custom:language_preference'] || 'en') as 'en' | 'es',
       permissions
     };
@@ -322,48 +306,12 @@ class AuthHandler {
           'admin:analytics',
           'admin:users',
           'admin:system',
-          'professional:enhanced',
           'chat:priority'
         ];
-      
-      case 'professional':
-        const professionalPermissions = [
-          ...basePermissions,
-          'professional:resources',
-          'chat:enhanced'
-        ];
-        
-        if (isVerified) {
-          professionalPermissions.push(
-            'professional:verified',
-            'professional:clinical',
-            'chat:priority'
-          );
-        }
-        
-        return professionalPermissions;
       
       case 'public':
       default:
         return basePermissions;
-    }
-  }
-
-  /**
-   * Get professional membership data from DynamoDB
-   */
-  async getProfessionalMembershipData(membershipId: string): Promise<any> {
-    try {
-      const command = new GetCommand({
-        TableName: process.env.PROFESSIONAL_MEMBERS_TABLE!,
-        Key: { membershipId }
-      });
-
-      const result = await this.dynamoClient.send(command);
-      return result.Item;
-    } catch (error: any) {
-      console.error('❌ Failed to get membership data:', error);
-      return null;
     }
   }
 
@@ -402,158 +350,6 @@ class AuthHandler {
         error: authResult.error
       })
     };
-  }
-
-  /**
-   * Handle professional verification
-   */
-  async handleProfessionalVerification(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-    const body = JSON.parse(event.body || '{}');
-    const { membershipId, organization, credentials } = body;
-
-    if (!membershipId || !organization) {
-      return {
-        statusCode: 400,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: JSON.stringify({
-          error: 'Missing required fields',
-          message: 'membershipId and organization are required'
-        })
-      };
-    }
-
-    try {
-      // Verify professional credentials (simplified implementation)
-      const isValid = await this.verifyProfessionalCredentials(membershipId, organization, credentials);
-      
-      if (isValid) {
-        // Update user attributes in Cognito
-        const token = this.extractTokenFromHeaders(event.headers);
-        if (token) {
-          const authResult = await this.validateToken(token);
-          if (authResult.isAuthorized && authResult.userContext) {
-            await this.updateUserProfessionalStatus(authResult.userContext.username, membershipId, organization);
-          }
-        }
-
-        return {
-          statusCode: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          },
-          body: JSON.stringify({
-            verified: true,
-            message: 'Professional credentials verified successfully'
-          })
-        };
-      } else {
-        return {
-          statusCode: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          },
-          body: JSON.stringify({
-            verified: false,
-            message: 'Professional credentials could not be verified'
-          })
-        };
-      }
-    } catch (error: any) {
-      console.error('❌ Professional verification error:', error);
-      return {
-        statusCode: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: JSON.stringify({
-          error: 'Verification service error',
-          message: error.message
-        })
-      };
-    }
-  }
-
-  /**
-   * Verify professional credentials (simplified implementation)
-   */
-  async verifyProfessionalCredentials(membershipId: string, organization: string, credentials: any): Promise<boolean> {
-    // In a real implementation, this would integrate with professional licensing databases
-    // For now, we'll do basic validation
-    
-    // Check if membership exists in our database
-    const existingMembership = await this.getProfessionalMembershipData(membershipId);
-    if (existingMembership) {
-      return existingMembership.organization === organization && existingMembership.status === 'active';
-    }
-
-    // Basic validation rules
-    const isValidFormat = /^[A-Z]{2,4}\d{6,10}$/.test(membershipId); // Example format
-    const isValidOrganization = organization.length > 3;
-    
-    if (isValidFormat && isValidOrganization) {
-      // Store new professional membership
-      await this.storeProfessionalMembership(membershipId, organization, credentials);
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Store professional membership data
-   */
-  async storeProfessionalMembership(membershipId: string, organization: string, credentials: any): Promise<void> {
-    const command = new PutCommand({
-      TableName: process.env.PROFESSIONAL_MEMBERS_TABLE!,
-      Item: {
-        membershipId,
-        organization,
-        status: 'active',
-        verifiedAt: new Date().toISOString(),
-        credentials: {
-          type: credentials?.type || 'manual',
-          verificationMethod: 'self-reported' // In production, this would be more sophisticated
-        }
-      }
-    });
-
-    await this.dynamoClient.send(command);
-  }
-
-  /**
-   * Update user professional status in Cognito
-   */
-  async updateUserProfessionalStatus(username: string, membershipId: string, organization: string): Promise<void> {
-    const command = new AdminUpdateUserAttributesCommand({
-      UserPoolId: this.userPoolId,
-      Username: username,
-      UserAttributes: [
-        {
-          Name: 'custom:user_type',
-          Value: 'professional'
-        },
-        {
-          Name: 'custom:membership_id',
-          Value: membershipId
-        },
-        {
-          Name: 'custom:organization',
-          Value: organization
-        },
-        {
-          Name: 'custom:verified_pro',
-          Value: 'true'
-        }
-      ]
-    });
-
-    await this.cognitoClient.send(command);
   }
 
   /**

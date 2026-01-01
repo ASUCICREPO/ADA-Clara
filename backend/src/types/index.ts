@@ -363,25 +363,6 @@ export interface Source {
 }
 
 /**
- * Professional Member - ADA professional membership data
- * DynamoDB Table: ProfessionalMembers
- * PK: MEMBER#{email}
- * SK: PROFILE
- */
-export interface ProfessionalMember {
-  memberId: string;
-  email: string;
-  name: string;
-  membershipType: string;
-  status: 'active' | 'expired' | 'suspended';
-  expirationDate: Date;
-  benefits: string[];
-  lastLogin?: Date;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-/**
  * User Preferences - Language and interaction preferences (REMOVED DUPLICATE)
  * This interface was merged with the earlier UserPreferences definition
  */
@@ -548,27 +529,6 @@ export class DataValidator {
     if (message.confidence && (message.confidence < 0 || message.confidence > 1)) {
       errors.push('confidence must be between 0 and 1');
     }
-    
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  }
-
-  static validateProfessionalMember(member: Partial<ProfessionalMember>): ValidationResult {
-    const errors: string[] = [];
-    
-    if (!member.memberId) errors.push('memberId is required');
-    if (!member.email || !this.isValidEmail(member.email)) {
-      errors.push('valid email is required');
-    }
-    if (!member.name || member.name.trim().length === 0) {
-      errors.push('name is required');
-    }
-    if (!member.status || !['active', 'expired', 'suspended'].includes(member.status)) {
-      errors.push('status must be "active", "expired", or "suspended"');
-    }
-    if (!member.expirationDate) errors.push('expirationDate is required');
     
     return {
       isValid: errors.length === 0,

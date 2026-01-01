@@ -3,7 +3,6 @@ import { S3Service } from './s3-service';
 import { 
   UserSession, 
   ChatMessage, 
-  ProfessionalMember,
   UserPreferences,
   AnalyticsData,
   AuditLog,
@@ -196,42 +195,6 @@ export class DataService {
     }
 
     return { metadata, rawContent };
-  }
-
-  // ===== PROFESSIONAL MEMBER MANAGEMENT =====
-
-  /**
-   * Create or update professional member with audit logging
-   */
-  async manageProfessionalMember(member: ProfessionalMember): Promise<void> {
-    // Check if member exists
-    const existingMember = await this.dynamoService.getMember(member.email);
-    const isUpdate = !!existingMember;
-
-    // Store/update member
-    if (isUpdate) {
-      await this.dynamoService.updateMember(member.email, {
-        ...member,
-        updatedAt: new Date()
-      });
-    } else {
-      await this.dynamoService.createMember(member);
-    }
-
-    // Log member management action
-    await this.logAuditEvent({
-      eventId: `member-${isUpdate ? 'updated' : 'created'}-${member.memberId}`,
-      eventType: 'admin_action',
-      timestamp: new Date(),
-      details: {
-        action: isUpdate ? 'member_updated' : 'member_created',
-        memberId: member.memberId,
-        email: member.email,
-        membershipType: member.membershipType,
-        status: member.status
-      },
-      severity: 'medium'
-    });
   }
 
   // ===== ESCALATION MANAGEMENT =====
@@ -466,7 +429,6 @@ export class DataService {
       buckets: this.s3Service.getBucketNames(),
       tables: [
         'ada-clara-chat-sessions',
-        'ada-clara-professional-members',
         'ada-clara-analytics',
         'ada-clara-audit-logs',
         'ada-clara-user-preferences',

@@ -115,7 +115,7 @@ export class S3VectorsStack extends Stack {
     this.crawlerFunction = new lambda.Function(this, 'CrawlerFunction', {
       runtime: lambda.Runtime.NODEJS_20_X, // Updated to Node.js 20 for better compatibility
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/s3-vectors'), // Standardized path
+      code: lambda.Code.fromAsset('dist/s3-vectors'), // New clean architecture build
       timeout: Duration.minutes(15),
       memorySize: 3008, // Increased for GA throughput (1,000 vectors/second)
       environment: {
@@ -220,7 +220,7 @@ export class S3VectorsStack extends Stack {
       functionName: `AdaClaraWebScraper-${Stack.of(this).region}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/web-scraper'),
+      code: lambda.Code.fromAsset('dist/web-scraper'), // New clean architecture build
       timeout: Duration.minutes(10), // Shorter timeout for focused scraping
       memorySize: 1024, // Less memory needed for scraping only
       environment: {

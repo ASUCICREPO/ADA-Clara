@@ -358,19 +358,6 @@ export class SecurityEnhancementsStack extends Stack {
       },
       removalPolicy: RemovalPolicy.DESTROY
     });
-
-    // Professional verification credentials
-    new secretsmanager.Secret(this, 'ProfessionalVerificationCredentials', {
-      secretName: 'ada-clara/professional/verification',
-      description: 'Credentials for professional membership verification services',
-      encryptionKey: this.secretsManagerKey,
-      secretObjectValue: {
-        npiRegistryApiKey: SecretValue.unsafePlainText('placeholder-npi-key'),
-        medicalBoardApiKey: SecretValue.unsafePlainText('placeholder-board-key'),
-        nursingBoardApiKey: SecretValue.unsafePlainText('placeholder-nursing-key')
-      },
-      removalPolicy: RemovalPolicy.DESTROY
-    });
   }
 
   /**

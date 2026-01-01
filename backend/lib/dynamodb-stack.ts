@@ -9,7 +9,6 @@ import * as iam from 'aws-cdk-lib/aws-iam';
  */
 export class AdaClaraDynamoDBStack extends Stack {
   public readonly chatSessionsTable: dynamodb.Table;
-  public readonly professionalMembersTable: dynamodb.Table;
   public readonly analyticsTable: dynamodb.Table;
   public readonly auditLogsTable: dynamodb.Table;
   public readonly userPreferencesTable: dynamodb.Table;
@@ -77,38 +76,6 @@ export class AdaClaraDynamoDBStack extends Stack {
       },
       sortKey: {
         name: 'lastCrawled',
-        type: dynamodb.AttributeType.STRING
-      },
-      projectionType: dynamodb.ProjectionType.ALL
-    });
-
-    // Professional Members Table - Membership data
-    this.professionalMembersTable = new dynamodb.Table(this, 'ProfessionalMembersTable', {
-      tableName: 'ada-clara-professional-members',
-      partitionKey: {
-        name: 'PK',
-        type: dynamodb.AttributeType.STRING
-      },
-      sortKey: {
-        name: 'SK',
-        type: dynamodb.AttributeType.STRING
-      },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      pointInTimeRecoverySpecification: {
-        pointInTimeRecoveryEnabled: true
-      },
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    // GSI for querying members by status
-    this.professionalMembersTable.addGlobalSecondaryIndex({
-      indexName: 'MemberStatusIndex',
-      partitionKey: {
-        name: 'status',
-        type: dynamodb.AttributeType.STRING
-      },
-      sortKey: {
-        name: 'expirationDate',
         type: dynamodb.AttributeType.STRING
       },
       projectionType: dynamodb.ProjectionType.ALL
@@ -565,7 +532,6 @@ export class AdaClaraDynamoDBStack extends Stack {
           ],
           resources: [
             this.chatSessionsTable.tableArn,
-            this.professionalMembersTable.tableArn,
             this.analyticsTable.tableArn,
             this.auditLogsTable.tableArn,
             this.userPreferencesTable.tableArn,
@@ -578,7 +544,6 @@ export class AdaClaraDynamoDBStack extends Stack {
             this.contentTrackingTable.tableArn,
             // Include GSI ARNs
             `${this.chatSessionsTable.tableArn}/index/*`,
-            `${this.professionalMembersTable.tableArn}/index/*`,
             `${this.analyticsTable.tableArn}/index/*`,
             `${this.auditLogsTable.tableArn}/index/*`,
             `${this.escalationQueueTable.tableArn}/index/*`,
@@ -612,7 +577,6 @@ export class AdaClaraDynamoDBStack extends Stack {
    */
   public grantFullAccess(grantee: iam.IGrantable): void {
     this.chatSessionsTable.grantReadWriteData(grantee);
-    this.professionalMembersTable.grantReadWriteData(grantee);
     this.analyticsTable.grantReadWriteData(grantee);
     this.auditLogsTable.grantReadWriteData(grantee);
     this.userPreferencesTable.grantReadWriteData(grantee);
@@ -630,7 +594,6 @@ export class AdaClaraDynamoDBStack extends Stack {
    */
   public grantReadAccess(grantee: iam.IGrantable): void {
     this.chatSessionsTable.grantReadData(grantee);
-    this.professionalMembersTable.grantReadData(grantee);
     this.analyticsTable.grantReadData(grantee);
     this.auditLogsTable.grantReadData(grantee);
     this.userPreferencesTable.grantReadData(grantee);

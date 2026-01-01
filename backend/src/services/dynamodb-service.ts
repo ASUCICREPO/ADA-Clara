@@ -13,7 +13,6 @@ import {
 import {
   UserSession,
   ChatMessage,
-  ProfessionalMember,
   UserPreferences,
   AnalyticsData,
   AuditLog,
@@ -36,7 +35,6 @@ export class DynamoDBService {
   
   // Table names from environment variables
   private readonly CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
-  private readonly PROFESSIONAL_MEMBERS_TABLE = process.env.PROFESSIONAL_MEMBERS_TABLE || 'ada-clara-professional-members';
   private readonly ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
   private readonly AUDIT_LOGS_TABLE = process.env.AUDIT_LOGS_TABLE || 'ada-clara-audit-logs';
   private readonly USER_PREFERENCES_TABLE = process.env.USER_PREFERENCES_TABLE || 'ada-clara-user-preferences';
@@ -203,73 +201,6 @@ export class DynamoDBService {
       const { PK, SK, ...message } = item;
       return message as ChatMessage;
     });
-  }
-
-  // ===== PROFESSIONAL MEMBERS =====
-
-  async createMember(member: ProfessionalMember): Promise<void> {
-    const validation = DataValidator.validateProfessionalMember(member);
-    if (!validation.isValid) {
-      throw new Error(`Invalid member data: ${validation.errors.join(', ')}`);
-    }
-
-    const preparedItem = this.prepareDynamoDBItem({
-      PK: DynamoDBKeyGenerator.memberPK(member.email),
-      SK: DynamoDBKeyGenerator.memberSK(),
-      ...member
-    });
-
-    const command = new PutCommand({
-      TableName: this.PROFESSIONAL_MEMBERS_TABLE,
-      Item: preparedItem
-    });
-
-    await this.client.send(command);
-  }
-
-  async getMember(email: string): Promise<ProfessionalMember | null> {
-    const command = new GetCommand({
-      TableName: this.PROFESSIONAL_MEMBERS_TABLE,
-      Key: {
-        PK: DynamoDBKeyGenerator.memberPK(email),
-        SK: DynamoDBKeyGenerator.memberSK()
-      }
-    });
-
-    const result = await this.client.send(command);
-    if (!result.Item) return null;
-
-    const { PK, SK, ...member } = result.Item;
-    return member as ProfessionalMember;
-  }
-
-  async updateMember(email: string, updates: Partial<ProfessionalMember>): Promise<void> {
-    const preparedUpdates = this.prepareDynamoDBItem(updates);
-    
-    const updateExpression: string[] = [];
-    const expressionAttributeNames: Record<string, string> = {};
-    const expressionAttributeValues: Record<string, any> = {};
-
-    Object.entries(preparedUpdates).forEach(([key, value], index) => {
-      const attrName = `#attr${index}`;
-      const attrValue = `:val${index}`;
-      updateExpression.push(`${attrName} = ${attrValue}`);
-      expressionAttributeNames[attrName] = key;
-      expressionAttributeValues[attrValue] = value;
-    });
-
-    const command = new UpdateCommand({
-      TableName: this.PROFESSIONAL_MEMBERS_TABLE,
-      Key: {
-        PK: DynamoDBKeyGenerator.memberPK(email),
-        SK: DynamoDBKeyGenerator.memberSK()
-      },
-      UpdateExpression: `SET ${updateExpression.join(', ')}`,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ExpressionAttributeValues: expressionAttributeValues
-    });
-
-    await this.client.send(command);
   }
 
   // ===== USER PREFERENCES =====

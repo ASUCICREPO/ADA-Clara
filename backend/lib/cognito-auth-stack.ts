@@ -23,22 +23,19 @@ export interface CognitoAuthStackProps extends StackProps {
  * 
  * Provides user authentication, session management, and role-based access control
  * for the ADA Clara chatbot system with support for:
- * - Public users (general diabetes information)
- * - Professional members (enhanced access)
- * - Admin users (dashboard access)
+ * - Public users (no authentication required)
+ * - Admin users (Cognito authentication for dashboard access)
  */
 export class CognitoAuthStack extends Stack {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly identityPool: cognito.CfnIdentityPool;
   public readonly authLambda: lambda.Function;
-  public readonly membershipVerificationLambda: lambda.Function;
 
   // IAM roles for different user types
   public authenticatedRole!: iam.Role;
   public unauthenticatedRole!: iam.Role;
   public adminRole!: iam.Role;
-  public professionalRole!: iam.Role;
 
   constructor(scope: Construct, id: string, props?: CognitoAuthStackProps) {
     super(scope, id, props);
@@ -46,12 +43,6 @@ export class CognitoAuthStack extends Stack {
     // Create CloudWatch Log Groups
     const authLogGroup = new logs.LogGroup(this, 'AuthLambdaLogGroup', {
       logGroupName: '/aws/lambda/ada-clara-auth-handler',
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY
-    });
-
-    const membershipLogGroup = new logs.LogGroup(this, 'MembershipLogGroup', {
-      logGroupName: '/aws/lambda/ada-clara-membership-verification',
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY
     });
@@ -99,16 +90,7 @@ export class CognitoAuthStack extends Stack {
         'user_type': new cognito.StringAttribute({
           mutable: true
         }),
-        'membership_id': new cognito.StringAttribute({
-          mutable: true
-        }),
-        'organization': new cognito.StringAttribute({
-          mutable: true
-        }),
         'language_preference': new cognito.StringAttribute({
-          mutable: true
-        }),
-        'verified_pro': new cognito.StringAttribute({
           mutable: true
         })
       },
@@ -234,25 +216,8 @@ export class CognitoAuthStack extends Stack {
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
         REGION: this.region,
-        PROFESSIONAL_MEMBERS_TABLE: 'ada-clara-professional-members',
         CHAT_SESSIONS_TABLE: 'ada-clara-chat-sessions',
         USER_PREFERENCES_TABLE: 'ada-clara-user-preferences'
-      }
-    });
-
-    // Create Membership Verification Lambda
-    this.membershipVerificationLambda = new lambda.Function(this, 'MembershipVerificationLambda', {
-      functionName: 'ada-clara-membership-verification',
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/membership-verification'),
-      timeout: Duration.minutes(2),
-      memorySize: 512,
-      logGroup: membershipLogGroup,
-      environment: {
-        USER_POOL_ID: this.userPool.userPoolId,
-        PROFESSIONAL_MEMBERS_TABLE: 'ada-clara-professional-members',
-        REGION: this.region
       }
     });
 
@@ -362,66 +327,6 @@ export class CognitoAuthStack extends Stack {
         })
       }
     });
-
-    // Professional role (enhanced access)
-    this.professionalRole = new iam.Role(this, 'ProfessionalRole', {
-      roleName: 'ada-clara-professional-role',
-      assumedBy: new iam.FederatedPrincipal(
-        'cognito-identity.amazonaws.com',
-        {
-          StringEquals: {
-            'cognito-identity.amazonaws.com:aud': this.identityPool.ref
-          },
-          'ForAnyValue:StringLike': {
-            'cognito-identity.amazonaws.com:amr': 'authenticated'
-          }
-        },
-        'sts:AssumeRoleWithWebIdentity'
-      ),
-      inlinePolicies: {
-        ProfessionalPolicy: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'mobileanalytics:PutEvents',
-                'cognito-sync:*',
-                'cognito-identity:*'
-              ],
-              resources: ['*']
-            }),
-            // Enhanced API access for professionals
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'execute-api:Invoke'
-              ],
-              resources: [
-                `arn:aws:execute-api:${this.region}:${this.account}:*/*/POST/chat`,
-                `arn:aws:execute-api:${this.region}:${this.account}:*/*/POST/query`,
-                `arn:aws:execute-api:${this.region}:${this.account}:*/*/GET/health`,
-                `arn:aws:execute-api:${this.region}:${this.account}:*/*/GET/professional/*`
-              ]
-            }),
-            // Enhanced DynamoDB access
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'dynamodb:GetItem',
-                'dynamodb:PutItem',
-                'dynamodb:UpdateItem',
-                'dynamodb:Query',
-                'dynamodb:Scan'
-              ],
-              resources: [
-                `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-*`
-              ]
-            })
-          ]
-        })
-      }
-    });
-
     // Admin role (full access)
     this.adminRole = new iam.Role(this, 'AdminRole', {
       roleName: 'ada-clara-admin-role',
@@ -519,34 +424,8 @@ export class CognitoAuthStack extends Stack {
         'dynamodb:Scan'
       ],
       resources: [
-        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-professional-members`,
         `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-chat-sessions`,
-        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-user-preferences`,
-        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-professional-members/index/*`
-      ]
-    }));
-
-    // Grant permissions to Membership Verification Lambda
-    this.membershipVerificationLambda.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'cognito-idp:AdminGetUser',
-        'cognito-idp:AdminUpdateUserAttributes'
-      ],
-      resources: [this.userPool.userPoolArn]
-    }));
-
-    this.membershipVerificationLambda.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'dynamodb:GetItem',
-        'dynamodb:PutItem',
-        'dynamodb:UpdateItem',
-        'dynamodb:Query'
-      ],
-      resources: [
-        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-professional-members`,
-        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-professional-members/index/*`
+        `arn:aws:dynamodb:${this.region}:${this.account}:table/ada-clara-user-preferences`
       ]
     }));
   }
@@ -605,22 +484,10 @@ export class CognitoAuthStack extends Stack {
       exportName: `AdaClara-${this.stackName}-AuthLambdaArn`
     });
 
-    new CfnOutput(this, 'MembershipVerificationLambdaArn', {
-      value: this.membershipVerificationLambda.functionArn,
-      description: 'Membership Verification Lambda Function ARN',
-      exportName: `AdaClara-${this.stackName}-MembershipLambdaArn`
-    });
-
     new CfnOutput(this, 'AuthenticatedRoleArn', {
       value: this.authenticatedRole.roleArn,
       description: 'Authenticated User Role ARN',
       exportName: `AdaClara-${this.stackName}-AuthenticatedRoleArn`
-    });
-
-    new CfnOutput(this, 'ProfessionalRoleArn', {
-      value: this.professionalRole.roleArn,
-      description: 'Professional User Role ARN',
-      exportName: `AdaClara-${this.stackName}-ProfessionalRoleArn`
     });
 
     new CfnOutput(this, 'AdminRoleArn', {
@@ -640,9 +507,9 @@ export class CognitoAuthStack extends Stack {
         redirectSignOut: 'http://localhost:3000',
         responseType: 'code',
         scope: ['email', 'openid', 'profile'],
-        userTypes: ['public', 'professional', 'admin']
+        userTypes: ['public', 'admin']
       }),
-      description: 'Complete Cognito configuration for frontend'
+      description: 'Complete Cognito configuration for frontend (simplified 2-user model)'
     });
   }
 }
