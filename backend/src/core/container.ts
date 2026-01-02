@@ -6,6 +6,7 @@ import { S3VectorsService } from './services/s3-vectors.service';
 import { ScrapingService } from './services/scraping.service';
 import { CrawlerService } from '../business/crawler/crawler.service';
 import { WebScrapingService } from '../business/web-scraper/web-scraping.service';
+import { EnhancedWebScraperService } from '../business/enhanced-web-scraper/enhanced-web-scraper.service';
 import { RAGService, RAGConfig } from '../business/rag/rag.service';
 
 export interface ServiceConfig {
@@ -44,6 +45,7 @@ export class ServiceContainer {
   // Business services
   public readonly crawlerService: CrawlerService;
   public readonly webScrapingService: WebScrapingService;
+  public readonly enhancedWebScraperService: EnhancedWebScraperService;
   
   // RAG service factory method (created on demand)
   private ragServiceInstance?: RAGService;
@@ -106,6 +108,42 @@ export class ServiceContainer {
         blockedPaths: config.blockedPaths || ['/admin', '/login', '/api/internal', '/private']
       }
     );
+
+    this.enhancedWebScraperService = new EnhancedWebScraperService(
+      this.s3Service,
+      this.bedrockService,
+      this.s3VectorsService,
+      this.scrapingService,
+      {
+        // S3 Vectors configuration
+        contentBucket: config.contentBucket || process.env.CONTENT_BUCKET || '',
+        vectorsBucket: config.vectorsBucket || process.env.VECTORS_BUCKET || '',
+        vectorIndex: config.vectorIndex || process.env.VECTOR_INDEX || '',
+        embeddingModel: config.embeddingModel || 'amazon.titan-embed-text-v2:0',
+        
+        // Domain and scraping configuration
+        targetDomain: config.targetDomain || process.env.TARGET_DOMAIN || 'diabetes.org',
+        maxPages: config.maxPages || parseInt(process.env.MAX_PAGES || '10'),
+        rateLimitDelay: config.rateLimitDelay || parseInt(process.env.RATE_LIMIT_DELAY || '2000'),
+        
+        // Enhanced processing configuration
+        enableContentEnhancement: true,
+        enableIntelligentChunking: true,
+        enableStructuredExtraction: true,
+        chunkingStrategy: 'hybrid',
+        
+        // Change detection configuration
+        enableChangeDetection: true,
+        skipUnchangedContent: true,
+        maxContentAgeHours: 24,
+        forceRefresh: false,
+        
+        // Quality and performance settings
+        qualityThreshold: 0.7,
+        maxRetries: 3,
+        batchSize: 3
+      }
+    );
   }
   
   /**
@@ -153,6 +191,7 @@ export class ServiceContainer {
       scraping: boolean;
       crawler: boolean;
       webScraper: boolean;
+      enhancedWebScraper: boolean;
       rag?: boolean;
     };
   }> {
@@ -165,6 +204,7 @@ export class ServiceContainer {
       scrapingHealth,
       crawlerHealth,
       webScraperHealth,
+      enhancedWebScraperHealth,
       ragHealth
     ] = await Promise.allSettled([
       this.dynamoService.healthCheck(process.env.SESSIONS_TABLE || 'ada-clara-sessions'),
@@ -175,6 +215,7 @@ export class ServiceContainer {
       this.scrapingService.healthCheck(),
       this.crawlerService.healthCheck(),
       Promise.resolve(true), // WebScrapingService doesn't have async health check
+      this.enhancedWebScraperService.healthCheck(),
       this.ragServiceInstance?.healthCheck() || Promise.resolve(true) // RAG service if available
     ]);
 
@@ -187,6 +228,7 @@ export class ServiceContainer {
       scraping: scrapingHealth.status === 'fulfilled' && scrapingHealth.value,
       crawler: crawlerHealth.status === 'fulfilled' && crawlerHealth.value,
       webScraper: webScraperHealth.status === 'fulfilled' && webScraperHealth.value,
+      enhancedWebScraper: enhancedWebScraperHealth.status === 'fulfilled' && enhancedWebScraperHealth.value,
       ...(this.ragServiceInstance && { rag: ragHealth.status === 'fulfilled' && ragHealth.value })
     };
 

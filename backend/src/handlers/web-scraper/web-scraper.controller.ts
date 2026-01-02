@@ -1,5 +1,15 @@
 import { APIGatewayProxyResult } from 'aws-lambda';
 import { ServiceContainer } from '../../core/container';
+import { DomainDiscoveryService, DiscoveredUrl } from '../../services/domain-discovery-service';
+import { DiscoveryOptions, MEDICAL_DOMAIN_CONFIGS } from '../../types/domain-discovery.types';
+
+export interface DiscoverDomainRequest {
+  action: 'discover-domain';
+  domain?: string;
+  maxUrls?: number;
+  maxDepth?: number;
+  relevanceThreshold?: number;
+}
 
 export interface ScrapeUrlsRequest {
   action: 'scrape-urls';
@@ -35,10 +45,60 @@ const DEFAULT_URLS = [
 
 /**
  * Web Scraper Controller
- * Handles HTTP requests for web scraping operations
+ * Handles HTTP requests for web scraping operations with enhanced domain discovery
  */
 export class WebScraperController {
-  constructor(private container: ServiceContainer) {}
+  private domainDiscoveryService: DomainDiscoveryService;
+
+  constructor(private container: ServiceContainer) {
+    this.domainDiscoveryService = new DomainDiscoveryService();
+  }
+
+  /**
+   * Handle domain discovery for systematic URL discovery
+   */
+  async handleDiscoverDomain(request: DiscoverDomainRequest): Promise<APIGatewayProxyResult> {
+    try {
+      const domain = request.domain || 'diabetes.org';
+      
+      // Use default comprehensive options for all domains
+      const domainConfig = MEDICAL_DOMAIN_CONFIGS.COMPREHENSIVE_DISCOVERY_OPTIONS;
+
+      const options: DiscoveryOptions = {
+        maxDepth: request.maxDepth || domainConfig.maxDepth,
+        maxUrls: request.maxUrls || 50,
+        respectRobotsTxt: domainConfig.respectRobotsTxt,
+        includeExternalLinks: false,
+        relevanceThreshold: request.relevanceThreshold || domainConfig.relevanceThreshold,
+        allowedPathPatterns: domainConfig.allowedPathPatterns,
+        blockedPathPatterns: domainConfig.blockedPathPatterns,
+        medicalKeywords: domainConfig.medicalKeywords,
+        rateLimitDelay: domainConfig.rateLimitDelay
+      };
+
+      console.log(`Starting domain discovery for ${domain} with options:`, options);
+      
+      const discoveredUrls = await this.domainDiscoveryService.discoverDomainUrls(domain, options);
+      
+      return this.createResponse(200, {
+        message: `Domain discovery completed for ${domain}`,
+        domain,
+        totalUrls: discoveredUrls.totalUrls,
+        urls: discoveredUrls.urls,
+        options,
+        nextSteps: {
+          scraping: `Use 'scrape-urls' action with discovered URLs`,
+          filtering: `URLs filtered by relevance threshold: ${options.relevanceThreshold}`
+        }
+      });
+    } catch (error) {
+      console.error('Domain discovery failed:', error);
+      return this.createResponse(500, {
+        error: 'Domain discovery failed',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
 
   /**
    * Handle scraping multiple URLs

@@ -4,17 +4,17 @@
 
 ### Base URL
 ```
-https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod/
+https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/
 ```
 
 ### Authentication (Cognito)
 ```json
 {
-  "userPoolId": "us-east-1_ys5bYVAcQ",
-  "userPoolClientId": "2husu7lrbojemcpjqq23gnuf90",
-  "identityPoolId": "us-east-1:84e4675e-902a-4ed6-85fe-660037a0c1d7",
+  "userPoolId": "us-east-1_i1RNxqKoh",
+  "userPoolClientId": "1irli5d7j6uje5vn7fs4uu274j",
+  "identityPoolId": "us-east-1:5cb99a75-f2a3-4745-8417-0b2095cd26ed",
   "region": "us-east-1",
-  "domain": "ada-clara-023336033519.auth.us-east-1.amazoncognito.com",
+  "domain": "ada-clara-023336033519-dev.auth.us-east-1.amazoncognito.com",
   "redirectSignIn": "http://localhost:3000/auth/callback",
   "redirectSignOut": "http://localhost:3000",
   "responseType": "code",
@@ -85,10 +85,20 @@ POST /escalation/request
 Content-Type: application/json
 
 {
-  "sessionId": "user-session-123",
-  "reason": "complex_medical_question",
-  "userMessage": "I need specific medical advice about my condition",
-  "priority": "normal"
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "phoneNumber": "(555) 123-4567",
+  "zipCode": "12345"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Thank you! Someone from the American Diabetes Association will reach out to you shortly.",
+  "escalationId": "esc-1735851075234-abc123def",
+  "status": "pending"
 }
 ```
 
@@ -99,26 +109,44 @@ All admin endpoints require Cognito JWT token:
 Authorization: Bearer <cognito-jwt-token>
 ```
 
-- `GET /admin/dashboard` - Main dashboard data
-- `GET /admin/metrics` - System metrics
+- `GET /admin/dashboard` - Complete dashboard data
+- `GET /admin/metrics` - System metrics  
 - `GET /admin/conversations/chart` - Conversation analytics
 - `GET /admin/language-split` - Language distribution
 - `GET /admin/frequently-asked-questions` - FAQ analytics
 - `GET /admin/unanswered-questions` - Unanswered questions
-- `GET /admin/escalation-requests` - Escalation queue
+- `GET /admin/escalation-requests` - Escalation queue (alias for /escalation/requests)
+- `GET /escalation/requests` - Escalation requests list
 
 ## Frontend Implementation
 
 ### Public Chat (No Auth)
 ```javascript
 const sendMessage = async (message, sessionId) => {
-  const response = await fetch('https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod/chat', {
+  const response = await fetch('https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
       sessionId,
       language: 'en'
+    })
+  });
+  return await response.json();
+};
+```
+
+### Escalation Request Submission
+```javascript
+const submitEscalationRequest = async (formData) => {
+  const response = await fetch('https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/escalation/request', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: formData.name,
+      email: formData.email,
+      phoneNumber: formData.phoneNumber,
+      zipCode: formData.zipCode
     })
   });
   return await response.json();
@@ -132,11 +160,11 @@ import { Amplify, Auth } from 'aws-amplify';
 Amplify.configure({
   Auth: {
     region: 'us-east-1',
-    userPoolId: 'us-east-1_ys5bYVAcQ',
-    userPoolWebClientId: '2husu7lrbojemcpjqq23gnuf90',
-    identityPoolId: 'us-east-1:84e4675e-902a-4ed6-85fe-660037a0c1d7',
+    userPoolId: 'us-east-1_i1RNxqKoh',
+    userPoolWebClientId: '1irli5d7j6uje5vn7fs4uu274j',
+    identityPoolId: 'us-east-1:5cb99a75-f2a3-4745-8417-0b2095cd26ed',
     oauth: {
-      domain: 'ada-clara-023336033519.auth.us-east-1.amazoncognito.com',
+      domain: 'ada-clara-023336033519-dev.auth.us-east-1.amazoncognito.com',
       scope: ['email', 'openid', 'profile'],
       redirectSignIn: 'http://localhost:3000/auth/callback',
       redirectSignOut: 'http://localhost:3000',
@@ -149,7 +177,7 @@ const callAdminAPI = async (endpoint) => {
   const session = await Auth.currentSession();
   const token = session.getIdToken().getJwtToken();
   
-  const response = await fetch(`https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod${endpoint}`, {
+  const response = await fetch(`https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod${endpoint}`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
@@ -178,29 +206,116 @@ const getOrCreateSessionId = () => {
 ## Environment Variables
 
 ```env
-REACT_APP_API_BASE_URL=https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod
-REACT_APP_COGNITO_USER_POOL_ID=us-east-1_ys5bYVAcQ
-REACT_APP_COGNITO_CLIENT_ID=2husu7lrbojemcpjqq23gnuf90
-REACT_APP_COGNITO_IDENTITY_POOL_ID=us-east-1:84e4675e-902a-4ed6-85fe-660037a0c1d7
+REACT_APP_API_BASE_URL=https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod
+REACT_APP_COGNITO_USER_POOL_ID=us-east-1_i1RNxqKoh
+REACT_APP_COGNITO_CLIENT_ID=1irli5d7j6uje5vn7fs4uu274j
+REACT_APP_COGNITO_IDENTITY_POOL_ID=us-east-1:5cb99a75-f2a3-4745-8417-0b2095cd26ed
 REACT_APP_COGNITO_REGION=us-east-1
-REACT_APP_COGNITO_DOMAIN=ada-clara-023336033519.auth.us-east-1.amazoncognito.com
+REACT_APP_COGNITO_DOMAIN=ada-clara-023336033519-dev.auth.us-east-1.amazoncognito.com
 ```
 
 ## Testing
 
 ### Health Check
 ```bash
-curl -X GET "https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod/health"
+curl -X GET "https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/health"
 ```
 
 ### Chat Test
 ```bash
-curl -X POST "https://8ijcwb4wwh.execute-api.us-east-1.amazonaws.com/prod/chat" \
+curl -X POST "https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/chat" \
   -H "Content-Type: application/json" \
   -d '{"message": "What is diabetes?", "sessionId": "test-123"}'
+```
+
+### Escalation Request Test
+```bash
+curl -X POST "https://u21fbiw32m.execute-api.us-east-1.amazonaws.com/prod/escalation/request" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Test User", "email": "test@example.com", "phoneNumber": "(555) 123-4567", "zipCode": "12345"}'
 ```
 
 ## CORS & Rate Limits
 
 - **CORS**: Configured for `localhost:3000` and `ada-clara.diabetes.org`
 - **Rate Limit**: 1000 requests/second, 2000 burst limit
+
+## API Response Formats
+
+### Admin Dashboard Data Structure
+
+#### Metrics Response (`GET /admin/metrics`)
+```json
+{
+  "totalConversations": 1234,
+  "escalationRate": 18,
+  "outOfScopeRate": 7,
+  "trends": {
+    "conversations": "+12%",
+    "escalations": "+6%",
+    "outOfScope": "+2%"
+  }
+}
+```
+
+#### Conversations Chart (`GET /admin/conversations/chart`)
+```json
+{
+  "data": [
+    { "date": "12/15", "conversations": 140 },
+    { "date": "12/16", "conversations": 165 },
+    { "date": "12/17", "conversations": 155 }
+  ]
+}
+```
+
+#### Language Split (`GET /admin/language-split`)
+```json
+{
+  "english": 75,
+  "spanish": 25
+}
+```
+
+#### Escalation Requests (`GET /escalation/requests`)
+```json
+{
+  "requests": [
+    {
+      "name": "Maria Rodriguez",
+      "email": "maria.rodriguez@email.com", 
+      "phone": "(555) 234-5678",
+      "zipCode": "85001",
+      "dateTime": "Dec 21, 2:34 PM"
+    }
+  ],
+  "total": 1
+}
+```
+
+#### FAQ Data (`GET /admin/frequently-asked-questions`)
+```json
+{
+  "questions": [
+    {
+      "question": "What is type 1 diabetes?",
+      "count": 45
+    }
+  ]
+}
+```
+
+## Frontend Integration Status
+
+### ❌ **INTEGRATION NEEDED**
+The frontend currently uses mock data and needs to be updated to call these APIs:
+
+1. **ChatPanel** - Replace `setTimeout()` simulation with `/chat` API calls
+2. **TalkToPersonForm** - Replace `alert()` with `/escalation/request` API calls  
+3. **Admin Components** - Replace hardcoded data with admin API calls
+
+### ✅ **READY TO USE**
+- All backend APIs are implemented and tested
+- Data structures match frontend expectations
+- Authentication system is configured
+- CORS is properly set up

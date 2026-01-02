@@ -61,7 +61,10 @@
     "test:deployment": "npx ts-node scripts/test-rag-processor-simple.ts && npx ts-node scripts/test-analytics-simple.ts",
     "deploy-core": "npx ts-node scripts/deploy-fresh-complete.ts --core-only",
     "remove-bloat": "npx ts-node scripts/remove-codebase-bloat.ts",
-    "remove-bloat-execute": "npx ts-node scripts/remove-codebase-bloat.ts --execute"
+    "remove-bloat-execute": "npx ts-node scripts/remove-codebase-bloat.ts --execute",
+    "build:enhanced-scraper": "node scripts/build-enhanced-scraper.js",
+    "deploy:enhanced-scraper": "node scripts/deploy-enhanced-scraper.js",
+    "test:enhanced-scraper": "npx ts-node scripts/test-enhanced-scraper-integration.ts"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.159",
@@ -99,6 +102,7 @@
     "@aws-sdk/client-ses": "^3.958.0",
     "@aws-sdk/client-sns": "^3.958.0",
     "@aws-sdk/client-sqs": "^3.958.0",
+    "@aws-sdk/client-sts": "^3.958.0",
     "@aws-sdk/lib-dynamodb": "^3.958.0",
     "@exodus/bytes": "^1.7.0",
     "aws-cdk-lib": "2.233.0",

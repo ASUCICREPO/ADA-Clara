@@ -1,6 +1,7 @@
 import { S3Service } from '../../core/services/s3.service';
 import { DynamoDBService } from '../../core/services/dynamodb.service';
 import { ScrapingService, ScrapedContent } from '../../core/services/scraping.service';
+import { HtmlProcessingService, CleanedHtmlResult } from '../../services/html-processing-service';
 
 export interface WebScrapingConfig {
   contentBucket: string;
@@ -22,6 +23,17 @@ export interface ScrapingResult {
   error?: string;
   skipped?: boolean;
   reason?: string;
+  contentType?: 'article' | 'faq' | 'resource' | 'event';
+  htmlProcessingMetrics?: {
+    processingTime: number;
+    structuralMetrics: {
+      tableCount: number;
+      listCount: number;
+      headingCount: number;
+      linkCount: number;
+    };
+    qualityScore: number;
+  };
 }
 
 export interface BatchScrapingResult {
@@ -42,10 +54,11 @@ export interface BatchScrapingResult {
 
 /**
  * Web Scraping Service
- * Handles content acquisition and storage with change detection
+ * Handles content acquisition and storage with change detection and enhanced HTML processing
  */
 export class WebScrapingService {
   private config: Required<WebScrapingConfig>;
+  private htmlProcessingService: HtmlProcessingService;
 
   constructor(
     private s3Service: S3Service,
@@ -62,6 +75,8 @@ export class WebScrapingService {
       allowedPaths: config.allowedPaths,
       blockedPaths: config.blockedPaths
     };
+    
+    this.htmlProcessingService = new HtmlProcessingService();
   }
 
   /**
@@ -249,7 +264,7 @@ export class WebScrapingService {
   }
 
   /**
-   * Scrape and store a single URL
+   * Scrape and store a single URL with enhanced HTML processing
    */
   private async scrapeAndStoreUrl(url: string): Promise<ScrapingResult> {
     try {
@@ -269,11 +284,55 @@ export class WebScrapingService {
         throw new Error('Content too short or empty');
       }
       
-      // Store content in S3
-      const contentKey = await this.storeContent(scrapedData);
+      // Process HTML with enhanced HTML processing service
+      let htmlProcessingResult: CleanedHtmlResult | undefined;
+      let contentType: 'article' | 'faq' | 'resource' | 'event' = 'article';
+      
+      try {
+        // Get raw HTML from scraping result (if available)
+        const rawHtml = (scrapedData as any).rawHtml || scrapedData.content;
+        
+        htmlProcessingResult = await this.htmlProcessingService.processHtml(rawHtml, url);
+        
+        // Determine content type using HTML processing service
+        contentType = this.htmlProcessingService.determineContentType(
+          url, 
+          scrapedData.title, 
+          htmlProcessingResult.plainText
+        );
+        
+        console.log(`HTML processing completed: ${contentType}, quality score: ${
+          this.htmlProcessingService.validateHtmlQuality(
+            htmlProcessingResult.cleanedHtml, 
+            htmlProcessingResult.structuralMetrics
+          ).score
+        }`);
+        
+      } catch (htmlError) {
+        console.warn(`HTML processing failed for ${url}:`, htmlError);
+        // Continue with original content if HTML processing fails
+      }
+      
+      // Store content in S3 (with enhanced HTML if available)
+      const contentKey = await this.storeContent(scrapedData, htmlProcessingResult);
       
       // Update content tracking
-      await this.updateContentTracking(url, scrapedData);
+      await this.updateContentTracking(url, scrapedData, contentType, htmlProcessingResult);
+      
+      // Prepare HTML processing metrics
+      const htmlProcessingMetrics = htmlProcessingResult ? {
+        processingTime: htmlProcessingResult.processingTime,
+        structuralMetrics: {
+          tableCount: htmlProcessingResult.structuralMetrics.tableCount,
+          listCount: htmlProcessingResult.structuralMetrics.listCount,
+          headingCount: htmlProcessingResult.structuralMetrics.headingCount,
+          linkCount: htmlProcessingResult.structuralMetrics.linkCount
+        },
+        qualityScore: this.htmlProcessingService.validateHtmlQuality(
+          htmlProcessingResult.cleanedHtml,
+          htmlProcessingResult.structuralMetrics
+        ).score
+      } : undefined;
       
       return {
         url,
@@ -281,7 +340,9 @@ export class WebScrapingService {
         title: scrapedData.title,
         contentLength: scrapedData.contentLength,
         contentKey,
-        scrapedAt: scrapedData.scrapedAt
+        scrapedAt: scrapedData.scrapedAt,
+        contentType,
+        htmlProcessingMetrics
       };
       
     } catch (error) {
@@ -295,9 +356,12 @@ export class WebScrapingService {
   }
 
   /**
-   * Store content in S3
+   * Store content in S3 with enhanced HTML processing
    */
-  private async storeContent(scrapedData: ScrapedContent): Promise<string> {
+  private async storeContent(
+    scrapedData: ScrapedContent, 
+    htmlProcessingResult?: CleanedHtmlResult
+  ): Promise<string> {
     const key = `diabetes-content/${this.urlToKey(scrapedData.url)}.json`;
     
     const contentData = {
@@ -308,25 +372,42 @@ export class WebScrapingService {
       contentHash: scrapedData.contentHash,
       scrapedAt: scrapedData.scrapedAt,
       source: 'web-scraper-lambda',
-      version: '2.0',
-      metadata: scrapedData.metadata
+      version: '2.1', // Updated version for enhanced processing
+      metadata: scrapedData.metadata,
+      // Enhanced HTML processing data
+      enhancedHtml: htmlProcessingResult ? {
+        cleanedHtml: htmlProcessingResult.cleanedHtml,
+        plainText: htmlProcessingResult.plainText,
+        structuralMetrics: htmlProcessingResult.structuralMetrics,
+        processingTime: htmlProcessingResult.processingTime,
+        qualityValidation: this.htmlProcessingService.validateHtmlQuality(
+          htmlProcessingResult.cleanedHtml,
+          htmlProcessingResult.structuralMetrics
+        )
+      } : undefined
     };
 
     await this.s3Service.putJsonObject(this.config.contentBucket, key, contentData, {
       url: scrapedData.url,
       title: scrapedData.title.substring(0, 100), // Metadata limit
       scrapedAt: scrapedData.scrapedAt,
-      contentHash: scrapedData.contentHash
+      contentHash: scrapedData.contentHash,
+      hasEnhancedHtml: htmlProcessingResult ? 'true' : 'false'
     });
 
-    console.log(`Content stored: ${key}`);
+    console.log(`Content stored: ${key}${htmlProcessingResult ? ' (with enhanced HTML)' : ''}`);
     return key;
   }
 
   /**
-   * Update content tracking in DynamoDB
+   * Update content tracking in DynamoDB with enhanced metadata
    */
-  private async updateContentTracking(url: string, scrapedData: ScrapedContent): Promise<void> {
+  private async updateContentTracking(
+    url: string, 
+    scrapedData: ScrapedContent,
+    contentType: 'article' | 'faq' | 'resource' | 'event',
+    htmlProcessingResult?: CleanedHtmlResult
+  ): Promise<void> {
     try {
       const item = {
         PK: `CONTENT#${this.urlToKey(url)}`,
@@ -335,13 +416,27 @@ export class WebScrapingService {
         title: scrapedData.title,
         contentHash: scrapedData.contentHash,
         contentLength: scrapedData.contentLength,
+        contentType,
         lastCrawled: scrapedData.scrapedAt,
         updatedAt: new Date().toISOString(),
-        source: 'web-scraper-lambda'
+        source: 'web-scraper-lambda',
+        // Enhanced HTML processing metadata
+        hasEnhancedHtml: htmlProcessingResult ? true : false,
+        structuralMetrics: htmlProcessingResult ? {
+          tableCount: htmlProcessingResult.structuralMetrics.tableCount,
+          listCount: htmlProcessingResult.structuralMetrics.listCount,
+          headingCount: htmlProcessingResult.structuralMetrics.headingCount,
+          linkCount: htmlProcessingResult.structuralMetrics.linkCount
+        } : undefined,
+        qualityScore: htmlProcessingResult ? 
+          this.htmlProcessingService.validateHtmlQuality(
+            htmlProcessingResult.cleanedHtml,
+            htmlProcessingResult.structuralMetrics
+          ).score : undefined
       };
 
       await this.dynamoService.putItem(this.config.contentTrackingTable, item);
-      console.log(`Content tracking updated for ${url}`);
+      console.log(`Content tracking updated for ${url} (type: ${contentType})`);
     } catch (error) {
       console.error(`Failed to update content tracking for ${url}:`, error);
       // Don't throw - this is not critical for scraping

@@ -107,6 +107,9 @@ export const handler = async (
 
     // Route to appropriate controller method (matches working implementation)
     switch (action) {
+      case 'discover-domain':
+        return await controller.handleDiscoverDomain(body);
+        
       case 'scrape-urls':
         return await controller.handleScrapeUrls(body);
         
@@ -131,7 +134,7 @@ export const handler = async (
           },
           body: JSON.stringify({
             error: 'Unknown action',
-            supportedActions: ['scrape-urls', 'scrape-single', 'test-scraper', 'check-content-changes', 'health']
+            supportedActions: ['discover-domain', 'scrape-urls', 'scrape-single', 'test-scraper', 'check-content-changes', 'health']
           })
         };
     }

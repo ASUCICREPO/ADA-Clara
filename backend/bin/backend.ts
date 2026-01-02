@@ -7,6 +7,7 @@ import { SecurityEnhancementsStack } from '../lib/security-enhancements-stack';
 import { S3VectorsStack } from '../lib/s3-vectors-stack';
 import { BedrockKnowledgeBaseStack } from '../lib/bedrock-knowledge-base-stack';
 import { FrontendAlignedApiStack } from '../lib/frontend-aligned-api-stack';
+import { EnhancedScraperStack } from '../lib/enhanced-scraper-stack';
 
 const app = new cdk.App();
 
@@ -41,13 +42,14 @@ const cognitoStack = new CognitoAuthStack(app, `AdaClaraCognitoAuth${stackSuffix
   }
 });
 
-// S3 Vectors stack with EventBridge scheduling
+// S3 Vectors Foundation Stack (provides infrastructure for Enhanced Scraper)
 const s3VectorsStack = new S3VectorsStack(app, `AdaClaraS3Vectors${stackSuffix}`, {
   env,
+  description: 'ADA Clara S3 Vectors Foundation Stack - Core infrastructure for vector storage and Knowledge Base integration',
   dynamoDBStack: dynamoDBStack,
-  // EventBridge scheduling configuration - RE-ENABLED after fixing circular dependency
-  scheduleExpression: 'rate(7 days)', // Weekly scheduling
-  scheduleEnabled: true, // Re-enabled after fixing circular dependency
+  // EventBridge scheduling moved to Enhanced Scraper Stack
+  scheduleExpression: 'rate(7 days)', // Used by Enhanced Scraper Stack
+  scheduleEnabled: false, // Scheduling handled by Enhanced Scraper Stack
   retryAttempts: 3,
   retryBackoffRate: 2.0,
 });
@@ -60,6 +62,35 @@ const bedrockKnowledgeBaseStack = new BedrockKnowledgeBaseStack(app, `AdaClaraBe
   vectorIndex: s3VectorsStack.vectorIndex
 });
 
+// Enhanced Scraper Stack (imports Foundation Stack resources)
+const enhancedScraperStack = new EnhancedScraperStack(app, `AdaClaraEnhancedScraper${stackSuffix}`, {
+  env,
+  description: 'ADA Clara Enhanced Web Scraper - Integrates all enhanced services with S3 Vectors GA',
+  foundationStack: s3VectorsStack,
+  dynamoDBStack: dynamoDBStack,
+  
+  // Enhanced scraper configuration
+  targetDomain: 'diabetes.org',
+  maxPages: 50,
+  rateLimitDelay: 2000,
+  batchSize: 5,
+  
+  // Scheduling configuration
+  scheduleExpression: 'rate(7 days)', // Weekly automated crawls
+  scheduleEnabled: true,
+  
+  // Enhanced processing configuration
+  enableContentEnhancement: true,
+  enableIntelligentChunking: true,
+  enableStructuredExtraction: true,
+  chunkingStrategy: 'hybrid', // Best balance of semantic and structural chunking
+  
+  // Quality and monitoring
+  qualityThreshold: 0.7,
+  maxRetries: 3,
+  notificationEmail: process.env.ADMIN_EMAIL // Use same email as Cognito
+});
+
 // Frontend-Aligned API Stack (Current Working API)
 const frontendAlignedApiStack = new FrontendAlignedApiStack(app, `AdaClaraFrontendAlignedApi${stackSuffix}`, {
   env,
@@ -69,5 +100,7 @@ const frontendAlignedApiStack = new FrontendAlignedApiStack(app, `AdaClaraFronte
 
 // Add dependencies
 bedrockKnowledgeBaseStack.addDependency(s3VectorsStack);
+enhancedScraperStack.addDependency(s3VectorsStack);
+enhancedScraperStack.addDependency(dynamoDBStack);
 frontendAlignedApiStack.addDependency(dynamoDBStack);
 frontendAlignedApiStack.addDependency(cognitoStack);
