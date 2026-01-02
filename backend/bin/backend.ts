@@ -91,16 +91,30 @@ const enhancedScraperStack = new EnhancedScraperStack(app, `AdaClaraEnhancedScra
   notificationEmail: process.env.ADMIN_EMAIL // Use same email as Cognito
 });
 
+// RAG Processor Stack for 95% confidence requirement
+const ragProcessorStack = new RAGProcessorStack(app, `AdaClaraRAGProcessor${stackSuffix}`, {
+  env,
+  description: 'ADA Clara RAG Processor - Retrieval-Augmented Generation for 95% confidence responses',
+  contentBucket: s3VectorsStack.contentBucket,
+  vectorsBucket: s3VectorsStack.vectorsBucket.vectorBucketName,
+  vectorIndex: s3VectorsStack.vectorIndex.indexName,
+  knowledgeBaseId: bedrockKnowledgeBaseStack.knowledgeBase.attrKnowledgeBaseId
+});
+
 // Frontend-Aligned API Stack (Current Working API)
 const frontendAlignedApiStack = new FrontendAlignedApiStack(app, `AdaClaraFrontendAlignedApi${stackSuffix}`, {
   env,
   description: 'ADA Clara Frontend-Aligned API - Clean CDK deployment with all working endpoints',
-  dynamoDBStack: dynamoDBStack
+  dynamoDBStack: dynamoDBStack,
+  ragProcessorEndpoint: `${ragProcessorStack.api.url}query`
 });
 
 // Add dependencies
 bedrockKnowledgeBaseStack.addDependency(s3VectorsStack);
 enhancedScraperStack.addDependency(s3VectorsStack);
 enhancedScraperStack.addDependency(dynamoDBStack);
+ragProcessorStack.addDependency(s3VectorsStack);
+ragProcessorStack.addDependency(bedrockKnowledgeBaseStack);
 frontendAlignedApiStack.addDependency(dynamoDBStack);
 frontendAlignedApiStack.addDependency(cognitoStack);
+frontendAlignedApiStack.addDependency(ragProcessorStack);

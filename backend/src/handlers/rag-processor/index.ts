@@ -1,6 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Handler } from 'aws-lambda';
 import { BedrockService } from '../../core/services/bedrock.service';
-import { S3VectorsService } from '../../core/services/s3-vectors.service';
 import { RAGService } from '../../business/rag/rag.service';
 import { RAGController } from './rag.controller';
 
@@ -17,7 +16,6 @@ import { RAGController } from './rag.controller';
  */
 
 let bedrockService: BedrockService;
-let s3VectorsService: S3VectorsService;
 let ragService: RAGService;
 let ragController: RAGController;
 
@@ -33,19 +31,15 @@ function initializeServices(): void {
       region: process.env.AWS_REGION || 'us-east-1'
     });
 
-    s3VectorsService = new S3VectorsService();
-
     // Create RAG service with configuration
     ragService = new RAGService(
       bedrockService,
-      s3VectorsService,
       {
-        vectorsBucket: process.env.VECTORS_BUCKET || '',
-        vectorIndex: process.env.VECTOR_INDEX || '',
+        knowledgeBaseId: process.env.KNOWLEDGE_BASE_ID || '',
         embeddingModel: process.env.EMBEDDING_MODEL || 'amazon.titan-embed-text-v2:0',
         generationModel: process.env.GENERATION_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0',
         maxResults: parseInt(process.env.MAX_RESULTS || '5'),
-        confidenceThreshold: parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.6')
+        confidenceThreshold: parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.95')
       }
     );
 

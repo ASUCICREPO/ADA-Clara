@@ -9,6 +9,7 @@ export interface RAGProcessorStackProps extends StackProps {
   contentBucket?: s3.IBucket; // Optional - will create one if not provided
   vectorsBucket: string;
   vectorIndex: string;
+  knowledgeBaseId: string; // Required - Knowledge Base ID from BedrockKnowledgeBaseStack
 }
 
 /**
@@ -49,10 +50,12 @@ export class RAGProcessorStack extends Stack {
         VECTORS_BUCKET: props.vectorsBucket,
         VECTOR_INDEX: props.vectorIndex,
         CONTENT_BUCKET: this.contentBucket.bucketName,
+        KNOWLEDGE_BASE_ID: props.knowledgeBaseId,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0'
+        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
+        CONFIDENCE_THRESHOLD: '0.95'
       },
-      description: 'RAG query processing for ADA Clara chatbot'
+      description: 'RAG query processing with RAGAS confidence system - Industry standard'
     });
 
     // Grant S3 Vectors permissions
@@ -83,6 +86,18 @@ export class RAGProcessorStack extends Stack {
       resources: [
         `arn:aws:bedrock:${Stack.of(this).region}::foundation-model/amazon.titan-embed-text-v2:0`,
         `arn:aws:bedrock:${Stack.of(this).region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`
+      ]
+    }));
+
+    // Grant Bedrock Agent permissions for Knowledge Base access
+    this.ragFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:RetrieveAndGenerate',
+        'bedrock:Retrieve'
+      ],
+      resources: [
+        `arn:aws:bedrock:${Stack.of(this).region}:${Stack.of(this).account}:knowledge-base/${props.knowledgeBaseId}`
       ]
     }));
 

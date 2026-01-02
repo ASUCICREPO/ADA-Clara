@@ -9,6 +9,7 @@ import { AdaClaraDynamoDBStack } from './dynamodb-stack';
 
 export interface FrontendAlignedApiStackProps extends StackProps {
   dynamoDBStack: AdaClaraDynamoDBStack;
+  ragProcessorEndpoint?: string; // Optional - RAG processor API endpoint
 }
 
 /**
@@ -114,7 +115,9 @@ export class FrontendAlignedApiStack extends Stack {
         ESCALATION_REQUESTS_TABLE: escalationRequestsTable.tableName,
         // Add correct table names for the service
         CHAT_SESSIONS_TABLE: dynamoDBStack.chatSessionsTable.tableName,
-        CONVERSATIONS_TABLE: dynamoDBStack.conversationsTable.tableName
+        CONVERSATIONS_TABLE: dynamoDBStack.conversationsTable.tableName,
+        // RAG processor endpoint for 95% confidence requirement
+        RAG_ENDPOINT: props.ragProcessorEndpoint || ''
       }
     });
 

@@ -163,7 +163,6 @@ export class ServiceContainer {
     if (!this.ragServiceInstance) {
       this.ragServiceInstance = new RAGService(
         this.bedrockService,
-        this.s3VectorsService,
         config
       );
     }

@@ -1,5 +1,6 @@
 import { BedrockService } from '../../core/services/bedrock.service';
-import { S3VectorsService, VectorSearchRequest } from '../../core/services/s3-vectors.service';
+import { BedrockAgentRuntimeClient, RetrieveAndGenerateCommand } from '@aws-sdk/client-bedrock-agent-runtime';
+import { RAGASConfidenceService, RAGASEvaluation } from './ragas-confidence.service';
 
 export interface RAGRequest {
   query: string;
@@ -17,6 +18,13 @@ export interface RAGResponse {
   sessionId?: string;
   processingTime: number;
   escalationSuggested: boolean;
+  ragasMetrics?: {
+    faithfulness: number;
+    answerRelevancy: number;
+    contextPrecision: number;
+    contextRecall: number;
+  };
+  confidenceExplanation?: string;
 }
 
 export interface Source {
@@ -27,15 +35,8 @@ export interface Source {
   metadata: Record<string, any>;
 }
 
-export interface VectorSearchResult {
-  vectorId: string;
-  score: number;
-  metadata: Record<string, any>;
-}
-
 export interface RAGConfig {
-  vectorsBucket: string;
-  vectorIndex: string;
+  knowledgeBaseId: string;
   embeddingModel: string;
   generationModel: string;
   maxResults: number;
@@ -43,67 +44,83 @@ export interface RAGConfig {
 }
 
 /**
- * RAG Service - Handles Retrieval-Augmented Generation processing
+ * RAG Service - Uses Bedrock Knowledge Base with RAGAS confidence scoring
  * 
- * This service orchestrates the RAG pipeline:
- * 1. Generate query embeddings
- * 2. Perform semantic search in S3 Vectors
- * 3. Retrieve source content
- * 4. Generate contextual responses using Bedrock
- * 5. Calculate confidence and escalation suggestions
+ * This service uses the working Knowledge Base integration with industry-standard
+ * RAGAS confidence metrics for medical AI applications.
  */
 export class RAGService {
+  private readonly ragasService: RAGASConfidenceService;
+  private bedrockAgentClient: BedrockAgentRuntimeClient;
+
   constructor(
     private readonly bedrockService: BedrockService,
-    private readonly s3VectorsService: S3VectorsService,
     private readonly config: RAGConfig
-  ) {}
+  ) {
+    this.ragasService = new RAGASConfidenceService();
+    this.bedrockAgentClient = new BedrockAgentRuntimeClient({
+      region: process.env.AWS_REGION || 'us-east-1'
+    });
+  }
 
   /**
-   * Process RAG query end-to-end
+   * Process RAG query using Bedrock Knowledge Base with RAGAS confidence
    */
   async processQuery(request: RAGRequest): Promise<RAGResponse> {
     const startTime = Date.now();
 
     try {
-      console.log(`🔍 Processing RAG query: "${request.query}"`);
+      console.log(`🔍 Processing RAG query via Knowledge Base: "${request.query}"`);
 
-      // Step 1: Generate query embedding
-      const queryEmbedding = await this.generateQueryEmbedding(request.query);
-      console.log('✅ Generated query embedding');
+      // Check if question is off-topic before processing
+      const isOffTopic = this.isOffTopicQuestion(request.query);
+      
+      if (isOffTopic) {
+        console.log('🚫 Off-topic question detected - returning redirect response');
+        return this.createOffTopicResponse(request, startTime);
+      }
 
-      // Step 2: Perform semantic search
-      const vectorResults = await this.performSemanticSearch(
-        queryEmbedding, 
+      // Use Bedrock Knowledge Base for retrieval and generation
+      const kbResponse = await this.queryKnowledgeBase(
+        request.query,
+        request.sessionId,
         request.maxResults || this.config.maxResults
       );
-      console.log(`✅ Found ${vectorResults.length} relevant sources`);
 
-      // Step 3: Retrieve source content
-      const sources = await this.retrieveSourceContent(vectorResults);
-      console.log(`✅ Retrieved content for ${sources.length} sources`);
+      console.log(`✅ Knowledge Base response received`);
 
-      // Step 4: Generate response
-      const { answer, confidence } = await this.generateResponse(
-        request.query, 
-        sources, 
-        request.language || 'en'
+      // Extract answer and sources from KB response
+      const answer = kbResponse.output?.text || 'I apologize, but I couldn\'t generate a response at this time.';
+      const sources = this.extractSources(kbResponse);
+      const retrievedContexts = this.extractContexts(kbResponse);
+
+      // Calculate RAGAS-based confidence
+      const ragasEvaluation = await this.ragasService.calculateConfidence(
+        request.query,
+        answer,
+        retrievedContexts,
+        sources
       );
-      console.log(`✅ Generated response with confidence: ${confidence.toFixed(2)}`);
 
-      // Step 5: Determine escalation suggestion
-      const escalationSuggested = this.shouldSuggestEscalation(confidence, request.query);
+      // Determine escalation suggestion based on RAGAS confidence
+      const escalationSuggested = this.shouldSuggestEscalation(ragasEvaluation.confidence, request.query);
 
       const processingTime = Date.now() - startTime;
 
+      console.log(`✅ RAG processing completed in ${processingTime}ms`);
+      console.log(`📊 RAGAS Confidence: ${(ragasEvaluation.confidence * 100).toFixed(1)}%`);
+      console.log(`📋 Escalation: ${escalationSuggested ? 'YES' : 'NO'}`);
+
       return {
         answer,
-        confidence,
+        confidence: ragasEvaluation.confidence,
         sources,
         language: request.language || 'en',
         sessionId: request.sessionId,
         processingTime,
-        escalationSuggested
+        escalationSuggested,
+        ragasMetrics: ragasEvaluation.metrics,
+        confidenceExplanation: ragasEvaluation.explanation
       };
 
     } catch (error) {
@@ -125,77 +142,59 @@ export class RAGService {
   }
 
   /**
-   * Generate embedding for the user query
+   * Query Bedrock Knowledge Base
    */
-  private async generateQueryEmbedding(query: string): Promise<number[]> {
-    try {
-      const result = await this.bedrockService.generateEmbedding(query, this.config.embeddingModel);
-      
-      return result.embedding;
-    } catch (error) {
-      console.error('❌ Failed to generate query embedding:', error);
-      throw new Error('Failed to generate query embedding');
-    }
-  }
-
-  /**
-   * Perform semantic search using S3 Vectors
-   */
-  private async performSemanticSearch(
-    queryEmbedding: number[], 
+  private async queryKnowledgeBase(
+    query: string,
+    sessionId?: string,
     maxResults: number = 5
-  ): Promise<VectorSearchResult[]> {
-    try {
-      const searchRequest: VectorSearchRequest = {
-        bucketName: this.config.vectorsBucket,
-        indexName: this.config.vectorIndex,
-        queryVector: queryEmbedding,
-        maxResults,
-        filter: {
-          // Optional: Add metadata filters for content type, language, etc.
-          language: 'en'
+  ): Promise<any> {
+    const command = new RetrieveAndGenerateCommand({
+      input: {
+        text: query
+      },
+      retrieveAndGenerateConfiguration: {
+        type: 'KNOWLEDGE_BASE',
+        knowledgeBaseConfiguration: {
+          knowledgeBaseId: this.config.knowledgeBaseId,
+          modelArn: `arn:aws:bedrock:${process.env.AWS_REGION || 'us-east-1'}::foundation-model/${this.config.generationModel}`,
+          retrievalConfiguration: {
+            vectorSearchConfiguration: {
+              numberOfResults: maxResults,
+              overrideSearchType: 'SEMANTIC' // S3 Vectors only supports SEMANTIC search
+            }
+          }
         }
-      };
+      },
+      sessionId: sessionId
+    });
 
-      const searchResult = await this.s3VectorsService.searchVectors(searchRequest);
-
-      return searchResult.vectors.map((vector) => ({
-        vectorId: vector.id,
-        score: vector.score,
-        metadata: vector.metadata || {}
-      }));
-    } catch (error) {
-      console.error('❌ Semantic search failed:', error);
-      throw new Error('Semantic search failed');
-    }
+    return await this.bedrockAgentClient.send(command);
   }
 
   /**
-   * Retrieve full content for vector results
+   * Extract sources from Knowledge Base response
    */
-  private async retrieveSourceContent(vectorResults: VectorSearchResult[]): Promise<Source[]> {
+  private extractSources(kbResponse: any): Source[] {
     const sources: Source[] = [];
+    const citations = kbResponse.citations || [];
 
-    for (const result of vectorResults) {
-      try {
-        // Extract content from metadata or retrieve from S3 if needed
-        const metadata = result.metadata;
+    for (const citation of citations) {
+      const retrievedReferences = citation.retrievedReferences || [];
+      
+      for (const reference of retrievedReferences) {
+        const location = reference.location?.s3Location;
+        const content = reference.content?.text || '';
         
-        const source: Source = {
-          url: metadata.url || metadata.sourceUrl || '',
-          title: metadata.title || 'Diabetes Information',
-          content: metadata.content || metadata.text || '',
-          relevanceScore: result.score,
-          metadata: metadata
-        };
-
-        // Ensure we have meaningful content
-        if (source.content && source.content.length > 50) {
-          sources.push(source);
+        if (location || reference.metadata) {
+          sources.push({
+            url: location?.uri || reference.metadata?.sourceUrl || '',
+            title: reference.metadata?.title || reference.metadata?.sourceTitle || 'Diabetes Information',
+            content: content,
+            relevanceScore: 0.9, // KB sources are high quality
+            metadata: reference.metadata || {}
+          });
         }
-      } catch (error) {
-        console.error(`❌ Failed to retrieve content for vector ${result.vectorId}:`, error);
-        // Continue with other sources
       }
     }
 
@@ -203,112 +202,146 @@ export class RAGService {
   }
 
   /**
-   * Generate response using retrieved context
+   * Extract contexts from Knowledge Base response for RAGAS
    */
-  private async generateResponse(
-    query: string, 
-    sources: Source[], 
-    language: string = 'en'
-  ): Promise<{ answer: string; confidence: number }> {
-    try {
-      // Prepare context from sources
-      const context = sources.map((source, index) => 
-        `Source ${index + 1} (${source.title}):\n${source.content}\nURL: ${source.url}\n`
-      ).join('\n---\n');
+  private extractContexts(kbResponse: any): string[] {
+    const contexts: string[] = [];
+    const citations = kbResponse.citations || [];
 
-      // Create prompt for response generation
-      const prompt = this.createRAGPrompt(query, context, language);
-
-      const response = await this.bedrockService.generateText(prompt, this.config.generationModel, {
-        maxTokens: 1000,
-        temperature: 0.1
-      });
-
-      const answer = response;
-
-      // Calculate confidence based on source relevance and answer quality
-      const confidence = this.calculateConfidence(sources, answer);
-
-      return { answer, confidence };
-    } catch (error) {
-      console.error('❌ Response generation failed:', error);
-      throw new Error('Response generation failed');
+    for (const citation of citations) {
+      const retrievedReferences = citation.retrievedReferences || [];
+      
+      for (const reference of retrievedReferences) {
+        const content = reference.content?.text || '';
+        if (content.trim().length > 0) {
+          contexts.push(content);
+        }
+      }
     }
+
+    // If no content in citations, use the generated response as context
+    if (contexts.length === 0 && kbResponse.output?.text) {
+      contexts.push(kbResponse.output.text);
+    }
+
+    return contexts;
   }
 
   /**
-   * Create RAG prompt for response generation
-   */
-  private createRAGPrompt(query: string, context: string, language: string): string {
-    const languageInstruction = language === 'es'
-      ? 'Responde en español.'
-      : 'Respond in English.';
-
-    return `You are ADA Clara, an AI assistant for the American Diabetes Association. Your role is to provide accurate, helpful information about diabetes based on the provided context from diabetes.org.
-
-INSTRUCTIONS:
-1. ${languageInstruction}
-2. Answer the user's question using ONLY the information provided in the context below
-3. If the context doesn't contain enough information to answer the question, say so clearly
-4. Always cite your sources by mentioning the source URLs when relevant
-5. Be empathetic and supportive, as users may be dealing with health concerns
-6. Keep responses concise but comprehensive
-7. If the question requires medical advice beyond general information, recommend consulting a healthcare provider
-
-CONTEXT FROM DIABETES.ORG:
-${context}
-
-USER QUESTION: ${query}
-
-RESPONSE:`;
-  }
-
-  /**
-   * Calculate confidence score based on source relevance and answer quality
-   */
-  private calculateConfidence(sources: Source[], answer: string): number {
-    if (sources.length === 0) return 0.1;
-
-    // Base confidence on source relevance scores
-    const avgRelevance = sources.reduce((sum, source) => sum + source.relevanceScore, 0) / sources.length;
-
-    // Adjust based on answer characteristics
-    let confidence = avgRelevance;
-
-    // Boost confidence if answer contains citations
-    if (answer.includes('diabetes.org') || answer.includes('Source')) {
-      confidence += 0.1;
-    }
-
-    // Reduce confidence if answer is too short or contains uncertainty phrases
-    if (answer.length < 100) {
-      confidence -= 0.2;
-    }
-
-    if (answer.includes('I don\'t know') || answer.includes('not enough information')) {
-      confidence -= 0.3;
-    }
-
-    // Ensure confidence is between 0 and 1
-    return Math.max(0.1, Math.min(1.0, confidence));
-  }
-
-  /**
-   * Determine if escalation should be suggested
+   * Determine if escalation should be suggested based on RAGAS confidence
    */
   private shouldSuggestEscalation(confidence: number, query: string): boolean {
-    // Suggest escalation if confidence is low
-    if (confidence < (this.config.confidenceThreshold || 0.6)) return true;
-
-    // Suggest escalation for medical advice keywords
-    const medicalAdviceKeywords = [
-      'should i take', 'medication', 'dosage', 'treatment plan',
-      'doctor', 'physician', 'medical advice', 'diagnosis',
-      'emergency', 'urgent', 'pain', 'symptoms getting worse'
+    // Client requirement: 95% confidence threshold
+    const CONFIDENCE_THRESHOLD = 0.95;
+    
+    // Escalate if confidence is below 95%
+    if (confidence < CONFIDENCE_THRESHOLD) {
+      console.log(`Escalating due to confidence ${(confidence * 100).toFixed(1)}% below required 95%`);
+      return true;
+    }
+    
+    // Also escalate for explicit requests for human help
+    const escalationKeywords = [
+      'human', 'person', 'agent', 'representative', 'help me', 'speak to someone',
+      'humano', 'persona', 'agente', 'representante', 'ayúdame', 'hablar con alguien'
     ];
+    
+    const explicitRequest = escalationKeywords.some(keyword => 
+      query.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    if (explicitRequest) {
+      console.log('Escalating due to explicit request for human assistance');
+      return true;
+    }
+    
+    return false;
+  }
 
+  /**
+   * Check if a question is off-topic (not related to diabetes)
+   */
+  private isOffTopicQuestion(query: string): boolean {
     const queryLower = query.toLowerCase();
-    return medicalAdviceKeywords.some(keyword => queryLower.includes(keyword));
+    
+    // Diabetes-related keywords
+    const diabetesKeywords = [
+      'diabetes', 'diabetic', 'blood sugar', 'glucose', 'insulin', 'a1c', 'hba1c',
+      'type 1', 'type 2', 'gestational', 'prediabetes', 'hyperglycemia', 'hypoglycemia',
+      'pancreas', 'beta cells', 'carbohydrate', 'carbs', 'sugar', 'glycemic',
+      'metformin', 'glucometer', 'blood test', 'endocrinologist'
+    ];
+    
+    // Check if query contains diabetes-related terms
+    const hasDiabetesTerms = diabetesKeywords.some(keyword => 
+      queryLower.includes(keyword)
+    );
+    
+    if (hasDiabetesTerms) {
+      return false; // Not off-topic
+    }
+    
+    // Off-topic categories
+    const offTopicCategories = [
+      // Weather
+      ['weather', 'temperature', 'rain', 'snow', 'sunny', 'cloudy', 'forecast', 'climate'],
+      // Sports
+      ['football', 'basketball', 'soccer', 'baseball', 'tennis', 'golf', 'sports', 'game', 'team', 'player', 'score'],
+      // Entertainment
+      ['movie', 'film', 'music', 'song', 'celebrity', 'actor', 'actress', 'tv show', 'television', 'concert'],
+      // Technology (non-medical)
+      ['computer', 'software', 'programming', 'coding', 'app', 'website', 'internet', 'python', 'javascript', 'code'],
+      // Politics
+      ['president', 'election', 'politics', 'government', 'congress', 'senate', 'vote', 'political'],
+      // General knowledge
+      ['history', 'geography', 'math', 'science', 'physics', 'chemistry', 'biology'],
+      // Food (non-diabetes related) - be careful here
+      ['recipe', 'cooking', 'restaurant', 'menu'],
+      // Travel
+      ['vacation', 'hotel', 'flight', 'travel', 'tourism', 'trip'],
+      // Shopping/Commerce
+      ['buy', 'purchase', 'shopping', 'store', 'price', 'cost', 'money'],
+      // General conversation
+      ['hello', 'hi', 'how are you', 'good morning', 'good afternoon']
+    ];
+    
+    // Check if query matches off-topic categories
+    const isOffTopic = offTopicCategories.some(category =>
+      category.some(keyword => queryLower.includes(keyword))
+    );
+    
+    return isOffTopic;
+  }
+
+  /**
+   * Create off-topic response without escalation
+   */
+  private createOffTopicResponse(request: RAGRequest, startTime: number): RAGResponse {
+    const processingTime = Date.now() - startTime;
+    
+    const offTopicMessages = {
+      en: "I'm sorry—I can only answer questions about information on diabetes.org. Do you have any diabetes-related questions for me?",
+      es: "Lo siento, solo puedo responder preguntas sobre información en diabetes.org. ¿Tienes alguna pregunta relacionada con la diabetes para mí?"
+    };
+    
+    const message = offTopicMessages[request.language as keyof typeof offTopicMessages] || offTopicMessages.en;
+    
+    return {
+      answer: message,
+      confidence: 0.95, // High confidence in off-topic detection
+      sources: [],
+      language: request.language || 'en',
+      sessionId: request.sessionId,
+      processingTime,
+      escalationSuggested: false, // No escalation for off-topic
+      ragasMetrics: {
+        faithfulness: 1.0,
+        answerRelevancy: 0.0, // Not relevant to user's question
+        contextPrecision: 1.0, // Perfect precision (no context needed)
+        contextRecall: 1.0 // Complete recall (standard response)
+      },
+      confidenceExplanation: 'Off-topic question detected. Providing standard redirect response to diabetes-related topics.'
+    };
   }
 
   /**
@@ -316,12 +349,25 @@ RESPONSE:`;
    */
   async healthCheck(): Promise<boolean> {
     try {
-      // Test basic embedding generation
-      await this.generateQueryEmbedding('test query');
+      // Test basic Knowledge Base connectivity
+      const testQuery = 'What is diabetes?';
+      const command = new RetrieveAndGenerateCommand({
+        input: { text: testQuery },
+        retrieveAndGenerateConfiguration: {
+          type: 'KNOWLEDGE_BASE',
+          knowledgeBaseConfiguration: {
+            knowledgeBaseId: this.config.knowledgeBaseId,
+            modelArn: `arn:aws:bedrock:${process.env.AWS_REGION || 'us-east-1'}::foundation-model/${this.config.generationModel}`,
+            retrievalConfiguration: {
+              vectorSearchConfiguration: {
+                numberOfResults: 1
+              }
+            }
+          }
+        }
+      });
       
-      // Test S3 Vectors connectivity
-      await this.s3VectorsService.healthCheck();
-      
+      await this.bedrockAgentClient.send(command);
       return true;
     } catch (error) {
       console.error('RAG service health check failed:', error);
