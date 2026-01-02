@@ -27,9 +27,17 @@ export class AdaClaraDynamoDBStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
+    // Environment-based configuration for easier development cleanup
+    const isDevelopment = this.node.tryGetContext('environment') === 'development' || 
+                         process.env.NODE_ENV === 'development' ||
+                         !process.env.PRODUCTION;
+    
+    const environment = this.node.tryGetContext('environment') || 'development';
+    const tableSuffix = environment === 'production' ? '' : '-dev';
+
     // Chat Sessions Table - Real-time session management
     this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
-      tableName: 'ada-clara-chat-sessions',
+      tableName: `ada-clara-chat-sessions${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -44,13 +52,15 @@ export class AdaClaraDynamoDBStack extends Stack {
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: true
       },
-      removalPolicy: RemovalPolicy.DESTROY, // Change to RETAIN for production
+      // Development: Auto-delete for easy cleanup
+      // Production: Retain for data safety
+      removalPolicy: isDevelopment ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN,
     });
 
     // ===== CONTENT TRACKING TABLE FOR WEEKLY CRAWLER SCHEDULING =====
     // Content Tracking Table - Track content changes for efficient crawling
     this.contentTrackingTable = new dynamodb.Table(this, 'ContentTrackingTable', {
-      tableName: 'ada-clara-content-tracking',
+      tableName: `ada-clara-content-tracking${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -83,7 +93,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Analytics Table - Metrics and reporting data
     this.analyticsTable = new dynamodb.Table(this, 'AnalyticsTable', {
-      tableName: 'ada-clara-analytics',
+      tableName: `ada-clara-analytics${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -115,7 +125,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Audit Logs Table - Security and compliance tracking
     this.auditLogsTable = new dynamodb.Table(this, 'AuditLogsTable', {
-      tableName: 'ada-clara-audit-logs',
+      tableName: `ada-clara-audit-logs${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -162,7 +172,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // User Preferences Table - User settings and preferences
     this.userPreferencesTable = new dynamodb.Table(this, 'UserPreferencesTable', {
-      tableName: 'ada-clara-user-preferences',
+      tableName: `ada-clara-user-preferences${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -180,7 +190,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Escalation Queue Table - Pending escalations to human agents
     this.escalationQueueTable = new dynamodb.Table(this, 'EscalationQueueTable', {
-      tableName: 'ada-clara-escalation-queue',
+      tableName: `ada-clara-escalation-queue${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -214,7 +224,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Knowledge Content Table - Scraped content metadata
     this.knowledgeContentTable = new dynamodb.Table(this, 'KnowledgeContentTable', {
-      tableName: 'ada-clara-knowledge-content',
+      tableName: `ada-clara-knowledge-content${tableSuffix}`,
       partitionKey: {
         name: 'PK',
         type: dynamodb.AttributeType.STRING
@@ -262,7 +272,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Conversations Table - Enhanced conversation tracking for analytics
     this.conversationsTable = new dynamodb.Table(this, 'ConversationsTable', {
-      tableName: 'ada-clara-conversations',
+      tableName: `ada-clara-conversations${tableSuffix}`,
       partitionKey: {
         name: 'conversationId',
         type: dynamodb.AttributeType.STRING
@@ -322,7 +332,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Messages Table - Individual messages with confidence scores
     this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
-      tableName: 'ada-clara-messages',
+      tableName: `ada-clara-messages${tableSuffix}`,
       partitionKey: {
         name: 'conversationId',
         type: dynamodb.AttributeType.STRING
@@ -368,7 +378,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Questions Analysis Table - FAQ and unanswered question tracking
     this.questionsTable = new dynamodb.Table(this, 'QuestionsTable', {
-      tableName: 'ada-clara-questions',
+      tableName: `ada-clara-questions${tableSuffix}`,
       partitionKey: {
         name: 'questionHash',
         type: dynamodb.AttributeType.STRING
@@ -386,7 +396,7 @@ export class AdaClaraDynamoDBStack extends Stack {
 
     // Unanswered Questions Table - Enhanced unanswered question tracking (Task 6)
     this.unansweredQuestionsTable = new dynamodb.Table(this, 'UnansweredQuestionsTable', {
-      tableName: 'ada-clara-unanswered-questions',
+      tableName: `ada-clara-unanswered-questions${tableSuffix}`,
       partitionKey: {
         name: 'id',
         type: dynamodb.AttributeType.STRING

@@ -30,6 +30,10 @@ export class BedrockKnowledgeBaseStack extends Stack {
   constructor(scope: Construct, id: string, props: BedrockKnowledgeBaseProps) {
     super(scope, id, props);
 
+    // Environment-based configuration
+    const environment = this.node.tryGetContext('environment') || 'development';
+    const bucketSuffix = environment === 'production' ? '' : '-dev';
+
     // IAM role for Knowledge Base with S3 Vectors - enhanced permissions based on AWS docs
     this.knowledgeBaseRole = new iam.Role(this, 'KnowledgeBaseRole', {
       roleName: `AdaClaraKBRole-${Stack.of(this).region}`,
@@ -167,10 +171,10 @@ export class BedrockKnowledgeBaseStack extends Stack {
 
     // Test function for GA S3 Vectors integration validation
     this.testFunction = new lambda.Function(this, 'GAIntegrationTestFunction', {
-      functionName: `AdaClaraKBGATest-${Stack.of(this).region}`,
+      functionName: `AdaClaraKBGATest-${Stack.of(this).region}${bucketSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/bedrock-kb'),
+      code: lambda.Code.fromAsset('src/handlers/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {

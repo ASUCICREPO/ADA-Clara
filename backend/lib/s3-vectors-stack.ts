@@ -48,9 +48,17 @@ export class S3VectorsStack extends Stack {
   constructor(scope: Construct, id: string, props?: S3VectorsGAStackProps) {
     super(scope, id, props);
 
+    // Environment-based configuration for easier development cleanup
+    const isDevelopment = this.node.tryGetContext('environment') === 'development' || 
+                         process.env.NODE_ENV === 'development' ||
+                         !process.env.PRODUCTION;
+    
+    const environment = this.node.tryGetContext('environment') || 'development';
+    const bucketSuffix = environment === 'production' ? '' : '-dev';
+
     // Regular S3 bucket for storing raw scraped content
     this.contentBucket = new s3.Bucket(this, 'ContentBucket', {
-      bucketName: `ada-clara-content-ga-${this.account}-${this.region}`,
+      bucketName: `ada-clara-content-ga-${this.account}-${this.region}${bucketSuffix}`,
       versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED, // GA: SSE-S3 by default
       lifecycleRules: [{
@@ -58,13 +66,16 @@ export class S3VectorsStack extends Stack {
         expiration: Duration.days(90),
         noncurrentVersionExpiration: Duration.days(30),
       }],
-      removalPolicy: RemovalPolicy.DESTROY, // For development - change for production
+      // Development: Auto-delete for easy cleanup
+      // Production: Retain for data safety
+      removalPolicy: isDevelopment ? RemovalPolicy.DESTROY : RemovalPolicy.RETAIN,
+      autoDeleteObjects: isDevelopment, // Automatically empty bucket before deletion
     });
 
     try {
       // GA S3 Vectors bucket with enhanced features
       this.vectorsBucket = new Bucket(this, 'VectorsBucket', {
-        vectorBucketName: `ada-clara-vectors-ga-${this.account}-${this.region}`,
+        vectorBucketName: `ada-clara-vectors-ga-${this.account}-${this.region}${bucketSuffix}`,
         // GA features - encryption handled at bucket level
       });
 
@@ -115,7 +126,7 @@ export class S3VectorsStack extends Stack {
     this.crawlerFunction = new lambda.Function(this, 'CrawlerFunction', {
       runtime: lambda.Runtime.NODEJS_20_X, // Updated to Node.js 20 for better compatibility
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/s3-vectors'), // New clean architecture build
+      code: lambda.Code.fromAsset('dist/s3-vectors'), // Using built assets
       timeout: Duration.minutes(15),
       memorySize: 3008, // Increased for GA throughput (1,000 vectors/second)
       environment: {
@@ -217,10 +228,10 @@ export class S3VectorsStack extends Stack {
     // Dedicated Lambda for web scraping (separated from S3 Vectors operations)
     
     this.webScraperFunction = new lambda.Function(this, 'WebScraperFunction', {
-      functionName: `AdaClaraWebScraper-${Stack.of(this).region}`,
+      functionName: `AdaClaraWebScraper-${Stack.of(this).region}${bucketSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/web-scraper'), // New clean architecture build
+      code: lambda.Code.fromAsset('dist/web-scraper'), // Using built assets
       timeout: Duration.minutes(10), // Shorter timeout for focused scraping
       memorySize: 1024, // Less memory needed for scraping only
       environment: {
@@ -363,7 +374,7 @@ export class S3VectorsStack extends Stack {
     this.kbTestFunction = new lambda.Function(this, 'KBTestFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/bedrock-kb'),
+      code: lambda.Code.fromAsset('src/handlers/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {

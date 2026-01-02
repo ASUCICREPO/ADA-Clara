@@ -207,7 +207,7 @@ export class CognitoAuthStack extends Stack {
       functionName: 'ada-clara-auth-handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/auth-handler'),
+      code: lambda.Code.fromAsset('src/handlers/auth-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: authLogGroup,
