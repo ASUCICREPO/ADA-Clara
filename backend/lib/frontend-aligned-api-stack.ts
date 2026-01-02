@@ -196,9 +196,19 @@ export class FrontendAlignedApiStack extends Stack {
     // Escalation endpoints
     const escalationResource = this.api.root.addResource('escalation');
     const escalationRequestResource = escalationResource.addResource('request');
+    const escalationRequestsResource = escalationResource.addResource('requests');
+    const escalationHealthResource = escalationResource.addResource('health');
     const escalationIntegration = new apigateway.LambdaIntegration(this.escalationHandler);
     
+    // Escalation request submission (public)
     escalationRequestResource.addMethod('POST', escalationIntegration);
+    
+    // Escalation requests list (for admin)
+    escalationRequestsResource.addMethod('GET', escalationIntegration);
+    
+    // Escalation health check
+    escalationHealthResource.addMethod('GET', escalationIntegration);
+    escalationResource.addMethod('GET', escalationIntegration); // Health check at /escalation
 
     // Admin endpoints
     const adminResource = this.api.root.addResource('admin');

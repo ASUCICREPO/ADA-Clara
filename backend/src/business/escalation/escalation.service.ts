@@ -82,60 +82,45 @@ export class EscalationService {
    */
   async getEscalationRequests(limit: number = 50): Promise<EscalationListResponse> {
     try {
-      // In a real implementation, this would scan/query the DynamoDB table
-      // For now, return mock data that matches the frontend expectations
-      // TODO: Implement real DynamoDB query when data structure is finalized
+      console.log(`Fetching escalation requests from DynamoDB table: ${this.ESCALATION_TABLE}`);
       
-      const mockData: EscalationRecord[] = [
-        {
-          escalationId: 'esc-1',
-          name: 'Maria Rodriguez',
-          email: 'maria.rodriguez@email.com',
-          phoneNumber: '(555) 234-5678',
-          zipCode: '85001',
-          dateTime: 'Dec 21, 2:34 PM',
-          timestamp: '2024-12-21T14:34:00Z',
-          status: 'pending',
-          source: 'chat_escalation'
-        },
-        {
-          escalationId: 'esc-2',
-          name: 'James Smith',
-          email: 'james.smith@email.com',
-          phoneNumber: '(555) 987-6543',
-          zipCode: '85002',
-          dateTime: 'Dec 22, 10:30 AM',
-          timestamp: '2024-12-22T10:30:00Z',
-          status: 'pending',
-          source: 'chat_escalation'
-        },
-        {
-          escalationId: 'esc-3',
-          name: 'Aisha Khan',
-          email: 'aisha.khan@email.com',
-          phoneNumber: undefined,
-          zipCode: undefined,
-          dateTime: 'Dec 23, 1:45 PM',
-          timestamp: '2024-12-23T13:45:00Z',
-          status: 'pending',
-          source: 'chat_escalation'
-        }
-      ];
+      // Scan DynamoDB table for escalation requests
+      const items = await this.dynamoService.scanItems(this.ESCALATION_TABLE, {
+        limit,
+        // Filter out expired items (TTL handles deletion, but we can filter here too)
+        filterExpression: 'attribute_exists(escalationId)'
+      });
 
-      const limitedData = mockData.slice(0, limit);
-      
+      console.log(`Found ${items.length} escalation requests in DynamoDB`);
+
+      if (!items || items.length === 0) {
+        return {
+          requests: [],
+          total: 0
+        };
+      }
+
+      // Sort by timestamp descending (newest first) and map to frontend format
+      const sortedItems = items
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, limit);
+
+      const requests = sortedItems.map(item => ({
+        name: item.name || 'Unknown',
+        email: item.email || 'No email',
+        phone: item.phoneNumber || '-',
+        zipCode: item.zipCode || '-',
+        dateTime: item.dateTime || 'Unknown date'
+      }));
+
       return {
-        requests: limitedData.map(req => ({
-          name: req.name,
-          email: req.email,
-          phone: req.phoneNumber || '-',
-          zipCode: req.zipCode || '-',
-          dateTime: req.dateTime
-        })),
-        total: limitedData.length
+        requests,
+        total: items.length
       };
     } catch (error) {
-      console.error('Failed to get escalation requests:', error);
+      console.error('Failed to get escalation requests from DynamoDB:', error);
+      
+      // Return empty result on error, but log the issue
       return {
         requests: [],
         total: 0
