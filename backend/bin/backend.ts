@@ -118,7 +118,7 @@ const frontendStack = new FrontendStack(app, `AdaClaraFrontend${stackSuffix}`, {
   frontendAlignedApiStack: frontendAlignedApiStack,
   cognitoAuthStack: cognitoStack,
   repositoryUrl: process.env.GITHUB_REPO_URL || 'https://github.com/ASUCICREPO/ADA-Clara',
-  branch: process.env.GITHUB_BRANCH || 'main',
+  branch: 'main', // Using main branch after merge
 });
 
 // Add dependencies

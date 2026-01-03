@@ -22,10 +22,7 @@ phases:
       - npm run build
 artifacts:
   files:
-    - 'frontend/.next/**/*'
-    - 'frontend/public/**/*'
-    - 'frontend/package.json'
-    - 'frontend/package-lock.json'
+    - 'frontend/**/*'
   base-directory: .
 cache:
   paths:

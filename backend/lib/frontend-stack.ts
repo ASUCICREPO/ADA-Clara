@@ -51,7 +51,9 @@ export class FrontendStack extends Stack {
     const domainUrl = `https://${domainPrefix}.auth.${region}.amazoncognito.com`;
 
     // Determine redirect URLs - will be updated after Amplify app is created
-    // Using placeholder that will be replaced after first deployment
+    // These will be updated in Amplify console after first deployment with actual domain
+    // For now, use placeholder - user should update these in Cognito console after Amplify deployment
+    // The actual domain will be: https://main.{amplifyAppId}.amplifyapp.com
     const redirectSignIn = `https://main.d1234567890.amplifyapp.com/auth/callback`;
     const redirectSignOut = `https://main.d1234567890.amplifyapp.com`;
 
@@ -167,7 +169,7 @@ export class FrontendStack extends Stack {
     });
 
     // Build specification for Amplify
-    // For Next.js on Amplify WEB_COMPUTE, the buildspec should match amplify.yml
+    // For Next.js static export (output: 'export'), the buildspec should match amplify.yml
     // When code is in frontend/ directory (from repo), we cd into it
     const buildSpec = {
       version: '1.0',
@@ -186,11 +188,11 @@ export class FrontendStack extends Stack {
           },
         },
         artifacts: {
-          baseDirectory: 'frontend/.next', // Next.js build output is in .next directory
+          baseDirectory: 'frontend/out', // Static export outputs to 'out' directory
           files: ['**/*'],
         },
         cache: {
-          paths: ['frontend/node_modules/**/*', 'frontend/.next/cache/**/*'],
+          paths: ['frontend/node_modules/**/*'],
         },
       },
     };
@@ -215,9 +217,8 @@ export class FrontendStack extends Stack {
         { name: 'NEXT_PUBLIC_ENVIRONMENT', value: environment },
       ],
       buildSpec: JSON.stringify(buildSpec),
-      platform: 'WEB_COMPUTE', // For Next.js 14+ SSG/SSR
-      // Remove customRules - Next.js handles routing internally on WEB_COMPUTE platform
-      // customRules removed to prevent redirect loops
+      platform: 'WEB', // Static export - no SSR needed (like Patent-Novelty-Assessment)
+      // Static export doesn't need custom rules - all routes are pre-rendered
     });
 
     // Add branch
