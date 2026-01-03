@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda';
-import { ServiceContainer } from '../../core/container';
+import { ServiceContainer } from '../../services/container';
 import { WebScraperController } from './web-scraper.controller';
 
 /**

@@ -1,4 +1,4 @@
-import { DynamoDBService } from '../../core/services/dynamodb.service';
+import { DynamoDBService } from '../../services/dynamodb-service';
 
 export interface AdminServiceConfig {
   region?: string;
@@ -48,7 +48,7 @@ export class AdminServiceContainer {
     };
   }> {
     const [dynamoHealth] = await Promise.allSettled([
-      this.dynamoService.healthCheck(process.env.ANALYTICS_TABLE || 'ada-clara-analytics')
+      this.dynamoService.healthCheck()
     ]);
 
     const services = {

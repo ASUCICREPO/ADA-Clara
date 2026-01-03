@@ -12,9 +12,9 @@ export class S3Service {
   private readonly CONTENT_BUCKET = process.env.CONTENT_BUCKET || `ada-clara-content-${process.env.AWS_ACCOUNT_ID || 'dev'}-${process.env.AWS_REGION || 'us-east-1'}`;
   private readonly VECTORS_BUCKET = process.env.VECTORS_BUCKET || `ada-clara-vectors-${process.env.AWS_ACCOUNT_ID || 'dev'}-${process.env.AWS_REGION || 'us-east-1'}`;
 
-  constructor() {
+  constructor(config?: { region?: string }) {
     this.client = new S3Client({
-      region: process.env.AWS_REGION || 'us-east-1'
+      region: config?.region || process.env.AWS_REGION || 'us-east-1'
     });
   }
 
@@ -326,5 +326,37 @@ export class S3Service {
     }
     
     return keys;
+  }
+
+  // ===== GENERIC METHODS FOR BACKWARD COMPATIBILITY =====
+
+  /**
+   * Generic put object method for backward compatibility
+   */
+  async putObject(bucketName: string, params: { key: string; body: string; contentType?: string; metadata?: any }): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: params.key,
+      Body: params.body,
+      ContentType: params.contentType || 'application/octet-stream',
+      Metadata: params.metadata || {}
+    });
+
+    await this.client.send(command);
+  }
+
+  /**
+   * Generic put JSON object method for backward compatibility
+   */
+  async putJsonObject(bucketName: string, key: string, data: any, metadata?: any): Promise<void> {
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: JSON.stringify(data),
+      ContentType: 'application/json',
+      Metadata: metadata || {}
+    });
+
+    await this.client.send(command);
   }
 }

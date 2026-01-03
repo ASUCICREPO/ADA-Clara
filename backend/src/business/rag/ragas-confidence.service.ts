@@ -706,35 +706,6 @@ export class RAGASConfidenceService {
     
     return Math.min(bonus, 0.25); // Cap total citation bonus at 25%
   }
-    
-    // Bonus for other medical sources
-    const otherMedicalSources = sources.filter(s => 
-      !s.url.includes('diabetes.org') && (
-        s.url.includes('medical') ||
-        s.metadata.contentType === 'medical'
-      )
-    );
-    
-    if (otherMedicalSources.length > 0) {
-      bonus += Math.min(otherMedicalSources.length * 0.02, 0.06); // Max 6% bonus for other medical
-    }
-    
-    // Bonus for high-quality content types
-    const highQualitySources = sources.filter(s => 
-      ['symptoms', 'treatment', 'medical', 'clinical'].includes(s.metadata.contentType)
-    );
-    
-    if (highQualitySources.length > 0) {
-      bonus += Math.min(highQualitySources.length * 0.02, 0.08); // Max 8% bonus for quality content
-    }
-    
-    // Bonus for explicit citations in answer
-    if (answer.includes('diabetes.org') || answer.includes('Source:')) {
-      bonus += 0.03;
-    }
-    
-    return bonus;
-  }
   
   private generateExplanation(
     metrics: RAGASMetrics, 

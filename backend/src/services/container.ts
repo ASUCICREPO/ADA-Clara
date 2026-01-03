@@ -1,10 +1,9 @@
-import { DynamoDBService } from './services/dynamodb.service';
-import { BedrockService } from './services/bedrock.service';
-import { ComprehendService } from './services/comprehend.service';
-import { S3Service } from './services/s3.service';
-import { S3VectorsService } from './services/s3-vectors.service';
-import { ScrapingService } from './services/scraping.service';
-import { CrawlerService } from '../business/crawler/crawler.service';
+import { DynamoDBService } from '../services/dynamodb-service';
+import { BedrockService } from '../services/bedrock.service';
+import { ComprehendService } from '../services/comprehend.service';
+import { S3Service } from '../services/s3-service';
+import { S3VectorsService } from '../services/s3-vectors.service';
+import { ScrapingService } from '../services/scraping.service';
 import { WebScrapingService } from '../business/web-scraper/web-scraping.service';
 import { EnhancedWebScraperService } from '../business/enhanced-web-scraper/enhanced-web-scraper.service';
 import { RAGService, RAGConfig } from '../business/rag/rag.service';
@@ -43,7 +42,6 @@ export class ServiceContainer {
   public readonly scrapingService: ScrapingService;
   
   // Business services
-  public readonly crawlerService: CrawlerService;
   public readonly webScrapingService: WebScrapingService;
   public readonly enhancedWebScraperService: EnhancedWebScraperService;
   
@@ -79,21 +77,6 @@ export class ServiceContainer {
     });
     
     // Initialize business services with dependencies
-    this.crawlerService = new CrawlerService(
-      this.s3Service,
-      this.bedrockService,
-      this.s3VectorsService,
-      this.scrapingService,
-      {
-        contentBucket: config.contentBucket || process.env.CONTENT_BUCKET || '',
-        vectorsBucket: config.vectorsBucket || process.env.VECTORS_BUCKET || '',
-        vectorIndex: config.vectorIndex || process.env.VECTOR_INDEX || '',
-        embeddingModel: config.embeddingModel || 'amazon.titan-embed-text-v2:0',
-        chunkSize: 1000,
-        maxPages: config.maxPages || 5
-      }
-    );
-
     this.webScrapingService = new WebScrapingService(
       this.s3Service,
       this.dynamoService,
@@ -188,7 +171,6 @@ export class ServiceContainer {
       s3: boolean;
       s3Vectors: boolean;
       scraping: boolean;
-      crawler: boolean;
       webScraper: boolean;
       enhancedWebScraper: boolean;
       rag?: boolean;
@@ -201,18 +183,16 @@ export class ServiceContainer {
       s3Health,
       s3VectorsHealth,
       scrapingHealth,
-      crawlerHealth,
       webScraperHealth,
       enhancedWebScraperHealth,
       ragHealth
     ] = await Promise.allSettled([
-      this.dynamoService.healthCheck(process.env.SESSIONS_TABLE || 'ada-clara-sessions'),
+      this.dynamoService.healthCheck(),
       this.bedrockService.healthCheck(),
       this.comprehendService.healthCheck(),
-      this.s3Service.healthCheck(process.env.CONTENT_BUCKET || 'test-bucket'),
+      this.s3Service.healthCheck(),
       this.s3VectorsService.healthCheck(),
       this.scrapingService.healthCheck(),
-      this.crawlerService.healthCheck(),
       Promise.resolve(true), // WebScrapingService doesn't have async health check
       this.enhancedWebScraperService.healthCheck(),
       this.ragServiceInstance?.healthCheck() || Promise.resolve(true) // RAG service if available
@@ -222,10 +202,9 @@ export class ServiceContainer {
       dynamodb: dynamoHealth.status === 'fulfilled' && dynamoHealth.value,
       bedrock: bedrockHealth.status === 'fulfilled' && bedrockHealth.value,
       comprehend: comprehendHealth.status === 'fulfilled' && comprehendHealth.value,
-      s3: s3Health.status === 'fulfilled' && s3Health.value,
+      s3: s3Health.status === 'fulfilled' && s3Health.value && s3Health.value.contentBucket,
       s3Vectors: s3VectorsHealth.status === 'fulfilled' && s3VectorsHealth.value,
       scraping: scrapingHealth.status === 'fulfilled' && scrapingHealth.value,
-      crawler: crawlerHealth.status === 'fulfilled' && crawlerHealth.value,
       webScraper: webScraperHealth.status === 'fulfilled' && webScraperHealth.value,
       enhancedWebScraper: enhancedWebScraperHealth.status === 'fulfilled' && enhancedWebScraperHealth.value,
       ...(this.ragServiceInstance && { rag: ragHealth.status === 'fulfilled' && ragHealth.value })

@@ -1,4 +1,4 @@
-import { DynamoDBService } from '@core/services/dynamodb.service';
+import { DynamoDBService } from '../../services/dynamodb-service';
 
 export interface EscalationRequest {
   name: string;
@@ -134,7 +134,7 @@ export class EscalationService {
   async healthCheck(): Promise<{ status: string; service: string; timestamp: string }> {
     try {
       // Test database connectivity
-      await this.dynamoService.healthCheck(this.ESCALATION_TABLE);
+      await this.dynamoService.healthCheck();
       
       return {
         status: 'healthy',

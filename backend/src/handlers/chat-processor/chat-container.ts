@@ -1,6 +1,6 @@
-import { DynamoDBService } from '../../core/services/dynamodb.service';
-import { BedrockService } from '../../core/services/bedrock.service';
-import { ComprehendService } from '../../core/services/comprehend.service';
+import { DynamoDBService } from '../../services/dynamodb-service';
+import { BedrockService } from '../../services/bedrock.service';
+import { ComprehendService } from '../../services/comprehend.service';
 
 export interface ChatServiceConfig {
   region?: string;
@@ -64,7 +64,7 @@ export class ChatServiceContainer {
     };
   }> {
     const [dynamoHealth, bedrockHealth, comprehendHealth] = await Promise.allSettled([
-      this.dynamoService.healthCheck(process.env.SESSIONS_TABLE || 'ada-clara-chat-sessions'),
+      this.dynamoService.healthCheck(),
       this.bedrockService.healthCheck(),
       this.comprehendService.healthCheck()
     ]);

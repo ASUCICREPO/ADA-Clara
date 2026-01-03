@@ -1,6 +1,6 @@
-import { S3Service } from '../../core/services/s3.service';
-import { DynamoDBService } from '../../core/services/dynamodb.service';
-import { ScrapingService, ScrapedContent } from '../../core/services/scraping.service';
+import { S3Service } from '../../services/s3-service';
+import { DynamoDBService } from '../../services/dynamodb-service';
+import { ScrapingService, ScrapedContent } from '../../services/scraping.service';
 import { HtmlProcessingService, CleanedHtmlResult } from '../../services/html-processing-service';
 
 export interface WebScrapingConfig {

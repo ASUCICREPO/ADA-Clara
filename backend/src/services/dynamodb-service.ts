@@ -46,9 +46,10 @@ export class DynamoDBService {
   private readonly MESSAGES_TABLE = process.env.MESSAGES_TABLE || 'ada-clara-messages';
   private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
 
-  constructor() {
+  constructor(config?: { region?: string; endpoint?: string }) {
     const dynamoClient = new DynamoDBClient({
-      region: process.env.AWS_REGION || 'us-east-1'
+      region: config?.region || process.env.AWS_REGION || 'us-east-1',
+      ...(config?.endpoint ? { endpoint: config.endpoint } : {})
     });
     this.client = DynamoDBDocumentClient.from(dynamoClient, {
       marshallOptions: {
@@ -888,5 +889,62 @@ export class DynamoDBService {
     });
 
     await this.client.send(command);
+  }
+
+  // ===== GENERIC METHODS FOR BACKWARD COMPATIBILITY =====
+
+  /**
+   * Generic get item method for backward compatibility
+   */
+  async getItem(tableName: string, key: any): Promise<any> {
+    const command = new GetCommand({
+      TableName: tableName,
+      Key: key
+    });
+
+    const result = await this.client.send(command);
+    return result.Item || null;
+  }
+
+  /**
+   * Generic put item method for backward compatibility
+   */
+  async putItem(tableName: string, item: any): Promise<void> {
+    const preparedItem = this.prepareDynamoDBItem(item);
+    
+    const command = new PutCommand({
+      TableName: tableName,
+      Item: preparedItem
+    });
+
+    await this.client.send(command);
+  }
+
+  /**
+   * Generic query items method for backward compatibility
+   */
+  async queryItems(tableName: string, keyConditionExpression: string, expressionAttributeValues?: any, options?: any): Promise<any[]> {
+    const command = new QueryCommand({
+      TableName: tableName,
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ...options
+    });
+
+    const result = await this.client.send(command);
+    return result.Items || [];
+  }
+
+  /**
+   * Generic scan items method for backward compatibility
+   */
+  async scanItems(tableName: string, options?: any): Promise<any[]> {
+    const command = new ScanCommand({
+      TableName: tableName,
+      ...options
+    });
+
+    const result = await this.client.send(command);
+    return result.Items || [];
   }
 }

@@ -1,5 +1,5 @@
 import { APIGatewayProxyResult } from 'aws-lambda';
-import { ServiceContainer } from '../../core/container';
+import { ServiceContainer } from '../../services/container';
 import { DomainDiscoveryService, DiscoveredUrl } from '../../services/domain-discovery-service';
 import { DiscoveryOptions, MEDICAL_DOMAIN_CONFIGS } from '../../types/domain-discovery.types';
 

@@ -16,10 +16,10 @@ import { IntelligentChunkingService } from '../../services/intelligent-chunking-
 import { ErrorResilienceService } from '../../services/error-resilience-service';
 import { HtmlProcessingService, CleanedHtmlResult } from '../../services/html-processing-service';
 import { ContentDetectionService } from '../../services/content-detection-service';
-import { S3Service } from '../../core/services/s3.service';
-import { BedrockService } from '../../core/services/bedrock.service';
-import { S3VectorsService } from '../../core/services/s3-vectors.service';
-import { ScrapingService, ScrapedContent } from '../../core/services/scraping.service';
+import { S3Service } from '../../services/s3-service';
+import { BedrockService } from '../../services/bedrock.service';
+import { S3VectorsService } from '../../services/s3-vectors.service';
+import { ScrapingService, ScrapedContent } from '../../services/scraping.service';
 
 import { 
   DiscoveredUrl, 
@@ -861,7 +861,7 @@ export class EnhancedWebScraperService {
     try {
       // Test core services
       const coreHealthChecks = await Promise.allSettled([
-        this.s3Service.healthCheck(this.config.contentBucket),
+        this.s3Service.healthCheck(),
         this.s3VectorsService.healthCheck(),
         this.bedrockService.healthCheck(),
         this.scrapingService.healthCheck()

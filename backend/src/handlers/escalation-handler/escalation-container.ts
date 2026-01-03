@@ -1,4 +1,4 @@
-import { DynamoDBService } from '../../core/services/dynamodb.service';
+import { DynamoDBService } from '../../services/dynamodb-service';
 
 export interface EscalationServiceConfig {
   region?: string;
@@ -48,7 +48,7 @@ export class EscalationServiceContainer {
     };
   }> {
     const [dynamoHealth] = await Promise.allSettled([
-      this.dynamoService.healthCheck(process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests')
+      this.dynamoService.healthCheck()
     ]);
 
     const services = {

@@ -9,7 +9,7 @@
  */
 
 import { APIGatewayProxyResult } from 'aws-lambda';
-import { ServiceContainer } from '../../core/container';
+import { ServiceContainer } from '../../services/container';
 import { EnhancedWebScraperService } from '../../business/enhanced-web-scraper/enhanced-web-scraper.service';
 
 export interface EnhancedDiscoverAndScrapeRequest {

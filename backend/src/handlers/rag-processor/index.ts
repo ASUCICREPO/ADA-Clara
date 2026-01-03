@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult, Handler } from 'aws-lambda';
-import { BedrockService } from '../../core/services/bedrock.service';
+import { BedrockService } from '../../services/bedrock.service';
 import { RAGService } from '../../business/rag/rag.service';
 import { RAGController } from './rag.controller';
 

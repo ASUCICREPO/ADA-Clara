@@ -1,4 +1,4 @@
-import { BedrockService } from '../../core/services/bedrock.service';
+import { BedrockService } from '../../services/bedrock.service';
 import { BedrockAgentRuntimeClient, RetrieveAndGenerateCommand } from '@aws-sdk/client-bedrock-agent-runtime';
 import { RAGASConfidenceService, RAGASEvaluation } from './ragas-confidence.service';
 

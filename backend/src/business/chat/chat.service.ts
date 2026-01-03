@@ -1,6 +1,6 @@
-import { DynamoDBService } from '../../core/services/dynamodb.service';
-import { BedrockService } from '../../core/services/bedrock.service';
-import { ComprehendService } from '../../core/services/comprehend.service';
+import { DynamoDBService } from '../../services/dynamodb-service';
+import { BedrockService } from '../../services/bedrock.service';
+import { ComprehendService } from '../../services/comprehend.service';
 
 export interface ChatMessage {
   messageId: string;

@@ -43,7 +43,7 @@ export class RAGProcessorStack extends Stack {
       functionName: `ada-clara-rag-processor-v2-${Stack.of(this).region}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/rag-processor'), // Lambda directory build
+      code: lambda.Code.fromAsset('dist/rag-processor'), // Lambda directory build
       timeout: Duration.minutes(5),
       memorySize: 1024,
       logRetention: undefined, // Don't create log group automatically
