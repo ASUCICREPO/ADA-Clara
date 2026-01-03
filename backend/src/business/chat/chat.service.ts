@@ -365,61 +365,53 @@ export class ChatService {
    * Call RAG service via Lambda function
    */
   private async callRAGService(request: any): Promise<any> {
-    const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+    // Use API Gateway endpoint instead of direct Lambda invocation
+    const ragEndpoint = process.env.RAG_ENDPOINT;
+    
+    if (!ragEndpoint) {
+      throw new Error('RAG_ENDPOINT environment variable is not set');
+    }
     
     try {
-      // Call RAG processor Lambda function directly
-      const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
-      const ragFunctionName = process.env.RAG_FUNCTION_NAME || 'ada-clara-rag-processor-us-east-1';
+      console.log(`🚀 Calling RAG processor via API Gateway: ${ragEndpoint}`);
       
-      console.log(`🚀 Calling RAG processor: ${ragFunctionName}`);
-      
-      // Create Lambda payload for RAG processor
-      const ragPayload = {
-        httpMethod: 'POST',
-        path: '/process',
-        body: JSON.stringify({
-          query: request.query,
-          sessionId: request.sessionId || `chat-${Date.now()}`,
-          language: request.language || 'en'
-        }),
+      // Call RAG processor via API Gateway (using native fetch in Node.js 18+)
+      const response = await fetch(ragEndpoint, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({
+          query: request.query,
+          sessionId: request.sessionId, // Only pass if provided, don't auto-generate
+          language: request.language || 'en',
+          maxResults: request.maxResults || 5
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`RAG API returned status ${response.status}: ${await response.text()}`);
+      }
+      
+      const responseText = await response.text();
+      console.log(`📄 RAG processor raw response: ${responseText.substring(0, 500)}`);
+      
+      const body: any = JSON.parse(responseText);
+      
+      console.log(`✅ RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
+      console.log(`📋 Response keys: ${Object.keys(body).join(', ')}`);
+      console.log(`📋 Answer preview: ${body.answer ? body.answer.substring(0, 100) : 'NO ANSWER'}`);
+      
+      return {
+        answer: body.answer,
+        confidence: body.confidence,
+        sources: body.sources || [],
+        ragasMetrics: body.ragasMetrics,
+        processingTime: body.processingTime || 0
       };
 
-      const command = new InvokeCommand({
-        FunctionName: ragFunctionName,
-        Payload: JSON.stringify(ragPayload),
-        InvocationType: 'RequestResponse'
-      });
-
-      const response = await lambdaClient.send(command);
-      
-      if (response.StatusCode === 200 && response.Payload) {
-        const result = JSON.parse(new TextDecoder().decode(response.Payload));
-        
-        if (result.statusCode === 200) {
-          const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
-          
-          console.log(`✅ RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
-          
-          return {
-            answer: body.response,
-            confidence: body.confidence,
-            sources: body.sources || [],
-            ragasMetrics: body.ragasMetrics,
-            processingTime: body.processingTime || 0
-          };
-        } else {
-          throw new Error(`RAG processor returned status ${result.statusCode}`);
-        }
-      } else {
-        throw new Error(`Lambda invocation failed with status ${response.StatusCode}`);
-      }
-
     } catch (error) {
-      console.error('RAG Lambda call failed:', error);
+      console.error('RAG API call failed:', error);
       throw error; // Re-throw to trigger fallback in generateResponse
     }
   }
