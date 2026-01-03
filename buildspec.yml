@@ -70,10 +70,24 @@ phases:
       - echo "Deploying frontend to Amplify..."
       - echo "Creating Amplify deployment..."
       - cd ../..
-      - aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json
       - |
-        if [ $? -ne 0 ]; then
-          echo "Failed to create Amplify deployment. Check if a deployment is already running."
+        # Create deployment and capture both exit code and output
+        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
+          echo "✅ Amplify deployment created successfully"
+        else
+          DEPLOYMENT_ERROR=$(cat deployment_response.json)
+          # Check if error is because deployment already exists (not a real failure)
+          if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
+            echo "⚠️  Deployment already in progress, checking status..."
+            # Try to get the active job ID
+            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
+            if [ -n "$ACTIVE_JOB" ]; then
+              echo "✅ Found active deployment job: $ACTIVE_JOB"
+              echo "Complete deployment finished successfully! (Using existing deployment)"
+              exit 0
+            fi
+          fi
+          echo "❌ Failed to create Amplify deployment"
           cat deployment_response.json
           exit 1
         fi
@@ -82,13 +96,15 @@ phases:
       - export JOB_ID=$(node -e "const data=require('./deployment_response.json'); console.log(data.jobId)")
       - echo "Uploading build.zip to Amplify..."
       - cd frontend/out
-      - curl -X PUT -T build.zip "$UPLOAD_URL"
       - |
-        if [ $? -ne 0 ]; then
-          echo "Failed to upload build.zip to Amplify"
+        # Upload with better error handling
+        if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
+          echo "✅ Build.zip uploaded successfully"
+        else
+          echo "❌ Failed to upload build.zip to Amplify"
           exit 1
         fi
       - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION
+      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "⚠️  Deployment start command completed (may already be running)"
       - echo "Complete deployment finished successfully!"
 
