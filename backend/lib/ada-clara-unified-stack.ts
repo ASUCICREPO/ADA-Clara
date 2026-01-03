@@ -1,4 +1,4 @@
-import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, CfnOutput, RemovalPolicy, Fn } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
@@ -463,9 +463,17 @@ export class AdaClaraUnifiedStack extends Stack {
     queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
 
     // Update chat processor environment with RAG endpoint and function name (AFTER all API Gateway methods are created)
-    // This avoids circular dependency: API methods -> Lambda functions -> API URL (circular)
-    // By setting environment variables after methods are created, we break the cycle
-    this.chatProcessor.addEnvironment('RAG_ENDPOINT', `${this.api.url}query`);
+    // Construct API URL manually to avoid circular dependency
+    // Using Fn.join to construct URL from API Gateway ID and region avoids the circular dependency
+    // Must use Fn.join for the full URL including /query path to work correctly with CloudFormation tokens
+    const ragEndpoint = Fn.join('', [
+      'https://',
+      this.api.restApiId,
+      '.execute-api.',
+      this.region,
+      '.amazonaws.com/prod/query'
+    ]);
+    this.chatProcessor.addEnvironment('RAG_ENDPOINT', ragEndpoint);
     this.chatProcessor.addEnvironment('RAG_FUNCTION_NAME', this.ragProcessor.functionName);
 
     // ========== AMPLIFY APP ==========
