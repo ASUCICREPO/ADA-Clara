@@ -41,13 +41,13 @@ export class ChatController {
       } else if (method === 'GET' && (path === '/chat/sessions' || path.endsWith('/chat/sessions'))) {
         return await this.handleChatSessions(event);
       } else if (method === 'OPTIONS') {
-        return this.handleCorsPrelight();
+        return this.handleCorsPrelight(event);
       } else {
-        return this.handleNotFound();
+        return this.handleNotFound(event);
       }
     } catch (error) {
       console.error('Chat controller error:', error);
-      return this.handleError(error);
+      return this.handleError(error, event);
     }
   }
 
@@ -55,10 +55,10 @@ export class ChatController {
    * Handle chat message processing
    */
   private async handleChatMessage(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
-    if (!event.body) {
+      if (!event.body) {
       return {
         statusCode: 400,
-        headers: this.getCorsHeaders(),
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify({
           error: 'Request body is required',
           message: 'Please provide a chat message'
@@ -80,10 +80,7 @@ export class ChatController {
 
       return {
         statusCode: 200,
-        headers: {
-          ...this.getCorsHeaders(),
-          'Content-Type': 'application/json'
-        },
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify(frontendResponse)
       };
     } catch (error) {
@@ -92,7 +89,7 @@ export class ChatController {
       if (error instanceof Error && error.message.includes('required')) {
         return {
           statusCode: 400,
-          headers: this.getCorsHeaders(),
+          headers: this.getCorsHeaders(event),
           body: JSON.stringify({
             error: 'Bad Request',
             message: error.message
@@ -115,10 +112,7 @@ export class ChatController {
       // Frontend-aligned response format
       return {
         statusCode: health.overall ? 200 : 503,
-        headers: {
-          ...this.getCorsHeaders(),
-          'Content-Type': 'application/json'
-        },
+        headers: this.getCorsHeaders(),
         body: JSON.stringify({
           message: "ADA Clara API is working!",
           timestamp: new Date().toISOString(),
@@ -157,7 +151,7 @@ export class ChatController {
       if (!sessionId) {
         return {
           statusCode: 400,
-          headers: this.getCorsHeaders(),
+          headers: this.getCorsHeaders(event),
           body: JSON.stringify({
             error: 'Bad Request',
             message: 'sessionId query parameter is required'
@@ -169,10 +163,7 @@ export class ChatController {
 
       return {
         statusCode: 200,
-        headers: {
-          ...this.getCorsHeaders(),
-          'Content-Type': 'application/json'
-        },
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify({
           sessionId,
           messages: history,
@@ -183,7 +174,7 @@ export class ChatController {
       console.error('Chat history error:', error);
       return {
         statusCode: 500,
-        headers: this.getCorsHeaders(),
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify({
           error: 'Internal server error',
           message: 'Failed to retrieve chat history'
@@ -202,10 +193,7 @@ export class ChatController {
 
       return {
         statusCode: 200,
-        headers: {
-          ...this.getCorsHeaders(),
-          'Content-Type': 'application/json'
-        },
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify({
           sessions,
           count: sessions.length,
@@ -216,7 +204,7 @@ export class ChatController {
       console.error('Chat sessions error:', error);
       return {
         statusCode: 500,
-        headers: this.getCorsHeaders(),
+        headers: this.getCorsHeaders(event),
         body: JSON.stringify({
           error: 'Internal server error',
           message: 'Failed to retrieve chat sessions'
@@ -228,14 +216,10 @@ export class ChatController {
   /**
    * Handle CORS preflight requests
    */
-  private handleCorsPrelight(): APIGatewayProxyResult {
+  private handleCorsPrelight(event?: APIGatewayProxyEvent): APIGatewayProxyResult {
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-        'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
-      },
+      headers: this.getCorsHeaders(event),
       body: ''
     };
   }
@@ -243,10 +227,10 @@ export class ChatController {
   /**
    * Handle 404 Not Found
    */
-  private handleNotFound(): APIGatewayProxyResult {
+  private handleNotFound(event?: APIGatewayProxyEvent): APIGatewayProxyResult {
     return {
       statusCode: 404,
-      headers: this.getCorsHeaders(),
+      headers: this.getCorsHeaders(event),
       body: JSON.stringify({
         error: 'Endpoint not found',
         availableEndpoints: [
@@ -262,10 +246,10 @@ export class ChatController {
   /**
    * Handle errors
    */
-  private handleError(error: unknown): APIGatewayProxyResult {
+  private handleError(error: unknown, event?: APIGatewayProxyEvent): APIGatewayProxyResult {
     return {
       statusCode: 500,
-      headers: this.getCorsHeaders(),
+      headers: this.getCorsHeaders(event),
       body: JSON.stringify({
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error'
@@ -275,13 +259,36 @@ export class ChatController {
 
   /**
    * Get CORS headers
+   * When allowCredentials is true in API Gateway, cannot use '*' - must use specific origin
    */
-  private getCorsHeaders(): Record<string, string> {
+  private getCorsHeaders(event?: APIGatewayProxyEvent): Record<string, string> {
+    // Get origin from request headers
+    const origin = event?.headers?.origin || event?.headers?.Origin || '*';
+    
+    // Allowed origins (must match API Gateway CORS configuration)
+    // Can be configured via environment variable or defaults
+    const frontendUrl = process.env.FRONTEND_URL || '';
+    const allowedOrigins = [
+      ...(frontendUrl ? [frontendUrl] : []),
+      'http://localhost:3000',
+      'https://localhost:3000'
+    ].filter(Boolean);
+    
+    // If no allowed origins configured, allow the request origin (for development)
+    // Otherwise, validate against allowed list
+    let corsOrigin: string;
+    if (allowedOrigins.length === 0) {
+      corsOrigin = origin !== '*' ? origin : 'http://localhost:3000';
+    } else {
+      corsOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+    }
+    
     return {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
+      'Access-Control-Allow-Origin': corsOrigin,
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Amz-Date, X-Api-Key',
+      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+      'Access-Control-Allow-Credentials': 'true'
     };
   }
 }

@@ -392,6 +392,7 @@ export class AdaClaraUnifiedStack extends Stack {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         CONVERSATIONS_TABLE: this.conversationsTable.tableName,
+        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL to Lambda for CORS
         // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
       },
     });
