@@ -241,11 +241,11 @@ export class AdaClaraUnifiedStack extends Stack {
       },
       storageConfiguration: {
         type: 'S3_VECTORS',
-        vectorStoreConfiguration: {
-          vectorIndex: {
-            indexArn: this.vectorIndex.indexArn,
-            vectorStoreType: 'S3_VECTORS',
-          },
+        s3VectorsConfiguration: {
+          indexArn: this.vectorIndex.indexArn,
+          indexName: this.vectorIndex.indexName,
+          // Construct S3 Vectors bucket ARN manually (format: arn:aws:s3vectors:region:account:bucket/bucket-name)
+          vectorBucketArn: `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
         },
       } as any, // Type assertion needed for CDK type compatibility
     });

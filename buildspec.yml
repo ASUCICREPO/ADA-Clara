@@ -26,6 +26,11 @@ phases:
     commands:
       - echo "Deploying CDK stack..."
       - cdk deploy --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+      - |
+        if [ $? -ne 0 ]; then
+          echo "CDK deployment failed. Skipping frontend deployment."
+          exit 1
+        fi
       - echo "CDK deployment complete."
       - echo "Extracting API Gateway URL and Cognito configuration..."
       - cd ..
