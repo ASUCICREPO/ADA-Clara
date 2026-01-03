@@ -63,7 +63,10 @@ export class AdaClaraUnifiedStack extends Stack {
       throw new Error('AWS region must be set via CDK_DEFAULT_REGION or AWS_REGION environment variable');
     }
     const environment = this.node.tryGetContext('environment') || 'dev';
-    const stackSuffix = environment === 'production' ? '' : `-${environment}`;
+    // Add version suffix to table names to avoid conflicts with existing tables
+    // Change this version number if you need to create new tables (e.g., after deleting old ones)
+    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
+    const stackSuffix = environment === 'production' ? '' : `-${environment}-${tableVersion}`;
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
@@ -237,7 +240,7 @@ export class AdaClaraUnifiedStack extends Stack {
         },
       },
       storageConfiguration: {
-        type: 'VECTOR',
+        type: 'S3_VECTORS',
         vectorStoreConfiguration: {
           vectorIndex: {
             indexArn: this.vectorIndex.indexArn,
