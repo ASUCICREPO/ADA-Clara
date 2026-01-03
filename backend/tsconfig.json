@@ -24,7 +24,6 @@
     "node_modules",
     "dist",
     "lambda",
-    "src/services",
     "lib",
     "bin",
     "scripts",

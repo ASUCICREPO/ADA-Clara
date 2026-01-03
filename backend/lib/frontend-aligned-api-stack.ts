@@ -101,8 +101,8 @@ export class FrontendAlignedApiStack extends Stack {
     this.chatProcessor = new lambda.Function(this, 'SimpleChatProcessor', {
       functionName: 'ada-clara-simple-chat-processor',
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/handlers/chat-processor'), // Using built assets
+      handler: 'handlers/chat-processor/index.handler', // Updated handler path
+      code: lambda.Code.fromAsset('dist'), // Include entire dist directory for service dependencies
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
@@ -117,7 +117,9 @@ export class FrontendAlignedApiStack extends Stack {
         CHAT_SESSIONS_TABLE: dynamoDBStack.chatSessionsTable.tableName,
         CONVERSATIONS_TABLE: dynamoDBStack.conversationsTable.tableName,
         // RAG processor endpoint for 95% confidence requirement
-        RAG_ENDPOINT: props.ragProcessorEndpoint || ''
+        RAG_ENDPOINT: props.ragProcessorEndpoint || '',
+        // RAG Lambda function name (for direct Lambda invocation)
+        RAG_FUNCTION_NAME: 'ada-clara-rag-processor-v2-us-east-1'
       }
     });
 
@@ -125,8 +127,8 @@ export class FrontendAlignedApiStack extends Stack {
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
       functionName: 'ada-clara-escalation-handler-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/handlers/escalation-handler'), // Using built assets
+      handler: 'handlers/escalation-handler/index.handler', // Updated handler path
+      code: lambda.Code.fromAsset('dist'), // Include entire dist directory for service dependencies
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
@@ -141,8 +143,8 @@ export class FrontendAlignedApiStack extends Stack {
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
       functionName: 'ada-clara-admin-analytics-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/handlers/admin-analytics'), // Using built assets
+      handler: 'handlers/admin-analytics/index.handler', // Updated handler path
+      code: lambda.Code.fromAsset('dist'), // Include entire dist directory for service dependencies
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,

@@ -20,16 +20,25 @@ export class ChatController {
     console.log('Chat controller invoked:', JSON.stringify(event, null, 2));
 
     try {
-      const path = event.path;
+      // Normalize path - remove stage prefix if present (e.g., /prod/chat -> /chat)
+      let path = event.path;
+      if (path.startsWith('/prod/')) {
+        path = path.replace('/prod', '');
+      } else if (path.startsWith('/dev/')) {
+        path = path.replace('/dev', '');
+      } else if (path.startsWith('/staging/')) {
+        path = path.replace('/staging', '');
+      }
+      
       const method = event.httpMethod;
 
-      if (method === 'POST' && path === '/chat') {
+      if (method === 'POST' && (path === '/chat' || path.endsWith('/chat'))) {
         return await this.handleChatMessage(event);
-      } else if (method === 'GET' && (path === '/health' || path === '/chat/health')) {
+      } else if (method === 'GET' && (path === '/health' || path === '/chat/health' || path.endsWith('/health'))) {
         return await this.handleHealthCheck();
-      } else if (method === 'GET' && path === '/chat/history') {
+      } else if (method === 'GET' && (path === '/chat/history' || path.endsWith('/chat/history'))) {
         return await this.handleChatHistory(event);
-      } else if (method === 'GET' && path === '/chat/sessions') {
+      } else if (method === 'GET' && (path === '/chat/sessions' || path.endsWith('/chat/sessions'))) {
         return await this.handleChatSessions(event);
       } else if (method === 'OPTIONS') {
         return this.handleCorsPrelight();
