@@ -254,9 +254,21 @@ export class EnhancedWebScraperService {
         }
       }
 
-      // Rate limiting between batches
+      // Enhanced rate limiting between batches - more conservative for larger operations
       if (i + this.config.batchSize < urlsToProcess.length) {
-        await this.sleep(this.config.rateLimitDelay);
+        // Dynamic rate limiting based on total URLs being processed
+        let delay = this.config.rateLimitDelay;
+        
+        if (urlsToProcess.length > 200) {
+          delay = Math.max(delay, 3000); // 3 second delay for very large batches
+        } else if (urlsToProcess.length > 100) {
+          delay = Math.max(delay, 2000); // 2 second delay for large batches
+        } else if (urlsToProcess.length > 50) {
+          delay = Math.max(delay, 1500); // 1.5 second delay for medium batches
+        }
+        
+        console.log(`Rate limiting: ${delay}ms delay between batches (${urlsToProcess.length} total URLs)`);
+        await this.sleep(delay);
       }
     }
 

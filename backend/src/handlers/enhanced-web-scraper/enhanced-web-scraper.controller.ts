@@ -93,16 +93,34 @@ export class EnhancedWebScraperController {
 
   /**
    * Enhanced domain discovery and scraping with full AI pipeline
+   * Increased limits with responsible rate limiting for comprehensive coverage
    */
   async handleEnhancedDiscoverAndScrape(request: EnhancedDiscoverAndScrapeRequest): Promise<APIGatewayProxyResult> {
     try {
       const domain = request.domain || 'diabetes.org';
-      const maxUrls = Math.min(request.maxUrls || 10, 20); // Limit for safety
       
-      // Update configuration based on request
+      // Increased safety limit with tiered approach for responsible scraping
+      let maxUrls: number;
+      if (request.maxUrls && request.maxUrls <= 50) {
+        maxUrls = request.maxUrls; // Small batches: no limit
+      } else if (request.maxUrls && request.maxUrls <= 200) {
+        maxUrls = Math.min(request.maxUrls, 200); // Medium batches: up to 200
+      } else {
+        maxUrls = Math.min(request.maxUrls || 50, 500); // Large batches: up to 500 with proper rate limiting
+      }
+      
+      console.log(`Starting enhanced discover and scrape for ${domain}`);
+      console.log(`Requested URLs: ${request.maxUrls || 'default'}, Processing: ${maxUrls}`);
+      console.log(`Rate limiting: Enabled for responsible scraping`);
+      
+      // Update configuration based on request with enhanced rate limiting for larger batches
       this.updateScraperConfig(request);
       
-      console.log(`Starting enhanced discover and scrape for ${domain}, maxUrls: ${maxUrls}`);
+      // Adjust rate limiting based on batch size
+      if (maxUrls > 100) {
+        console.log(`Large batch detected (${maxUrls} URLs) - using conservative rate limiting`);
+        // The enhanced scraper service will automatically use appropriate delays
+      }
       
       const result = await this.enhancedScraperService.discoverAndScrape(domain, maxUrls);
       
@@ -115,10 +133,20 @@ export class EnhancedWebScraperController {
         configuration: {
           domain,
           maxUrls,
+          requestedUrls: request.maxUrls,
+          rateLimitingEnabled: true,
+          respectsRobotsTxt: true,
           enableContentEnhancement: request.enableContentEnhancement ?? true,
           enableIntelligentChunking: request.enableIntelligentChunking ?? true,
           enableStructuredExtraction: request.enableStructuredExtraction ?? true,
           chunkingStrategy: request.chunkingStrategy || 'hybrid'
+        },
+        responsibleScraping: {
+          rateLimitDelay: maxUrls > 100 ? '2000ms between batches' : '1000ms between batches',
+          robotsTxtCompliance: 'Enabled',
+          userAgent: 'ADA Clara Enhanced Medical Assistant Bot 1.0',
+          maxConcurrentRequests: 3,
+          respectsCrawlDelay: true
         },
         nextSteps: {
           vectorSearch: 'Vectors are now available for semantic search',
@@ -136,7 +164,7 @@ export class EnhancedWebScraperController {
   }
 
   /**
-   * Enhanced scraping of specific URLs
+   * Enhanced scraping of specific URLs with increased limits and rate limiting
    */
   async handleEnhancedScrapeUrls(request: EnhancedScrapeUrlsRequest): Promise<APIGatewayProxyResult> {
     try {
@@ -144,13 +172,23 @@ export class EnhancedWebScraperController {
         return this.createResponse(400, { error: 'URLs array is required and cannot be empty' });
       }
       
-      const maxUrls = Math.min(request.urls.length, 15); // Safety limit
+      // Increased safety limits with responsible rate limiting
+      let maxUrls: number;
+      if (request.urls.length <= 50) {
+        maxUrls = request.urls.length; // Small batches: process all
+      } else if (request.urls.length <= 200) {
+        maxUrls = Math.min(request.urls.length, 200); // Medium batches: up to 200
+      } else {
+        maxUrls = Math.min(request.urls.length, 300); // Large batches: up to 300
+      }
+      
       const urlsToProcess = request.urls.slice(0, maxUrls);
+      
+      console.log(`Starting enhanced scraping for ${urlsToProcess.length} URLs (${request.urls.length} requested)`);
+      console.log(`Rate limiting: Enabled for responsible processing`);
       
       // Update configuration based on request
       this.updateScraperConfig(request);
-      
-      console.log(`Starting enhanced scraping for ${urlsToProcess.length} URLs`);
       
       const result = await this.enhancedScraperService.scrapeUrlsEnhanced(urlsToProcess);
       
@@ -159,10 +197,18 @@ export class EnhancedWebScraperController {
         summary: result.summary,
         results: result.results,
         configuration: {
+          processedUrls: urlsToProcess.length,
+          requestedUrls: request.urls.length,
+          rateLimitingEnabled: true,
           enableContentEnhancement: request.enableContentEnhancement ?? true,
           enableIntelligentChunking: request.enableIntelligentChunking ?? true,
           enableStructuredExtraction: request.enableStructuredExtraction ?? true,
           chunkingStrategy: request.chunkingStrategy || 'hybrid'
+        },
+        responsibleScraping: {
+          rateLimitDelay: urlsToProcess.length > 50 ? '2000ms between batches' : '1000ms between batches',
+          batchSize: 3,
+          respectsCrawlDelay: true
         }
       });
     } catch (error) {

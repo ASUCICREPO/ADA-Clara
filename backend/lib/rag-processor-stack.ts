@@ -40,12 +40,13 @@ export class RAGProcessorStack extends Stack {
 
     // Create RAG processing Lambda function
     this.ragFunction = new lambda.Function(this, 'RAGProcessorFunction', {
-      functionName: `ada-clara-rag-processor-${Stack.of(this).region}`,
+      functionName: `ada-clara-rag-processor-v2-${Stack.of(this).region}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/rag-processor'), // New clean architecture build
+      code: lambda.Code.fromAsset('lambda/rag-processor'), // Lambda directory build
       timeout: Duration.minutes(5),
       memorySize: 1024,
+      logRetention: undefined, // Don't create log group automatically
       environment: {
         VECTORS_BUCKET: props.vectorsBucket,
         VECTOR_INDEX: props.vectorIndex,

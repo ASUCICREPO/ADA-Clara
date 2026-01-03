@@ -303,20 +303,20 @@ export class ChatService {
 
       const ragResponse = await this.callRAGService(ragRequest);
       
-      // Enhanced confidence calculation for 95% requirement
-      const enhancedConfidence = this.enhanceConfidenceScore(
-        ragResponse.confidence,
-        ragResponse.sources,
-        ragResponse.answer
-      );
+      // Use RAGAS confidence directly (no additional enhancement needed)
+      console.log(`📊 RAGAS confidence: ${(ragResponse.confidence * 100).toFixed(1)}%`);
+      
+      if (ragResponse.ragasMetrics) {
+        console.log(`📋 RAGAS metrics - F:${(ragResponse.ragasMetrics.faithfulness * 100).toFixed(1)}% AR:${(ragResponse.ragasMetrics.answerRelevancy * 100).toFixed(1)}% CP:${(ragResponse.ragasMetrics.contextPrecision * 100).toFixed(1)}% CR:${(ragResponse.ragasMetrics.contextRecall * 100).toFixed(1)}%`);
+      }
 
       return {
         response: ragResponse.answer,
-        confidence: enhancedConfidence,
+        confidence: ragResponse.confidence, // Use RAGAS confidence directly
         sources: ragResponse.sources.map((source: any) => ({
           url: source.url,
           title: source.title,
-          excerpt: source.content.substring(0, 200) + '...'
+          excerpt: source.content ? source.content.substring(0, 200) + '...' : 'No content available'
         }))
       };
 
@@ -337,63 +337,65 @@ export class ChatService {
   }
 
   /**
-   * Call RAG service (can be replaced with direct service call when deployed)
+   * Call RAG service via Lambda function
    */
   private async callRAGService(request: any): Promise<any> {
-    // For now, use HTTP call to RAG processor API
-    // This will be replaced with direct service integration when RAG processor is deployed
-    const axios = require('axios');
+    const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
     
     try {
-      // Check if RAG processor is deployed
-      const ragEndpoint = process.env.RAG_ENDPOINT || 'http://localhost:3001/query';
+      // Call RAG processor Lambda function directly
+      const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+      const ragFunctionName = process.env.RAG_FUNCTION_NAME || 'ada-clara-rag-processor-us-east-1';
       
-      const response = await axios.post(ragEndpoint, request, {
-        timeout: 30000,
-        headers: { 'Content-Type': 'application/json' }
+      console.log(`🚀 Calling RAG processor: ${ragFunctionName}`);
+      
+      // Create Lambda payload for RAG processor
+      const ragPayload = {
+        httpMethod: 'POST',
+        path: '/process',
+        body: JSON.stringify({
+          query: request.query,
+          sessionId: request.sessionId || `chat-${Date.now()}`,
+          language: request.language || 'en'
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      };
+
+      const command = new InvokeCommand({
+        FunctionName: ragFunctionName,
+        Payload: JSON.stringify(ragPayload),
+        InvocationType: 'RequestResponse'
       });
 
-      return response.data;
-    } catch (error) {
-      console.log('RAG service not available, using enhanced mock response');
+      const response = await lambdaClient.send(command);
       
-      // Enhanced mock response based on diabetes keywords
-      const diabetesKeywords = [
-        'diabetes', 'blood sugar', 'glucose', 'insulin', 'type 1', 'type 2', 'A1C',
-        'diabético', 'azúcar en sangre', 'glucosa', 'insulina', 'tipo 1', 'tipo 2'
-      ];
-      
-      const hasKeywords = diabetesKeywords.some(keyword => 
-        request.query.toLowerCase().includes(keyword.toLowerCase())
-      );
-      
-      if (hasKeywords) {
-        return {
-          answer: request.language === 'es'
-            ? 'Basándome en la información de diabetes.org: La diabetes es una condición crónica donde el cuerpo no puede procesar adecuadamente la glucosa en sangre. Existen principalmente tres tipos: Tipo 1 (autoinmune), Tipo 2 (resistencia a la insulina) y gestacional (durante el embarazo). El manejo incluye monitoreo de glucosa, medicación cuando sea necesaria, alimentación saludable y ejercicio regular.'
-            : 'Based on information from diabetes.org: Diabetes is a chronic condition where the body cannot properly process blood glucose. There are mainly three types: Type 1 (autoimmune), Type 2 (insulin resistance), and gestational (during pregnancy). Management includes glucose monitoring, medication when needed, healthy eating, and regular exercise.',
-          confidence: 0.88, // Just below 95% to test escalation logic
-          sources: [
-            {
-              url: 'https://diabetes.org/about-diabetes',
-              title: 'About Diabetes | American Diabetes Association',
-              content: 'Comprehensive information about diabetes types, symptoms, and management strategies.',
-              relevanceScore: 0.92,
-              metadata: { contentType: 'article', section: 'about-diabetes' }
-            }
-          ],
-          processingTime: 150
-        };
+      if (response.StatusCode === 200 && response.Payload) {
+        const result = JSON.parse(new TextDecoder().decode(response.Payload));
+        
+        if (result.statusCode === 200) {
+          const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+          
+          console.log(`✅ RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
+          
+          return {
+            answer: body.response,
+            confidence: body.confidence,
+            sources: body.sources || [],
+            ragasMetrics: body.ragasMetrics,
+            processingTime: body.processingTime || 0
+          };
+        } else {
+          throw new Error(`RAG processor returned status ${result.statusCode}`);
+        }
       } else {
-        return {
-          answer: request.language === 'es'
-            ? 'No tengo información específica sobre esa pregunta en mi base de conocimientos sobre diabetes. Te recomiendo consultar con un profesional de la salud para obtener información precisa.'
-            : 'I don\'t have specific information about that question in my diabetes knowledge base. I recommend consulting with a healthcare professional for accurate information.',
-          confidence: 0.45, // Low confidence for non-diabetes questions
-          sources: [],
-          processingTime: 50
-        };
+        throw new Error(`Lambda invocation failed with status ${response.StatusCode}`);
       }
+
+    } catch (error) {
+      console.error('RAG Lambda call failed:', error);
+      throw error; // Re-throw to trigger fallback in generateResponse
     }
   }
 

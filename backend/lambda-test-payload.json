@@ -1,8 +1,0 @@
-{
-  "httpMethod": "POST",
-  "path": "/chat",
-  "body": "{\"message\":\"test\",\"sessionId\":\"test-123\"}",
-  "headers": {
-    "Content-Type": "application/json"
-  }
-}
