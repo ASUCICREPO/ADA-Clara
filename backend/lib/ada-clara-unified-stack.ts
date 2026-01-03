@@ -289,9 +289,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Create API Gateway first (needed for RAG endpoint reference)
     // Handle CORS origins: cannot mix '*' with specific origins
+    // Always include localhost for development, and Amplify URL when available
+    // For production, always use specific origins (not ALL_ORIGINS) for security
     const corsOrigins = frontendUrl === '*'
-      ? apigateway.Cors.ALL_ORIGINS
-      : [frontendUrl, 'http://localhost:3000'];
+      ? ['http://localhost:3000', 'https://localhost:3000']  // Development only
+      : [frontendUrl, 'http://localhost:3000', 'https://localhost:3000'];
+    
+    console.log(`CORS Origins configured: ${JSON.stringify(corsOrigins)}`);
     
     this.api = new apigateway.RestApi(this, 'Api', {
       restApiName: `ada-clara-api${stackSuffix}`,
@@ -299,7 +303,8 @@ export class AdaClaraUnifiedStack extends Stack {
       defaultCorsPreflightOptions: {
         allowOrigins: corsOrigins,
         allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: ['Content-Type', 'Authorization'],
+        allowHeaders: ['Content-Type', 'Authorization', 'X-Amz-Date', 'X-Api-Key'],
+        allowCredentials: true,
       },
       deployOptions: {
         stageName: 'prod',
