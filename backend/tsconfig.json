@@ -4,28 +4,36 @@
     "module": "commonjs",
     "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "baseUrl": "./src",
+    "baseUrl": ".",
     "paths": {
-      "@core/*": ["core/*"],
-      "@business/*": ["business/*"],
-      "@types/*": ["types/*"]
+      "@core/*": ["src/core/*"],
+      "@business/*": ["src/business/*"],
+      "@types/*": ["src/types/*"]
+    }
+  },
+  "ts-node": {
+    "transpileOnly": true,
+    "skipIgnore": true,
+    "compilerOptions": {
+      "module": "commonjs",
+      "esModuleInterop": true,
+      "skipLibCheck": true
     }
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "lib/**/*",
+    "bin/**/*"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "lambda",
-    "lib",
-    "bin",
     "scripts",
     "test"
   ]

@@ -217,7 +217,8 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.contentBucket.grantRead(kbRole);
-    this.vectorsBucket.vectorBucket.grantReadWrite(kbRole);
+    // Note: S3 Vectors permissions are handled via IAM policy below
+    // The vectors bucket is managed by S3 Vectors service, not standard S3
 
     // Grant S3 Vectors permissions
     kbRole.addToPolicy(new iam.PolicyStatement({
@@ -243,7 +244,7 @@ export class AdaClaraUnifiedStack extends Stack {
             vectorStoreType: 'S3_VECTORS',
           },
         },
-      },
+      } as any, // Type assertion needed for CDK type compatibility
     });
 
     // Create data source separately
@@ -251,6 +252,7 @@ export class AdaClaraUnifiedStack extends Stack {
       knowledgeBaseId: this.knowledgeBase.attrKnowledgeBaseId,
       name: `ada-clara-datasource${stackSuffix}`,
       dataSourceConfiguration: {
+        type: 'S3',
         s3Configuration: {
           bucketArn: this.contentBucket.bucketArn,
         },
@@ -469,13 +471,10 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // ========== AMPLIFY APP ==========
     // Amplify app is created by deploy.sh script before CDK deployment
-    // We just reference it here for outputs - appId is always provided by deploy.sh
-    this.amplifyApp = amplifyAppId 
-      ? new amplify.CfnApp(this, 'AmplifyApp', {
-          appId: amplifyAppId,
-          name: `ada-clara-frontend${stackSuffix}`,
-        })
-      : undefined as any; // Type workaround - appId should always be provided
+    // We don't create it here, just reference it for outputs
+    // Note: CfnApp doesn't support referencing existing apps by appId
+    // The appId is passed via context and used in outputs only
+    this.amplifyApp = undefined;
 
     // ========== OUTPUTS ==========
     new CfnOutput(this, 'ApiGatewayUrl', {
