@@ -242,9 +242,9 @@ export class AdaClaraUnifiedStack extends Stack {
       storageConfiguration: {
         type: 'S3_VECTORS',
         s3VectorsConfiguration: {
+          // AWS CloudFormation schema: Provide IndexArn and VectorBucketArn
+          // Using IndexArn (not IndexName) to avoid conditional schema conflicts
           indexArn: this.vectorIndex.indexArn,
-          indexName: this.vectorIndex.indexName,
-          // Construct S3 Vectors bucket ARN manually (format: arn:aws:s3vectors:region:account:bucket/bucket-name)
           vectorBucketArn: `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
         },
       } as any, // Type assertion needed for CDK type compatibility
@@ -288,11 +288,16 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Create API Gateway first (needed for RAG endpoint reference)
+    // Handle CORS origins: cannot mix '*' with specific origins
+    const corsOrigins = frontendUrl === '*'
+      ? apigateway.Cors.ALL_ORIGINS
+      : [frontendUrl, 'http://localhost:3000'];
+    
     this.api = new apigateway.RestApi(this, 'Api', {
       restApiName: `ada-clara-api${stackSuffix}`,
       description: 'ADA Clara API Gateway',
       defaultCorsPreflightOptions: {
-        allowOrigins: [frontendUrl, 'http://localhost:3000'],
+        allowOrigins: corsOrigins,
         allowMethods: apigateway.Cors.ALL_METHODS,
         allowHeaders: ['Content-Type', 'Authorization'],
       },

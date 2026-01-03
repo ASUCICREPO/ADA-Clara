@@ -70,7 +70,9 @@
     "test:system-status": "npx ts-node scripts/test-system-status.ts",
     "test:scraper-quality": "npx ts-node scripts/test-scraper-quality-issue.ts",
     "create:knowledge-base": "npx ts-node scripts/create-diabetes-knowledge-base.ts",
-    "test:all-systems": "npm run test:core-functionality"
+    "test:all-systems": "npm run test:core-functionality",
+    "validate": "ts-node scripts/validate-knowledge-base-config.ts",
+    "test-config": "bash scripts/test-deployment-config.sh"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.159",
