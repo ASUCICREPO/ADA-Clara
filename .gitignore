@@ -1,6 +1,7 @@
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+**/cdk.out/
 
 # Dependencies
 node_modules
@@ -25,6 +26,7 @@ out/
 # Compiled JavaScript files
 *.js
 !jest.config.js
+!frontend/**/*.js
 *.d.ts
 
 # TypeScript cache
@@ -35,10 +37,12 @@ next-env.d.ts
 .DS_Store
 *.pem
 
-# IDE
+# IDE and Kiro files
 .idea
 .vscode
-.kiro
+.kiro/
+.kiro/specs/
+.kiro/steering/
 *.swp
 *.swo
 
@@ -57,3 +61,60 @@ yarn-error.log*
 
 # Vercel
 .vercel
+
+# Build artifacts and temporary files (outside frontend/)
+*.zip
+*.tar.gz
+*.tgz
+
+# Test and debug files (outside frontend/)
+**/test-*.js
+**/debug-*.js
+**/final-*.js
+response.json
+verify-*.json
+test-auth-payload.json
+
+# CDK compiled output
+bin/*.js
+
+# Lambda packages (build artifacts)
+backend/lambda-packages/
+backend/lambda-ga/
+backend/lambda-kb-ga/
+
+# Temporary documentation
+docs/kiroDocs/
+
+# Legacy/archived code
+backend/lib/legacy/
+backend/lambda/legacy/
+
+# Experimental/temporary scripts (keep only essential ones)
+backend/scripts/deploy-*.ts
+!backend/scripts/deploy-frontend-aligned-stack.ts
+backend/scripts/test-*.ts
+!backend/scripts/test-frontend-aligned-api.ts
+backend/scripts/add-*.ts
+backend/scripts/add-*.sh
+backend/scripts/create-*.ts
+backend/scripts/*-cli.sh
+backend/scripts/simplify-*.sh
+
+# Temporary files
+SECURITY_AUDIT_REPORT.md
+CLEANUP_SUMMARY.md
+STACKS_ANALYSIS.md
+LAMBDA_ANALYSIS.md
+
+# Documentation files that tend to be temporary/generated
+*_ANALYSIS.md
+*_DEPLOYMENT_SUMMARY.md
+*_IMPLEMENTATION_GUIDE.md
+*_DEPLOYMENT_GUIDE.md
+*_API_SPEC.md
+*_GUIDE.md
+*_README.md
+!README.md
+!backend/README.md
+!frontend/README.md

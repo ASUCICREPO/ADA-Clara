@@ -1,0 +1,34 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Installing dependencies..."
+      - npm ci
+      - echo "Getting environment variables from SSM..."
+      - |
+        export NEXT_PUBLIC_API_BASE_URL=$(aws ssm get-parameter --name /ada-clara/dev/api-url --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_AWS_REGION=$(aws ssm get-parameter --name /ada-clara/dev/region --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_COGNITO_REGION=$(aws ssm get-parameter --name /ada-clara/dev/region --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_COGNITO_USER_POOL_ID=$(aws ssm get-parameter --name /ada-clara/dev/cognito-user-pool-id --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_COGNITO_CLIENT_ID=$(aws ssm get-parameter --name /ada-clara/dev/cognito-client-id --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=$(aws ssm get-parameter --name /ada-clara/dev/cognito-identity-pool-id --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+        export NEXT_PUBLIC_COGNITO_DOMAIN=$(aws ssm get-parameter --name /ada-clara/dev/cognito-domain --query 'Parameter.Value' --output text --region $AWS_DEFAULT_REGION)
+      - echo "Environment variables set"
+  build:
+    commands:
+      - echo "Building Next.js application..."
+      - cd frontend
+      - npm run build
+artifacts:
+  files:
+    - 'frontend/.next/**/*'
+    - 'frontend/public/**/*'
+    - 'frontend/package.json'
+    - 'frontend/package-lock.json'
+  base-directory: .
+cache:
+  paths:
+    - 'frontend/node_modules/**/*'
+    - 'frontend/.next/cache/**/*'
+

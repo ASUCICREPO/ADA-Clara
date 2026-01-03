@@ -1,1 +1,28 @@
 node_modules
+cdk.out
+cdk-out-*
+
+# Build artifacts
+dist/
+
+# Enhanced scraper logic (preserved separately)
+enhanced-scraper-logic/
+
+# Test files (temporary)
+test-*.js
+test-*.json
+debug-*.js
+quick-system-test.js
+rigorous-system-tests.js
+final-status-test.js
+
+# Lambda packages (generated)
+*.zip
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

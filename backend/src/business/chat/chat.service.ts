@@ -1,0 +1,628 @@
+import { DynamoDBService } from '../../services/dynamodb-service';
+import { BedrockService } from '../../services/bedrock.service';
+import { ComprehendService } from '../../services/comprehend.service';
+
+export interface ChatMessage {
+  messageId: string;
+  sessionId: string;
+  content: string;
+  sender: 'user' | 'bot';
+  timestamp: string;
+  language: string;
+  confidence?: number;
+  sources?: Array<{
+    url: string;
+    title: string;
+    excerpt: string;
+    relevanceScore?: number;
+    contentType?: string;
+  }>;
+  processingTime?: number;
+}
+
+export interface ChatSession {
+  sessionId: string;
+  startTime: string;
+  language: string;
+  escalated: boolean;
+  messageCount: number;
+  lastActivity: string;
+  userInfo?: Record<string, any>;
+  ttl?: number;
+}
+
+export interface ChatRequest {
+  message: string;
+  sessionId?: string;
+  userInfo?: Record<string, any>;
+}
+
+export interface ChatResponse {
+  response: string;
+  confidence: number;
+  sources: Array<{
+    url: string;
+    title: string;
+    excerpt: string;
+  }>;
+  escalated: boolean;
+  escalationSuggested: boolean;
+  escalationReason?: string;
+  sessionId: string;
+  language: string;
+  timestamp: string;
+}
+
+/**
+ * Simplified response interface for frontend integration
+ * Contains only the essential data needed by the UI
+ */
+export interface FrontendChatResponse {
+  message: string;
+  sources: Array<{
+    url: string;
+    title: string;
+    excerpt: string;
+  }>;
+  sessionId: string;
+  escalated?: boolean;
+}
+
+export class ChatService {
+  private readonly SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
+  private readonly MESSAGES_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
+  private readonly ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
+  private readonly ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+
+  constructor(
+    private dynamoService: DynamoDBService,
+    private bedrockService: BedrockService,
+    private comprehendService: ComprehendService
+  ) {}
+
+  /**
+   * Process incoming chat message
+   */
+  async processMessage(request: ChatRequest): Promise<ChatResponse> {
+    const timestamp = new Date();
+    
+    // Validate input
+    this.validateRequest(request);
+    
+    // Step 1: Detect language
+    const language = await this.detectLanguage(request.message);
+    
+    // Step 2: Get or create session
+    const session = await this.getOrCreateSession(request.sessionId, language, request.userInfo);
+    
+    // Step 3: Store user message
+    const userMessage = await this.storeUserMessage(session.sessionId, request.message, language, timestamp);
+    
+    // Step 4: Generate response
+    const processingStart = Date.now();
+    const { response, confidence, sources } = await this.generateResponse(request.message, language);
+    const processingTime = Date.now() - processingStart;
+    
+    // Step 5: Store bot response
+    const botMessage = await this.storeBotMessage(
+      session.sessionId, 
+      response, 
+      language, 
+      confidence, 
+      sources, 
+      processingTime
+    );
+    
+    // Step 6: Check for escalation
+    const escalationSuggested = this.shouldEscalate(confidence, request.message);
+    
+    // Step 6a: Modify response for escalation with more helpful message
+    let finalResponse = response;
+    if (escalationSuggested) {
+      await this.createEscalation(session.sessionId, 'Low confidence or complex query');
+      
+      // Replace generic escalation message with more helpful one
+      if (response.includes('Sorry, I am unable to assist you with this request') || 
+          response.includes('Lo siento, no puedo ayudarte con esta solicitud')) {
+        finalResponse = language === 'es' 
+          ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+          : 'Let me connect you with someone who can help you with that.';
+      }
+    }
+    
+    // Step 7: Record analytics
+    await this.recordAnalytics('chat', 'message_processed', {
+      sessionId: session.sessionId,
+      language,
+      confidence,
+      escalated: escalationSuggested,
+      processingTime
+    });
+    
+    return {
+      response: finalResponse,
+      confidence,
+      sources,
+      escalated: escalationSuggested,
+      escalationSuggested,
+      escalationReason: escalationSuggested ? 
+        (confidence < 0.95 ? `Confidence ${(confidence * 100).toFixed(1)}% below required 95% threshold` : 'Explicit request for human assistance') 
+        : undefined,
+      sessionId: session.sessionId,
+      language,
+      timestamp: timestamp.toISOString()
+    };
+  }
+
+  /**
+   * Validate chat request
+   */
+  private validateRequest(request: ChatRequest): void {
+    if (!request.message || typeof request.message !== 'string' || request.message.trim().length === 0) {
+      throw new Error('Message content is required and cannot be empty');
+    }
+    
+    if (request.message.length > 5000) {
+      throw new Error('Message content cannot exceed 5000 characters');
+    }
+  }
+
+  /**
+   * Detect language using Comprehend
+   */
+  private async detectLanguage(text: string): Promise<string> {
+    const result = await this.comprehendService.detectLanguage(text);
+    return result.languageCode;
+  }
+
+  /**
+   * Get existing session or create new one
+   */
+  private async getOrCreateSession(
+    sessionId?: string, 
+    language: string = 'en', 
+    userInfo?: Record<string, any>
+  ): Promise<ChatSession> {
+    if (sessionId) {
+      try {
+        // Use PK/SK pattern for chat-sessions table
+        const existingSession = await this.dynamoService.getItem(this.SESSIONS_TABLE, { 
+          PK: `SESSION#${sessionId}`,
+          SK: 'METADATA'
+        });
+        if (existingSession) {
+          return {
+            sessionId: existingSession.sessionId,
+            startTime: existingSession.startTime,
+            language: existingSession.language,
+            escalated: existingSession.escalated,
+            messageCount: existingSession.messageCount,
+            lastActivity: existingSession.lastActivity,
+            userInfo: existingSession.userInfo,
+            ttl: existingSession.ttl
+          } as ChatSession;
+        }
+      } catch (error) {
+        console.log('Session not found, creating new one:', error);
+      }
+    }
+    
+    // Create new session
+    const newSessionId = sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const newSession: ChatSession = {
+      sessionId: newSessionId,
+      startTime: new Date().toISOString(),
+      language,
+      escalated: false,
+      messageCount: 0,
+      lastActivity: new Date().toISOString(),
+      userInfo,
+      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
+    };
+    
+    // Store with PK/SK pattern
+    await this.dynamoService.putItem(this.SESSIONS_TABLE, {
+      PK: `SESSION#${newSessionId}`,
+      SK: 'METADATA',
+      ...newSession
+    });
+    
+    return newSession;
+  }
+
+  /**
+   * Store user message
+   */
+  private async storeUserMessage(
+    sessionId: string, 
+    content: string, 
+    language: string, 
+    timestamp: Date
+  ): Promise<ChatMessage> {
+    const userMessage: ChatMessage = {
+      messageId: `msg-${Date.now()}-user`,
+      sessionId,
+      content,
+      sender: 'user',
+      timestamp: timestamp.toISOString(),
+      language,
+      processingTime: 0
+    };
+    
+    // Store in conversations table with conversationId/timestamp pattern
+    await this.dynamoService.putItem(this.MESSAGES_TABLE, {
+      conversationId: sessionId,
+      timestamp: timestamp.toISOString(),
+      messageId: userMessage.messageId,
+      sessionId: userMessage.sessionId,
+      content: userMessage.content,
+      sender: userMessage.sender,
+      language: userMessage.language,
+      processingTime: userMessage.processingTime,
+      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
+    });
+    
+    return userMessage;
+  }
+
+  /**
+   * Store bot message
+   */
+  private async storeBotMessage(
+    sessionId: string,
+    content: string,
+    language: string,
+    confidence: number,
+    sources: Array<{ url: string; title: string; excerpt: string }>,
+    processingTime: number
+  ): Promise<ChatMessage> {
+    const botMessage: ChatMessage = {
+      messageId: `msg-${Date.now()}-bot`,
+      sessionId,
+      content,
+      sender: 'bot',
+      timestamp: new Date().toISOString(),
+      language,
+      confidence,
+      sources: sources.map(s => ({
+        ...s,
+        relevanceScore: 0.8,
+        contentType: 'article'
+      })),
+      processingTime
+    };
+    
+    // Store in conversations table with conversationId/timestamp pattern
+    await this.dynamoService.putItem(this.MESSAGES_TABLE, {
+      conversationId: sessionId,
+      timestamp: botMessage.timestamp,
+      messageId: botMessage.messageId,
+      sessionId: botMessage.sessionId,
+      content: botMessage.content,
+      sender: botMessage.sender,
+      language: botMessage.language,
+      confidence: botMessage.confidence,
+      sources: botMessage.sources,
+      processingTime: botMessage.processingTime,
+      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
+    });
+    
+    return botMessage;
+  }
+
+  /**
+   * Generate response using RAG service integration
+   */
+  private async generateResponse(
+    message: string, 
+    language: string
+  ): Promise<{ response: string; confidence: number; sources: Array<{ url: string; title: string; excerpt: string }> }> {
+    try {
+      // Use RAG service for knowledge base queries
+      const ragRequest = {
+        query: message,
+        language: language as 'en' | 'es',
+        maxResults: 5,
+        confidenceThreshold: 0.6
+      };
+
+      const ragResponse = await this.callRAGService(ragRequest);
+      
+      // Use RAGAS confidence directly (no additional enhancement needed)
+      console.log(`📊 RAGAS confidence: ${(ragResponse.confidence * 100).toFixed(1)}%`);
+      
+      if (ragResponse.ragasMetrics) {
+        console.log(`📋 RAGAS metrics - F:${(ragResponse.ragasMetrics.faithfulness * 100).toFixed(1)}% AR:${(ragResponse.ragasMetrics.answerRelevancy * 100).toFixed(1)}% CP:${(ragResponse.ragasMetrics.contextPrecision * 100).toFixed(1)}% CR:${(ragResponse.ragasMetrics.contextRecall * 100).toFixed(1)}%`);
+      }
+
+      return {
+        response: ragResponse.answer,
+        confidence: ragResponse.confidence, // Use RAGAS confidence directly
+        sources: ragResponse.sources.map((source: any) => ({
+          url: source.url,
+          title: source.title,
+          excerpt: source.content ? source.content.substring(0, 200) + '...' : 'No content available'
+        }))
+      };
+
+    } catch (error) {
+      console.error('RAG service call failed, using fallback:', error);
+      
+      // Fallback to basic response with low confidence to trigger escalation
+      const fallbackResponse = language === 'es'
+        ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+        : 'Let me connect you with someone who can help you with that.';
+
+      return {
+        response: fallbackResponse,
+        confidence: 0.3, // Low confidence to trigger escalation
+        sources: []
+      };
+    }
+  }
+
+  /**
+   * Call RAG service via Lambda function
+   */
+  private async callRAGService(request: any): Promise<any> {
+    const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+    
+    try {
+      // Call RAG processor Lambda function directly
+      const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+      const ragFunctionName = process.env.RAG_FUNCTION_NAME || 'ada-clara-rag-processor-us-east-1';
+      
+      console.log(`🚀 Calling RAG processor: ${ragFunctionName}`);
+      
+      // Create Lambda payload for RAG processor
+      const ragPayload = {
+        httpMethod: 'POST',
+        path: '/process',
+        body: JSON.stringify({
+          query: request.query,
+          sessionId: request.sessionId || `chat-${Date.now()}`,
+          language: request.language || 'en'
+        }),
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      };
+
+      const command = new InvokeCommand({
+        FunctionName: ragFunctionName,
+        Payload: JSON.stringify(ragPayload),
+        InvocationType: 'RequestResponse'
+      });
+
+      const response = await lambdaClient.send(command);
+      
+      if (response.StatusCode === 200 && response.Payload) {
+        const result = JSON.parse(new TextDecoder().decode(response.Payload));
+        
+        if (result.statusCode === 200) {
+          const body = typeof result.body === 'string' ? JSON.parse(result.body) : result.body;
+          
+          console.log(`✅ RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
+          
+          return {
+            answer: body.response,
+            confidence: body.confidence,
+            sources: body.sources || [],
+            ragasMetrics: body.ragasMetrics,
+            processingTime: body.processingTime || 0
+          };
+        } else {
+          throw new Error(`RAG processor returned status ${result.statusCode}`);
+        }
+      } else {
+        throw new Error(`Lambda invocation failed with status ${response.StatusCode}`);
+      }
+
+    } catch (error) {
+      console.error('RAG Lambda call failed:', error);
+      throw error; // Re-throw to trigger fallback in generateResponse
+    }
+  }
+
+  /**
+   * Enhanced confidence calculation for 95% requirement
+   */
+  private enhanceConfidenceScore(
+    baseConfidence: number,
+    sources: Array<{ relevanceScore: number; metadata: Record<string, any> }>,
+    answer: string
+  ): number {
+    let enhancedConfidence = baseConfidence;
+
+    // Factor 1: Source quality and relevance
+    if (sources.length > 0) {
+      const avgRelevance = sources.reduce((sum, s) => sum + s.relevanceScore, 0) / sources.length;
+      
+      // High relevance sources boost confidence
+      if (avgRelevance > 0.9) enhancedConfidence += 0.05;
+      else if (avgRelevance > 0.8) enhancedConfidence += 0.02;
+      
+      // Multiple high-quality sources boost confidence
+      const highQualitySources = sources.filter(s => s.relevanceScore > 0.85).length;
+      if (highQualitySources >= 3) enhancedConfidence += 0.03;
+    }
+
+    // Factor 2: Answer characteristics
+    const answerLength = answer.length;
+    
+    // Comprehensive answers get confidence boost
+    if (answerLength >= 150 && answerLength <= 800) {
+      enhancedConfidence += 0.02;
+    }
+    
+    // Answers with citations get confidence boost
+    if (answer.includes('diabetes.org') || answer.includes('Based on')) {
+      enhancedConfidence += 0.03;
+    }
+
+    // Factor 3: Medical accuracy indicators
+    const medicalTerms = [
+      'diabetes', 'blood sugar', 'glucose', 'insulin', 'A1C',
+      'type 1', 'type 2', 'gestational', 'prediabetes'
+    ];
+    
+    const medicalTermCount = medicalTerms.filter(term => 
+      answer.toLowerCase().includes(term.toLowerCase())
+    ).length;
+    
+    if (medicalTermCount >= 2) enhancedConfidence += 0.02;
+
+    // Factor 4: Uncertainty indicators (reduce confidence)
+    const uncertaintyPhrases = [
+      'might be', 'could be', 'possibly', 'maybe', 'not sure',
+      'I think', 'probably', 'it seems'
+    ];
+    
+    const uncertaintyCount = uncertaintyPhrases.filter(phrase =>
+      answer.toLowerCase().includes(phrase.toLowerCase())
+    ).length;
+    
+    if (uncertaintyCount > 0) {
+      enhancedConfidence -= uncertaintyCount * 0.05;
+    }
+
+    // Ensure confidence stays within bounds
+    return Math.max(0.1, Math.min(1.0, enhancedConfidence));
+  }
+
+  /**
+   * Determine if escalation is needed based on 95% confidence requirement
+   */
+  private shouldEscalate(confidence: number, message: string): boolean {
+    // Client requirement: 95% confidence threshold
+    const CONFIDENCE_THRESHOLD = 0.95;
+    
+    // Escalate if confidence is below 95%
+    if (confidence < CONFIDENCE_THRESHOLD) {
+      console.log(`Escalating due to confidence ${(confidence * 100).toFixed(1)}% below required 95%`);
+      return true;
+    }
+    
+    // Also escalate for explicit requests for human help
+    const escalationKeywords = [
+      'human', 'person', 'agent', 'representative', 'help me', 'speak to someone',
+      'humano', 'persona', 'agente', 'representante', 'ayúdame', 'hablar con alguien'
+    ];
+    
+    const explicitRequest = escalationKeywords.some(keyword => 
+      message.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    if (explicitRequest) {
+      console.log('Escalating due to explicit request for human assistance');
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Create escalation request
+   */
+  private async createEscalation(sessionId: string, reason: string): Promise<void> {
+    try {
+      const escalationId = `esc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      await this.dynamoService.putItem(this.ESCALATION_TABLE, {
+        escalationId,
+        sessionId,
+        reason,
+        status: 'pending',
+        timestamp: new Date().toISOString(),
+        ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60) // 90 days TTL
+      });
+    } catch (error) {
+      console.error('Error creating escalation:', error);
+      // Don't throw - escalation failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Record analytics data
+   */
+  private async recordAnalytics(category: string, action: string, metadata: Record<string, any>): Promise<void> {
+    try {
+      const timestamp = new Date().toISOString();
+      await this.dynamoService.putItem(this.ANALYTICS_TABLE, {
+        PK: `ANALYTICS#${category}`,
+        SK: `${timestamp}#${action}`,
+        analyticsId: `${category}-${action}-${Date.now()}`,
+        category,
+        action,
+        timestamp,
+        metadata,
+        ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 year TTL
+      });
+    } catch (error) {
+      console.error('Error recording analytics:', error);
+      // Don't throw - analytics failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Get chat history for a session
+   */
+  async getChatHistory(sessionId: string): Promise<ChatMessage[]> {
+    try {
+      const result = await this.dynamoService.queryItems(
+        this.MESSAGES_TABLE,
+        'conversationId = :sessionId',
+        { ':sessionId': sessionId },
+        {
+          scanIndexForward: true, // Sort by timestamp ascending
+          limit: 100 // Limit to last 100 messages
+        }
+      );
+
+      return result.map((item: any) => ({
+        messageId: item.messageId,
+        sessionId: item.sessionId,
+        content: item.content,
+        sender: item.sender,
+        timestamp: item.timestamp,
+        language: item.language,
+        confidence: item.confidence,
+        sources: item.sources,
+        processingTime: item.processingTime
+      }));
+    } catch (error) {
+      console.error('Error getting chat history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get list of chat sessions
+   */
+  async getChatSessions(limit: number = 10): Promise<ChatSession[]> {
+    try {
+      // Scan sessions table with PK prefix filter
+      const result = await this.dynamoService.scanItems(
+        this.SESSIONS_TABLE,
+        {
+          filterExpression: 'begins_with(PK, :pk)',
+          expressionAttributeValues: { ':pk': 'SESSION#' },
+          limit: limit
+        }
+      );
+
+      return result.map((item: any) => ({
+        sessionId: item.sessionId,
+        startTime: item.startTime,
+        language: item.language,
+        escalated: item.escalated,
+        messageCount: item.messageCount,
+        lastActivity: item.lastActivity,
+        userInfo: item.userInfo,
+        ttl: item.ttl
+      }));
+    } catch (error) {
+      console.error('Error getting chat sessions:', error);
+      return [];
+    }
+  }
+}
