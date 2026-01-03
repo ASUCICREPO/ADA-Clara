@@ -379,8 +379,7 @@ export class AdaClaraUnifiedStack extends Stack {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         CONVERSATIONS_TABLE: this.conversationsTable.tableName,
-        RAG_ENDPOINT: '', // Will be set after API Gateway is created
-        RAG_FUNCTION_NAME: '', // Will be set after RAG processor is created
+        // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
       },
     });
 
@@ -424,12 +423,6 @@ export class AdaClaraUnifiedStack extends Stack {
     this.questionsTable.grantReadData(this.adminAnalytics);
     this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
 
-    // Update chat processor environment with RAG endpoint and function name (after both are created)
-    // Note: We use addEnvironment here because we need to reference this.api.url and this.ragProcessor.functionName
-    // which are created before chatProcessor but CDK needs them set after construction
-    this.chatProcessor.addEnvironment('RAG_ENDPOINT', `${this.api.url}query`);
-    this.chatProcessor.addEnvironment('RAG_FUNCTION_NAME', this.ragProcessor.functionName);
-
     // ========== API GATEWAY ROUTES ==========
     // Health endpoint
     this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatProcessor));
@@ -468,6 +461,12 @@ export class AdaClaraUnifiedStack extends Stack {
     // RAG query endpoint
     const queryResource = this.api.root.addResource('query');
     queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
+
+    // Update chat processor environment with RAG endpoint and function name (AFTER all API Gateway methods are created)
+    // This avoids circular dependency: API methods -> Lambda functions -> API URL (circular)
+    // By setting environment variables after methods are created, we break the cycle
+    this.chatProcessor.addEnvironment('RAG_ENDPOINT', `${this.api.url}query`);
+    this.chatProcessor.addEnvironment('RAG_FUNCTION_NAME', this.ragProcessor.functionName);
 
     // ========== AMPLIFY APP ==========
     // Amplify app is created by deploy.sh script before CDK deployment
