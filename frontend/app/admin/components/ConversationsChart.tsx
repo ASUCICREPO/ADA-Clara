@@ -1,31 +1,44 @@
 'use client';
 
-export default function ConversationsChart() {
-  // Sample data - replace with actual data from your API
-  const data = [
-    { date: '12/15', conversations: 140 },
-    { date: '12/16', conversations: 165 },
-    { date: '12/17', conversations: 155 },
-    { date: '12/18', conversations: 180 },
-    { date: '12/19', conversations: 195 },
-    { date: '12/20', conversations: 175 },
-    { date: '12/21', conversations: 165 },
-  ];
+import { useConversationChart } from '../hooks/useAdminData';
 
-  const maxValue = 220;
-  const yAxisSteps = [220, 165, 110, 55, 0]; // Top to bottom
+export default function ConversationsChart() {
+  const { data, loading, error } = useConversationChart();
+  
+  if (loading) {
+    return (
+      <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%' }}>
+        <h2 className="text-[#020617] text-lg font-medium m-0" style={{ marginBottom: '24px' }}>Conversations Over Time</h2>
+        <div className="animate-pulse">Loading chart data...</div>
+      </div>
+    );
+  }
+
+  if (error || !data || !data.data || data.data.length === 0) {
+    return (
+      <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%' }}>
+        <h2 className="text-[#020617] text-lg font-medium m-0" style={{ marginBottom: '24px' }}>Conversations Over Time</h2>
+        <div className="text-red-600">Error loading chart: {error || 'No data available'}</div>
+      </div>
+    );
+  }
+
+  const chartData = data.data;
+  
+  // Calculate max value dynamically
+  const maxConversations = Math.max(...chartData.map(d => d.conversations), 0);
+  const maxValue = Math.ceil(maxConversations * 1.1); // Add 10% padding
+  const yAxisSteps = [maxValue, Math.floor(maxValue * 0.75), Math.floor(maxValue * 0.5), Math.floor(maxValue * 0.25), 0];
   const chartWidth = 600;
   const chartHeight = 240;
 
   // Calculate points for the line
-  const points = data.map((point, index) => {
-    const x = (index / (data.length - 1)) * chartWidth;
-    const y = ((maxValue - point.conversations) / maxValue) * chartHeight;
+  const points = chartData.map((point, index) => {
+    const x = (index / (chartData.length - 1 || 1)) * chartWidth;
+    const y = ((maxValue - point.conversations) / (maxValue || 1)) * chartHeight;
     return { x, y };
   });
 
-  // Create path string for smooth line
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   return (
     <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%' }}>
@@ -55,12 +68,11 @@ export default function ConversationsChart() {
             style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 'calc(100% - 30px)', overflow: 'visible' }}
           >
             {/* Draw the line */}
-            <path
-              d={pathD}
+            <polyline
               fill="none"
               stroke="#a6192e"
-              strokeWidth="3"
-              vectorEffect="non-scaling-stroke"
+              strokeWidth="2"
+              points={points.map(p => `${p.x},${p.y}`).join(' ')}
             />
             {/* Draw the points */}
             {points.map((p, index) => (
@@ -68,18 +80,17 @@ export default function ConversationsChart() {
                 key={index}
                 cx={p.x}
                 cy={p.y}
-                r="8"
+                r="6"
                 fill="#a6192e"
                 stroke="white"
-                strokeWidth="3"
-                vectorEffect="non-scaling-stroke"
+                strokeWidth="2"
               />
             ))}
           </svg>
 
           {/* X-axis labels */}
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between' }}>
-            {data.map((point) => (
+            {chartData.map((point) => (
               <span key={point.date} className="text-[#64748b] text-xs font-normal">{point.date}</span>
             ))}
           </div>

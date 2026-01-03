@@ -154,7 +154,7 @@ export class S3VectorsStack extends Stack {
     this.kbTestFunction = new lambda.Function(this, 'KBTestFunction', {
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('src/handlers/bedrock-kb'),
+      code: lambda.Code.fromAsset('dist/handlers/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {

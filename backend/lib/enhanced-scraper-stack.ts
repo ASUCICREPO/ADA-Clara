@@ -91,7 +91,7 @@ export class EnhancedScraperStack extends Stack {
       functionName: `AdaClaraEnhancedScraper-${Stack.of(this).region}${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/enhanced-web-scraper'), // Built enhanced scraper assets
+      code: lambda.Code.fromAsset('dist/handlers/enhanced-web-scraper'), // Built enhanced scraper assets
       timeout: Duration.minutes(15), // Extended timeout for enhanced processing
       memorySize: 3008, // Maximum memory for optimal performance
       

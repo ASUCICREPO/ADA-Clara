@@ -1,8 +1,34 @@
 'use client';
 
+import { useLanguageSplit } from '../hooks/useAdminData';
+
 export default function LanguageSplitChart() {
-  const englishPercent = 70;
-  const spanishPercent = 30;
+  const { data, loading, error } = useLanguageSplit();
+  
+  if (loading) {
+    return (
+      <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <h2 className="text-[#020617] text-lg font-medium m-0" style={{ marginBottom: '24px' }}>Language Split</h2>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="animate-pulse">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <h2 className="text-[#020617] text-lg font-medium m-0" style={{ marginBottom: '24px' }}>Language Split</h2>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-red-600">Error: {error || 'Failed to load data'}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const englishPercent = data.english || 0;
+  const spanishPercent = data.spanish || 0;
   const radius = 70;
   const circumference = 2 * Math.PI * radius;
   // English takes 70% of the circle

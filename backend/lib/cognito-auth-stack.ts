@@ -29,6 +29,7 @@ export interface CognitoAuthStackProps extends StackProps {
 export class CognitoAuthStack extends Stack {
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
+  public readonly userPoolDomain: cognito.UserPoolDomain;
   public readonly identityPool: cognito.CfnIdentityPool;
   public readonly authLambda: lambda.Function;
 
@@ -57,6 +58,7 @@ export class CognitoAuthStack extends Stack {
     };
 
     // Create User Pool
+    // Note: Keep name without suffix to allow updates to existing stack
     this.userPool = new cognito.UserPool(this, 'AdaClaraUserPool', {
       userPoolName: 'ada-clara-users',
       selfSignUpEnabled: true,
@@ -126,6 +128,7 @@ export class CognitoAuthStack extends Stack {
     });
 
     // Create User Pool Client
+    // Note: Keep name without suffix to allow updates to existing stack
     this.userPoolClient = new cognito.UserPoolClient(this, 'AdaClaraUserPoolClient', {
       userPool: this.userPool,
       userPoolClientName: 'ada-clara-web-client',
@@ -164,8 +167,9 @@ export class CognitoAuthStack extends Stack {
     });
 
     // Create User Pool Domain
+    // Domain prefix is set in backend.ts to include environment suffix
     const domainPrefix = props?.domainPrefix || `ada-clara-${this.account}`;
-    new cognito.UserPoolDomain(this, 'AdaClaraUserPoolDomain', {
+    this.userPoolDomain = new cognito.UserPoolDomain(this, 'AdaClaraUserPoolDomain', {
       userPool: this.userPool,
       cognitoDomain: {
         domainPrefix
@@ -173,6 +177,7 @@ export class CognitoAuthStack extends Stack {
     });
 
     // Create Identity Pool for AWS resource access FIRST
+    // Note: Keep name without suffix to allow updates to existing stack
     this.identityPool = new cognito.CfnIdentityPool(this, 'AdaClaraIdentityPool', {
       identityPoolName: 'ada-clara-identity-pool',
       allowUnauthenticatedIdentities: true,
@@ -203,11 +208,12 @@ export class CognitoAuthStack extends Stack {
     });
 
     // Create Auth Lambda for JWT validation and user context
+    // Note: Keep name without suffix to allow updates to existing stack
     this.authLambda = new lambda.Function(this, 'AuthLambda', {
       functionName: 'ada-clara-auth-handler',
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/auth-handler'),
+      code: lambda.Code.fromAsset('dist/handlers/auth-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: authLogGroup,
@@ -235,6 +241,7 @@ export class CognitoAuthStack extends Stack {
 
   private createIAMRoles(): void {
     // Unauthenticated role (very limited access)
+    // Note: Keep name without suffix to allow updates to existing stack
     this.unauthenticatedRole = new iam.Role(this, 'UnauthenticatedRole', {
       roleName: 'ada-clara-unauthenticated-role',
       assumedBy: new iam.FederatedPrincipal(
@@ -266,6 +273,7 @@ export class CognitoAuthStack extends Stack {
     });
 
     // Authenticated role (basic access)
+    // Note: Keep name without suffix to allow updates to existing stack
     this.authenticatedRole = new iam.Role(this, 'AuthenticatedRole', {
       roleName: 'ada-clara-authenticated-role',
       assumedBy: new iam.FederatedPrincipal(
@@ -328,6 +336,7 @@ export class CognitoAuthStack extends Stack {
       }
     });
     // Admin role (full access)
+    // Note: Keep name without suffix to allow updates to existing stack
     this.adminRole = new iam.Role(this, 'AdminRole', {
       roleName: 'ada-clara-admin-role',
       assumedBy: new iam.FederatedPrincipal(

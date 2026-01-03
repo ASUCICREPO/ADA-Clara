@@ -1,31 +1,39 @@
 'use client';
 
+import { useUnansweredQuestions } from '../hooks/useAdminData';
+
 export default function TopUnansweredQuestions() {
-  const questions = [
-    'Can you help me schedule a doctor appointment?',
-    'What insurance plans do you accept?',
-    'How do I apply for financial assistance programs?',
-    'Can you prescribe medication for me?',
-    'Where is the nearest diabetes clinic?',
-  ];
+  const { data, loading, error } = useUnansweredQuestions();
+  
+  const questions = data?.questions?.map(q => q.question) || [];
 
   return (
-    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px', height: '100%' }}>
-      <h2 className="text-[#a6192e] text-lg font-medium m-0" style={{ marginBottom: '16px' }}>
-        Top Unanswered Questions
-      </h2>
-      <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {questions.map((question, index) => (
-          <div key={index}>
-            <div className="text-[#020617] text-sm font-normal" style={{ padding: '12px 0' }}>
-              {question}
-            </div>
-            {index < questions.length - 1 && (
-              <div style={{ borderBottom: '1px solid #e2e8f0' }}></div>
-            )}
-          </div>
-        ))}
+    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '16px' }}>
+      <div className="bg-[#f8fafc] rounded-[10px] mb-4" style={{ padding: '12px 16px' }}>
+        <h2 className="text-[#a6192e] text-lg font-medium m-0">
+          Top Unanswered Questions
+        </h2>
       </div>
+      {loading && <div className="animate-pulse py-4">Loading...</div>}
+      {error && <div className="text-red-600 py-4">Error: {error}</div>}
+      {!loading && !error && (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {questions.length === 0 ? (
+            <div className="text-[#64748b] text-sm py-4">No questions available</div>
+          ) : (
+            questions.map((question, index) => (
+              <div key={index}>
+                <div className="text-[#020617] text-sm font-normal" style={{ padding: '12px 0' }}>
+                  {question}
+                </div>
+                {index < questions.length - 1 && (
+                  <div style={{ borderBottom: '1px solid #e2e8f0', marginLeft: '0', marginRight: '0' }}></div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

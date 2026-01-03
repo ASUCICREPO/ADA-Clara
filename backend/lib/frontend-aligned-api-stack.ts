@@ -102,7 +102,7 @@ export class FrontendAlignedApiStack extends Stack {
       functionName: 'ada-clara-simple-chat-processor',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/chat-processor'), // Using built assets
+      code: lambda.Code.fromAsset('dist/handlers/chat-processor'), // Using built assets
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
@@ -126,7 +126,7 @@ export class FrontendAlignedApiStack extends Stack {
       functionName: 'ada-clara-escalation-handler-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/escalation-handler'), // Using built assets
+      code: lambda.Code.fromAsset('dist/handlers/escalation-handler'), // Using built assets
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,
@@ -142,7 +142,7 @@ export class FrontendAlignedApiStack extends Stack {
       functionName: 'ada-clara-admin-analytics-v3',
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/admin-analytics'), // Using built assets
+      code: lambda.Code.fromAsset('dist/handlers/admin-analytics'), // Using built assets
       timeout: Duration.seconds(30),
       memorySize: 512, // Increased for bundled code
       role: lambdaExecutionRole,

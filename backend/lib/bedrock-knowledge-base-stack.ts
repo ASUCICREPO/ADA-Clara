@@ -174,7 +174,7 @@ export class BedrockKnowledgeBaseStack extends Stack {
       functionName: `AdaClaraKBGATest-${Stack.of(this).region}${bucketSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('src/handlers/bedrock-kb'),
+      code: lambda.Code.fromAsset('dist/handlers/bedrock-kb'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
       environment: {

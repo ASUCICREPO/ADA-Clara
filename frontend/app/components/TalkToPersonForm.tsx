@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { submitEscalationRequest } from '../../lib/api/escalation.service';
 
 interface TalkToPersonFormProps {
   isOpen: boolean;
@@ -24,9 +25,13 @@ export default function TalkToPersonForm({ isOpen, onClose, onSubmit }: TalkToPe
   });
 
   const [errors, setErrors] = useState<Partial<FormData>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
     
     const newErrors: Partial<FormData> = {};
     if (!formData.name.trim()) newErrors.name = 'Name is required';
@@ -40,10 +45,35 @@ export default function TalkToPersonForm({ isOpen, onClose, onSubmit }: TalkToPe
       return;
     }
 
-    onSubmit(formData);
-    // Reset form
-    setFormData({ name: '', email: '', phoneNumber: '', zipCode: '' });
-    setErrors({});
+    setIsSubmitting(true);
+    
+    try {
+      const result = await submitEscalationRequest({
+        name: formData.name,
+        email: formData.email,
+        phoneNumber: formData.phoneNumber || undefined,
+        zipCode: formData.zipCode || undefined,
+      });
+
+      if (result.success) {
+        setSubmitSuccess(true);
+        onSubmit(formData);
+        // Reset form after a short delay
+        setTimeout(() => {
+          setFormData({ name: '', email: '', phoneNumber: '', zipCode: '' });
+          setErrors({});
+          setSubmitSuccess(false);
+          onClose();
+        }, 2000);
+      } else {
+        setSubmitError(result.message || 'Failed to submit request. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error submitting escalation request:', error);
+      setSubmitError(error instanceof Error ? error.message : 'Failed to submit request. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -158,20 +188,34 @@ export default function TalkToPersonForm({ isOpen, onClose, onSubmit }: TalkToPe
               />
             </div>
 
+            {/* Success/Error Messages */}
+            {submitSuccess && (
+              <div className="bg-green-50 border border-green-200 rounded-[10px] p-3 text-sm text-green-800">
+                Thank you! Someone from the American Diabetes Association will reach out to you shortly.
+              </div>
+            )}
+            {submitError && (
+              <div className="bg-red-50 border border-red-200 rounded-[10px] p-3 text-sm text-red-800">
+                {submitError}
+              </div>
+            )}
+
             {/* Buttons */}
             <div className="flex" style={{ gap: '16px', paddingTop: '16px' }}>
               <button
                 type="button"
                 onClick={handleCancel}
-                className="flex-1 h-[48px] border border-[#cbd5e1] rounded-[10px] text-sm font-normal text-[#020617] bg-white hover:bg-[#f8fafc] transition-colors"
+                disabled={isSubmitting}
+                className="flex-1 h-[48px] border border-[#cbd5e1] rounded-[10px] text-sm font-normal text-[#020617] bg-white hover:bg-[#f8fafc] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="flex-1 h-[48px] bg-[#a6192e] text-white rounded-[10px] text-sm font-normal hover:opacity-90 transition-opacity"
+                disabled={isSubmitting || submitSuccess}
+                className="flex-1 h-[48px] bg-[#a6192e] text-white rounded-[10px] text-sm font-normal hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Submit
+                {isSubmitting ? 'Submitting...' : submitSuccess ? 'Submitted!' : 'Submit'}
               </button>
             </div>
           </div>

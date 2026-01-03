@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useRef, useImperativeHandle, forwardRef } from 'react';
+import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
 import MedicalDisclaimer from './MedicalDisclaimer';
 import TalkToPersonForm from './TalkToPersonForm';
+import { sendChatMessage } from '../../lib/api/chat.service';
 
 interface Message {
   id: string;
@@ -16,9 +17,25 @@ export interface ChatPanelHandle {
   handleSend: (inputValue: string) => void;
 }
 
+// Session management
+function getOrCreateSessionId(): string {
+  if (typeof window === 'undefined') {
+    return `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+  
+  let sessionId = localStorage.getItem('ada-clara-session-id');
+  if (!sessionId) {
+    sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    localStorage.setItem('ada-clara-session-id', sessionId);
+  }
+  return sessionId;
+}
+
 const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   const messageIdCounter = useRef(1);
   const [showTalkToPersonForm, setShowTalkToPersonForm] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [sessionId] = useState<string>(() => getOrCreateSessionId());
   
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -28,8 +45,8 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
     },
   ]);
 
-  const handleSend = (inputValue: string) => {
-    if (!inputValue.trim()) return;
+  const handleSend = async (inputValue: string) => {
+    if (!inputValue.trim() || isLoading) return;
 
     messageIdCounter.current += 1;
     const userMessage: Message = {
@@ -39,25 +56,36 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    const userInput = inputValue.toLowerCase();
+    setIsLoading(true);
 
-    // Simulate assistant response (replace with actual API call)
-    setTimeout(() => {
+    try {
+      const response = await sendChatMessage({
+        message: inputValue,
+        sessionId: sessionId,
+        language: 'en',
+      });
+
       messageIdCounter.current += 1;
-      
-      // Simulate low confidence scenario - show "Talk to a Person" button
-      const shouldShowButton = userInput.includes('prescribe') || userInput.includes('medication') || userInput.includes('doctor');
-      
       const assistantMessage: Message = {
         id: `assistant-${messageIdCounter.current}`,
         type: 'assistant',
-        content: shouldShowButton 
-          ? "I'm not able to answer that based on the information I have. I cannot provide medical advice, diagnoses, or prescriptions. Would you like to talk to a person from the American Diabetes Association?"
-          : 'Thank you for your question. I\'m processing your request...',
-        showTalkToPersonButton: shouldShowButton,
+        content: response.message,
+        showTalkToPersonButton: response.escalated === true,
       };
+      
       setMessages((prev) => [...prev, assistantMessage]);
-    }, 1000);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      messageIdCounter.current += 1;
+      const errorMessage: Message = {
+        id: `assistant-${messageIdCounter.current}`,
+        type: 'assistant',
+        content: "I'm sorry, I encountered an error processing your request. Please try again.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useImperativeHandle(ref, () => ({
@@ -68,10 +96,8 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
     setShowTalkToPersonForm(true);
   };
 
-  const handleFormSubmit = (formData: any) => {
-    console.log('Form submitted:', formData);
-    // Here you would send the form data to your backend
-    alert('Thank you! Someone will reach out to you shortly.');
+  const handleFormSubmit = async (formData: any) => {
+    // Form submission is handled by TalkToPersonForm component
     setShowTalkToPersonForm(false);
   };
 
@@ -103,6 +129,11 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
               )}
             </div>
           ))}
+          {isLoading && (
+            <div className="flex justify-center">
+              <div className="text-[#64748b] text-sm">Clara is thinking...</div>
+            </div>
+          )}
           {/* Spacer for bottom padding */}
           <div style={{ height: '10px', flexShrink: 0 }}></div>
         </div>

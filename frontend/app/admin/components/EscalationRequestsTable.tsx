@@ -1,33 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-
-interface EscalationRequest {
-  name: string;
-  email: string;
-  phone: string;
-  zipCode: string;
-  dateTime: string;
-}
+import { useEscalationRequests } from '../hooks/useAdminData';
 
 export default function EscalationRequestsTable() {
   const [searchQuery, setSearchQuery] = useState('');
+  const { data, loading, error } = useEscalationRequests();
 
-  // Sample data - replace with actual data from your API
-  const data: EscalationRequest[] = [
-    { name: 'Maria Rodriguez', email: 'maria.rodriguez@email.com', phone: '(555) 234-5678', zipCode: '85001', dateTime: 'Dec 21, 2:34 PM' },
-    { name: 'James Smith', email: 'james.smith@email.com', phone: '(555) 987-6543', zipCode: '85002', dateTime: 'Dec 22, 10:30 AM' },
-    { name: 'Aisha Khan', email: 'aisha.khan@email.com', phone: '-', zipCode: '-', dateTime: 'Dec 23, 1:45 PM' },
-    { name: 'Liam Johnson', email: 'liam.johnson@email.com', phone: '(555) 321-0987', zipCode: '85004', dateTime: 'Dec 24, 4:20 PM' },
-    { name: 'Sofia Garcia', email: 'sofia.garcia@email.com', phone: '-', zipCode: '85005', dateTime: 'Dec 25, 3:15 PM' },
-    { name: 'Ethan Lee', email: 'ethan.lee@email.com', phone: '(555) 789-0123', zipCode: '-', dateTime: 'Dec 26, 11:00 AM' },
-    { name: 'Olivia Brown', email: 'olivia.brown@email.com', phone: '-', zipCode: '-', dateTime: 'Dec 27, 9:45 AM' },
-  ];
-
-  const filteredData = data.filter(item =>
+  const filteredData = data?.requests?.filter(item =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ) || [];
 
   return (
     <div 
@@ -83,31 +66,49 @@ export default function EscalationRequestsTable() {
         </div>
       </div>
 
+      {/* Loading/Error State */}
+      {loading && (
+        <div className="animate-pulse text-center py-8">Loading escalation requests...</div>
+      )}
+      {error && (
+        <div className="text-red-600 text-center py-8">Error loading requests: {error}</div>
+      )}
+      
       {/* Table */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Name</th>
-              <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Email</th>
-              <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Phone</th>
-              <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>ZIP Code</th>
-              <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Date & Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredData.map((item, index) => (
-              <tr key={index} style={{ backgroundColor: index % 2 === 0 ? 'white' : '#f8fafc' }}>
-                <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.name}</td>
-                <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.email}</td>
-                <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.phone}</td>
-                <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.zipCode}</td>
-                <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.dateTime}</td>
+      {!loading && !error && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Name</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Email</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Phone</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>ZIP Code</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Date & Time</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {filteredData.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
+                    No escalation requests found
+                  </td>
+                </tr>
+              ) : (
+                filteredData.map((item, index) => (
+                  <tr key={index} style={{ backgroundColor: index % 2 === 0 ? 'white' : '#f8fafc' }}>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.name}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.email}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.phone || '-'}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.zipCode || '-'}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.dateTime}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

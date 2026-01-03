@@ -8,6 +8,7 @@ import { S3VectorsStack } from '../lib/s3-vectors-stack';
 import { BedrockKnowledgeBaseStack } from '../lib/bedrock-knowledge-base-stack';
 import { FrontendAlignedApiStack } from '../lib/frontend-aligned-api-stack';
 import { EnhancedScraperStack } from '../lib/enhanced-scraper-stack';
+import { FrontendStack } from '../lib/frontend-stack';
 
 const app = new cdk.App();
 
@@ -109,6 +110,17 @@ const frontendAlignedApiStack = new FrontendAlignedApiStack(app, `AdaClaraFronte
   ragProcessorEndpoint: `${ragProcessorStack.api.url}query`
 });
 
+// Frontend Stack (Amplify + CodeBuild)
+// GitHub repository URL: https://github.com/ASUCICREPO/ADA-Clara
+const frontendStack = new FrontendStack(app, `AdaClaraFrontend${stackSuffix}`, {
+  env,
+  description: 'ADA Clara Frontend - Amplify hosting with CodeBuild CI/CD',
+  frontendAlignedApiStack: frontendAlignedApiStack,
+  cognitoAuthStack: cognitoStack,
+  repositoryUrl: process.env.GITHUB_REPO_URL || 'https://github.com/ASUCICREPO/ADA-Clara',
+  branch: process.env.GITHUB_BRANCH || 'main',
+});
+
 // Add dependencies
 bedrockKnowledgeBaseStack.addDependency(s3VectorsStack);
 enhancedScraperStack.addDependency(s3VectorsStack);
@@ -118,3 +130,5 @@ ragProcessorStack.addDependency(bedrockKnowledgeBaseStack);
 frontendAlignedApiStack.addDependency(dynamoDBStack);
 frontendAlignedApiStack.addDependency(cognitoStack);
 frontendAlignedApiStack.addDependency(ragProcessorStack);
+frontendStack.addDependency(frontendAlignedApiStack);
+frontendStack.addDependency(cognitoStack);
