@@ -21,34 +21,6 @@ export interface ChatRequest {
 }
 
 /**
- * Chat Response Interface - For outgoing chat responses
- * Returned by Lambda handler after processing
- */
-export interface ChatResponse {
-  sessionId: string;
-  response: string;
-  confidence: number;
-  language: 'en' | 'es';
-  sources?: Array<{
-    title: string;
-    url: string;
-    excerpt: string;
-  }>;
-  escalated: boolean;
-  escalationSuggested: boolean;
-  escalationReason?: string;
-  timestamp: string;
-  // TASK 11: Enhanced response metadata
-  conversationMetadata?: {
-    messageCount: number;
-    averageConfidence: number;
-    questionDetected: boolean;
-    questionCategory?: string;
-    escalationTriggers: string[];
-  };
-}
-
-/**
  * Conversation Context Interface - For maintaining conversation state
  * Used to track conversation flow and context across messages
  */

@@ -4,6 +4,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as logs from 'aws-cdk-lib/aws-logs';
 
 export interface RAGProcessorStackProps extends StackProps {
   contentBucket?: s3.IBucket; // Optional - will create one if not provided
@@ -38,6 +39,13 @@ export class RAGProcessorStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    // Create CloudWatch Log Group for RAG processor
+    const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-rag-processor-v2-${Stack.of(this).region}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+
     // Create RAG processing Lambda function
     this.ragFunction = new lambda.Function(this, 'RAGProcessorFunction', {
       functionName: `ada-clara-rag-processor-v2-${Stack.of(this).region}`,
@@ -46,7 +54,7 @@ export class RAGProcessorStack extends Stack {
       code: lambda.Code.fromAsset('dist/rag-processor'), // Lambda directory build
       timeout: Duration.minutes(5),
       memorySize: 1024,
-      logRetention: undefined, // Don't create log group automatically
+      logGroup: ragLogGroup, // Use explicit log group instead of deprecated logRetention
       environment: {
         VECTORS_BUCKET: props.vectorsBucket,
         VECTOR_INDEX: props.vectorIndex,

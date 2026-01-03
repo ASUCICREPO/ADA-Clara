@@ -1,5 +1,5 @@
 import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
-import { ChatService } from '../../business/chat/chat.service';
+import { ChatService, FrontendChatResponse } from '../../business/chat/chat.service';
 import { ChatServiceContainer } from './chat-container';
 
 export class ChatController {
@@ -61,13 +61,21 @@ export class ChatController {
       const request = JSON.parse(event.body);
       const result = await this.chatService.processMessage(request);
 
+      // Transform to frontend-focused response
+      const frontendResponse: FrontendChatResponse = {
+        message: result.response,
+        sources: result.sources,
+        sessionId: result.sessionId,
+        escalated: result.escalated
+      };
+
       return {
         statusCode: 200,
         headers: {
           ...this.getCorsHeaders(),
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(result)
+        body: JSON.stringify(frontendResponse)
       };
     } catch (error) {
       console.error('Chat message processing error:', error);

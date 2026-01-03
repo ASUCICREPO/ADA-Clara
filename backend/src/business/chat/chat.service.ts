@@ -53,6 +53,21 @@ export interface ChatResponse {
   timestamp: string;
 }
 
+/**
+ * Simplified response interface for frontend integration
+ * Contains only the essential data needed by the UI
+ */
+export interface FrontendChatResponse {
+  message: string;
+  sources: Array<{
+    url: string;
+    title: string;
+    excerpt: string;
+  }>;
+  sessionId: string;
+  escalated?: boolean;
+}
+
 export class ChatService {
   private readonly SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
   private readonly MESSAGES_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
@@ -101,8 +116,18 @@ export class ChatService {
     // Step 6: Check for escalation
     const escalationSuggested = this.shouldEscalate(confidence, request.message);
     
+    // Step 6a: Modify response for escalation with more helpful message
+    let finalResponse = response;
     if (escalationSuggested) {
       await this.createEscalation(session.sessionId, 'Low confidence or complex query');
+      
+      // Replace generic escalation message with more helpful one
+      if (response.includes('Sorry, I am unable to assist you with this request') || 
+          response.includes('Lo siento, no puedo ayudarte con esta solicitud')) {
+        finalResponse = language === 'es' 
+          ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+          : 'Let me connect you with someone who can help you with that.';
+      }
     }
     
     // Step 7: Record analytics
@@ -115,7 +140,7 @@ export class ChatService {
     });
     
     return {
-      response,
+      response: finalResponse,
       confidence,
       sources,
       escalated: escalationSuggested,
@@ -325,8 +350,8 @@ export class ChatService {
       
       // Fallback to basic response with low confidence to trigger escalation
       const fallbackResponse = language === 'es'
-        ? 'Lo siento, no pude procesar tu pregunta correctamente. Un representante humano te ayudará pronto.'
-        : 'I\'m sorry, I couldn\'t process your question properly. A human representative will help you soon.';
+        ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+        : 'Let me connect you with someone who can help you with that.';
 
       return {
         response: fallbackResponse,

@@ -129,8 +129,8 @@ export class RAGService {
       // Return fallback response
       return {
         answer: request.language === 'es'
-          ? 'Lo siento, no pude procesar tu pregunta en este momento. Por favor, intenta de nuevo o contacta a nuestro equipo de soporte.'
-          : 'I\'m sorry, I couldn\'t process your question at this time. Please try again or contact our support team.',
+          ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+          : 'Let me connect you with someone who can help you with that.',
         confidence: 0.1,
         sources: [],
         language: request.language || 'en',
