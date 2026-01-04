@@ -143,33 +143,73 @@ export class AnalyticsService {
       const totalConversations = recentSessions.length;
       console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range`);
 
-      // Get escalation requests (only those submitted via Submit button)
+      // Get all escalations from the escalation requests table
+      // There are two types:
+      // 1. Form escalations: have `source` field (form_submit or talk_to_person)
+      // 2. Chat escalations: have `reason` and `sessionId` fields, no `source` field
       const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
       const allEscalations = await this.getDynamoService().scanItems(ESCALATION_TABLE, {});
       
-      // Filter escalations by date range and source
+      console.log(`[AnalyticsService] Total escalations in table: ${allEscalations.length}`);
+      
+      // Create a set of session IDs from recent conversations for matching
+      // Sessions are stored with PK: SESSION#{sessionId}, so extract sessionId from PK or use sessionId field
+      const recentSessionIds = new Set(recentSessions.map(s => {
+        // If PK exists and starts with SESSION#, extract sessionId from it
+        if (s.PK && s.PK.startsWith('SESSION#')) {
+          return s.PK.replace('SESSION#', '');
+        }
+        // Otherwise use sessionId field directly
+        return s.sessionId;
+      }).filter(Boolean));
+      console.log(`[AnalyticsService] Recent session IDs: ${Array.from(recentSessionIds).length} sessions`);
+      
+      // Filter escalations by date range and match to conversations
+      // Count escalations that are:
+      // 1. Form escalations (source === 'form_submit') - these are separate from conversations
+      // 2. Chat escalations (has reason/sessionId) that match recent conversations
       const recentEscalations = allEscalations.filter(esc => {
-        if (esc.source !== 'form_submit') return false;
         if (!esc.timestamp) return false;
         const escDate = new Date(esc.timestamp);
-        return escDate >= startDate && escDate <= endDate;
+        if (escDate < startDate || escDate > endDate) return false;
+        
+        // Include form escalations submitted via Submit button
+        if (esc.source === 'form_submit') return true;
+        
+        // Include chat escalations that match recent conversations by sessionId
+        if (esc.reason && esc.sessionId && !esc.source) {
+          // Match chat escalations to conversations by sessionId
+          return recentSessionIds.has(esc.sessionId);
+        }
+        
+        return false;
       });
 
-      const escalatedCount = recentEscalations.length;
+      // Count escalations that are linked to conversations (chat escalations)
+      // Form escalations are separate requests, not part of conversations
+      const chatEscalations = recentEscalations.filter(esc => esc.reason && esc.sessionId && !esc.source);
+      const escalatedCount = chatEscalations.length;
       const escalationRate = totalConversations > 0 ? Math.round((escalatedCount / totalConversations) * 100) : 0;
-      console.log(`[AnalyticsService] Found ${escalatedCount} escalations, rate: ${escalationRate}%`);
+      console.log(`[AnalyticsService] Found ${escalatedCount} chat escalations (${recentEscalations.filter(e => e.source === 'form_submit').length} form escalations not counted), rate: ${escalationRate}%`);
 
       // Calculate out of scope rate from escalation reasons
-      const outOfScopeEscalations = recentEscalations.filter(esc => {
-        const reason = esc.escalationReason?.toLowerCase() || '';
+      // Check both `reason` (chat escalations) and `escalationReason` (if it exists)
+      // Out-of-scope means the question was not related to diabetes
+      const outOfScopeEscalations = chatEscalations.filter(esc => {
+        // Check reason field (chat escalations)
+        const reason = (esc.reason || esc.escalationReason || '').toLowerCase();
+        // Low confidence or complex query doesn't necessarily mean out-of-scope
+        // Out-of-scope would be explicitly marked or contain specific keywords
         return reason.includes('out of scope') ||
                reason.includes('outside diabetes') ||
                reason.includes('not diabetes related') ||
-               reason.includes('out-of-scope');
+               reason.includes('out-of-scope') ||
+               reason.includes('non-diabetes') ||
+               reason.includes('not related to diabetes');
       }).length;
       
       const outOfScopeRate = totalConversations > 0 ? Math.round((outOfScopeEscalations / totalConversations) * 100) : 0;
-      console.log(`[AnalyticsService] Found ${outOfScopeEscalations} out-of-scope escalations, rate: ${outOfScopeRate}%`);
+      console.log(`[AnalyticsService] Found ${outOfScopeEscalations} out-of-scope escalations out of ${escalatedCount} total escalations, rate: ${outOfScopeRate}%`);
 
       // Calculate trends (compare with previous 30 days)
       const previousStartDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -180,27 +220,53 @@ export class AnalyticsService {
       });
 
       const previousConversations = previousSessions.length;
+      const previousSessionIds = new Set(previousSessions.map(s => {
+        // If PK exists and starts with SESSION#, extract sessionId from it
+        if (s.PK && s.PK.startsWith('SESSION#')) {
+          return s.PK.replace('SESSION#', '');
+        }
+        // Otherwise use sessionId field directly
+        return s.sessionId;
+      }).filter(Boolean));
       const previousEscalations = allEscalations.filter(esc => {
-        if (esc.source !== 'form_submit') return false;
         if (!esc.timestamp) return false;
         const escDate = new Date(esc.timestamp);
-        return escDate >= previousStartDate && escDate < startDate;
+        if (escDate < previousStartDate || escDate >= startDate) return false;
+        
+        // Only count chat escalations that match previous conversations
+        if (esc.reason && esc.sessionId && !esc.source) {
+          return previousSessionIds.has(esc.sessionId);
+        }
+        
+        return false;
       }).length;
 
       const conversationTrend = this.calculateTrend(totalConversations, previousConversations);
       const previousEscalationRate = previousConversations > 0 ? Math.round((previousEscalations / previousConversations) * 100) : 0;
       const escalationTrend = this.calculateTrend(escalationRate, previousEscalationRate);
       
-      const previousOutOfScope = allEscalations.filter(esc => {
-        if (esc.source !== 'form_submit') return false;
+      const previousChatEscalations = allEscalations.filter(esc => {
         if (!esc.timestamp) return false;
         const escDate = new Date(esc.timestamp);
         if (escDate < previousStartDate || escDate >= startDate) return false;
-        const reason = esc.escalationReason?.toLowerCase() || '';
+        
+        // Only count chat escalations that match previous conversations
+        if (esc.reason && esc.sessionId && !esc.source) {
+          return previousSessionIds.has(esc.sessionId);
+        }
+        
+        return false;
+      });
+      
+      const previousOutOfScope = previousChatEscalations.filter(esc => {
+        // Check reason field (chat escalations) or escalationReason (if it exists)
+        const reason = (esc.reason || esc.escalationReason || '').toLowerCase();
         return reason.includes('out of scope') ||
                reason.includes('outside diabetes') ||
                reason.includes('not diabetes related') ||
-               reason.includes('out-of-scope');
+               reason.includes('out-of-scope') ||
+               reason.includes('non-diabetes') ||
+               reason.includes('not related to diabetes');
       }).length;
       
       const previousOutOfScopeRate = previousConversations > 0 ? Math.round((previousOutOfScope / previousConversations) * 100) : 0;
