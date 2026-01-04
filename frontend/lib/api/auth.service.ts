@@ -160,8 +160,10 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     if (signInResult && signInResult.isSignedIn === false && signInResult.nextStep) {
       const { signInStep } = signInResult.nextStep;
       
-      if (signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED' || 
-          signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD') {
+      // In Amplify v6, check for new password challenge
+      // The signInStep might be a string that contains "NEW_PASSWORD" or we check the challenge name
+      if (signInStep && (signInStep.toString().includes('NEW_PASSWORD') || 
+          signInStep.toString().includes('PASSWORD'))) {
         // User needs to change password - this happens when user is in "Force change password" status
         throw new Error('NEW_PASSWORD_REQUIRED: You must change your password before signing in. Please contact your administrator to set a permanent password, or use the AWS Cognito console to change your password.');
       }
