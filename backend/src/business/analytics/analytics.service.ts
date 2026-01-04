@@ -133,15 +133,37 @@ export class AnalyticsService {
         }
       });
 
+      console.log(`[AnalyticsService] Total sessions scanned: ${allSessions.length}`);
+
       // Filter sessions by date range (last 30 days)
+      // Include sessions where startTime is within the date range
+      // Use >= for startDate and <= for endDate, but add 1 day to endDate to include today's sessions
+      const endDateInclusive = new Date(endDate);
+      endDateInclusive.setHours(23, 59, 59, 999); // Include the entire end date
+
       const recentSessions = allSessions.filter(session => {
-        if (!session.startTime) return false;
+        if (!session.startTime) {
+          console.log(`[AnalyticsService] Session ${session.PK || session.sessionId} has no startTime`);
+          return false;
+        }
         const sessionDate = new Date(session.startTime);
-        return sessionDate >= startDate && sessionDate <= endDate;
+        const isInRange = sessionDate >= startDate && sessionDate <= endDateInclusive;
+        
+        if (!isInRange) {
+          console.log(`[AnalyticsService] Session ${session.PK || session.sessionId} excluded: startTime=${session.startTime}, sessionDate=${sessionDate.toISOString()}, startDate=${startDate.toISOString()}, endDate=${endDateInclusive.toISOString()}`);
+        }
+        
+        return isInRange;
       });
 
       const totalConversations = recentSessions.length;
-      console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range`);
+      console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range (out of ${allSessions.length} total sessions)`);
+      
+      // Log sample session data for debugging
+      if (allSessions.length > 0) {
+        const sampleSession = allSessions[0];
+        console.log(`[AnalyticsService] Sample session: PK=${sampleSession.PK}, sessionId=${sampleSession.sessionId}, startTime=${sampleSession.startTime}, lastActivity=${sampleSession.lastActivity}`);
+      }
 
       // Get all escalations from the escalation requests table
       // There are two types:
