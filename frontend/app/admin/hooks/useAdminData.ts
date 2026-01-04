@@ -24,9 +24,11 @@ export function useAdminMetrics() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const metrics = await getAdminMetrics();
         setData(metrics);
@@ -34,11 +36,18 @@ export function useAdminMetrics() {
         console.error('Error fetching admin metrics:', err);
         setError(err instanceof Error ? err.message : 'Failed to load metrics');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };
@@ -50,9 +59,11 @@ export function useConversationChart() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const chartData = await getConversationChart();
         setData(chartData);
@@ -60,11 +71,18 @@ export function useConversationChart() {
         console.error('Error fetching conversation chart:', err);
         setError(err instanceof Error ? err.message : 'Failed to load chart data');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };
@@ -76,9 +94,11 @@ export function useLanguageSplit() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const split = await getLanguageSplit();
         setData(split);
@@ -86,11 +106,18 @@ export function useLanguageSplit() {
         console.error('Error fetching language split:', err);
         setError(err instanceof Error ? err.message : 'Failed to load language data');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };
@@ -102,9 +129,11 @@ export function useEscalationRequests() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const requests = await getEscalationRequests();
         setData(requests);
@@ -112,11 +141,18 @@ export function useEscalationRequests() {
         console.error('Error fetching escalation requests:', err);
         setError(err instanceof Error ? err.message : 'Failed to load escalation requests');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };
@@ -128,9 +164,11 @@ export function useFrequentlyAskedQuestions() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const faq = await getFrequentlyAskedQuestions();
         setData(faq);
@@ -138,11 +176,18 @@ export function useFrequentlyAskedQuestions() {
         console.error('Error fetching FAQ:', err);
         setError(err instanceof Error ? err.message : 'Failed to load FAQ');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };
@@ -154,9 +199,11 @@ export function useUnansweredQuestions() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function fetchData() {
+    async function fetchData(skipLoading = false) {
       try {
-        setLoading(true);
+        if (!skipLoading) {
+          setLoading(true);
+        }
         setError(null);
         const questions = await getUnansweredQuestions();
         setData(questions);
@@ -164,11 +211,18 @@ export function useUnansweredQuestions() {
         console.error('Error fetching unanswered questions:', err);
         setError(err instanceof Error ? err.message : 'Failed to load unanswered questions');
       } finally {
-        setLoading(false);
+        if (!skipLoading) {
+          setLoading(false);
+        }
       }
     }
 
     fetchData();
+    
+    // Refresh data every 30 seconds for real-time updates (without showing loading state)
+    const interval = setInterval(() => fetchData(true), 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   return { data, loading, error };

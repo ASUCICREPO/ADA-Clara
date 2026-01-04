@@ -31,9 +31,7 @@ export default function LanguageSplitChart() {
   const spanishPercent = data.spanish || 0;
   const radius = 70;
   const circumference = 2 * Math.PI * radius;
-  // English takes 70% of the circle
   const englishLength = (englishPercent / 100) * circumference;
-  // Spanish takes 30% of the circle
   const spanishLength = (spanishPercent / 100) * circumference;
 
   return (
