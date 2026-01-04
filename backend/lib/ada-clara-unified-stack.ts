@@ -105,6 +105,12 @@ export class AdaClaraUnifiedStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    // Add DateIndex GSI for querying conversations by date
+    this.conversationsTable.addGlobalSecondaryIndex({
+      indexName: 'DateIndex',
+      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
+    });
+
     this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
       tableName: `ada-clara-messages${stackSuffix}`,
       partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
@@ -119,6 +125,18 @@ export class AdaClaraUnifiedStack extends Stack {
       partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // Add CategoryIndex GSI for querying questions by category
+    this.questionsTable.addGlobalSecondaryIndex({
+      indexName: 'CategoryIndex',
+      partitionKey: { name: 'category', type: dynamodb.AttributeType.STRING },
+    });
+
+    // Add UnansweredIndex GSI for querying unanswered questions by date
+    this.questionsTable.addGlobalSecondaryIndex({
+      indexName: 'UnansweredIndex',
+      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
     });
 
     this.unansweredQuestionsTable = new dynamodb.Table(this, 'UnansweredQuestionsTable', {
@@ -481,6 +499,8 @@ export class AdaClaraUnifiedStack extends Stack {
         CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         UNANSWERED_QUESTIONS_TABLE: this.unansweredQuestionsTable.tableName,
+        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
+        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
       },
     });
 
@@ -494,6 +514,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.conversationsTable.grantReadData(this.adminAnalytics);
     this.questionsTable.grantReadData(this.adminAnalytics);
     this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
+    this.chatSessionsTable.grantReadData(this.adminAnalytics);
+    this.escalationRequestsTable.grantReadData(this.adminAnalytics);
 
     // ========== API GATEWAY ROUTES ==========
     // Health endpoint
