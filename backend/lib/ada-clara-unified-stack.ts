@@ -412,24 +412,6 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Grant S3 Vectors permissions to RAG processor
-    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3vectors:SearchVectors',
-        's3vectors:GetVector',
-        's3vectors:ListVectors',
-        's3vectors:GetVectorBucket',
-        's3vectors:GetIndex',
-        's3vectors:ListIndexes',
-      ],
-      resources: [
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/index/${this.vectorIndex.indexName}`,
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/*`,
-      ],
-    }));
-
     // Grant Bedrock permissions
     // Note: Currently using existing KB (UUGQXLYUXG) that has data
     // TODO: Update to use this.knowledgeBase.attrKnowledgeBaseId once new KB is populated
@@ -513,7 +495,7 @@ export class AdaClaraUnifiedStack extends Stack {
     this.escalationRequestsTable.grantReadWriteData(this.chatProcessor);
     this.questionsTable.grantReadWriteData(this.chatProcessor);
     this.analyticsTable.grantReadData(this.adminAnalytics);
-    this.conversationsTable.grantReadData(this.adminAnalytics);
+    // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
     this.questionsTable.grantReadData(this.adminAnalytics);
     this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
     this.chatSessionsTable.grantReadData(this.adminAnalytics);
