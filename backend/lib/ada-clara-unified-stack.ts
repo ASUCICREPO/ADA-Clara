@@ -189,6 +189,52 @@ export class AdaClaraUnifiedStack extends Stack {
       }],
     });
 
+    // Create IAM roles for Identity Pool
+    const authenticatedRole = new iam.Role(this, 'CognitoAuthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: {
+            'cognito-identity.amazonaws.com:aud': this.identityPool.ref,
+          },
+          'ForAnyValue:StringLike': {
+            'cognito-identity.amazonaws.com:amr': 'authenticated',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    const unauthenticatedRole = new iam.Role(this, 'CognitoUnauthenticatedRole', {
+      assumedBy: new iam.FederatedPrincipal(
+        'cognito-identity.amazonaws.com',
+        {
+          StringEquals: {
+            'cognito-identity.amazonaws.com:aud': this.identityPool.ref,
+          },
+          'ForAnyValue:StringLike': {
+            'cognito-identity.amazonaws.com:amr': 'unauthenticated',
+          },
+        },
+        'sts:AssumeRoleWithWebIdentity'
+      ),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    // Attach roles to Identity Pool
+    new cognito.CfnIdentityPoolRoleAttachment(this, 'IdentityPoolRoleAttachment', {
+      identityPoolId: this.identityPool.ref,
+      roles: {
+        authenticated: authenticatedRole.roleArn,
+        unauthenticated: unauthenticatedRole.roleArn,
+      },
+    });
+
     // ========== S3 VECTORS ==========
     this.contentBucket = new s3.Bucket(this, 'ContentBucket', {
       bucketName: `ada-clara-content${stackSuffix}-${accountId}-${region}`,

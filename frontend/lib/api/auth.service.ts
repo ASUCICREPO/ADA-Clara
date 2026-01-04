@@ -4,7 +4,7 @@
  */
 
 import { Amplify } from 'aws-amplify';
-import { fetchAuthSession, signIn as amplifySignIn, signOut as amplifySignOut, getCurrentUser as amplifyGetCurrentUser } from 'aws-amplify/auth';
+import { fetchAuthSession, signIn as amplifySignIn, signOut as amplifySignOut, getCurrentUser as amplifyGetCurrentUser, confirmSignIn } from 'aws-amplify/auth';
 import { getConfig } from './config';
 
 export interface AuthUser {
@@ -48,7 +48,9 @@ export function initializeAuth(): void {
     };
 
     // Only add identityPoolId if it's provided (it's optional)
-    if (config.cognito.identityPoolId) {
+    // Note: Identity Pool is optional for basic authentication
+    // It's only needed if you want to use AWS services with temporary credentials
+    if (config.cognito.identityPoolId && config.cognito.identityPoolId.trim() !== '') {
       cognitoConfig.identityPoolId = config.cognito.identityPoolId;
     }
 
@@ -77,7 +79,9 @@ export async function getAuthToken(): Promise<string | null> {
       initializeAuth();
     }
     
-    const session = await fetchAuthSession();
+    // Try to fetch session, but don't fail if Identity Pool has issues
+    // We only need the ID token from User Pool, not Identity Pool credentials
+    const session = await fetchAuthSession({ forceRefresh: false });
     
     // In Amplify v6, tokens are in tokens.idToken
     const idToken = session.tokens?.idToken?.toString();
@@ -87,7 +91,21 @@ export async function getAuthToken(): Promise<string | null> {
     }
     
     return idToken;
-  } catch (error) {
+  } catch (error: any) {
+    // If it's an Identity Pool error, we can still get the ID token
+    if (error?.name === 'InvalidIdentityPoolConfigurationException' || 
+        error?.message?.includes('identity pool')) {
+      console.warn('Identity Pool configuration issue, but User Pool authentication may still work:', error);
+      // Try to get token directly from User Pool session
+      try {
+        const session = await fetchAuthSession({ forceRefresh: false });
+        const idToken = session.tokens?.idToken?.toString();
+        return idToken || null;
+      } catch (innerError) {
+        console.error('Error getting auth token after Identity Pool error:', innerError);
+        return null;
+      }
+    }
     console.error('Error getting auth token:', error);
     return null;
   }
@@ -117,12 +135,37 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     initializeAuth();
   }
 
+  // Check if user is already signed in - sign them out first
   try {
-    // Amplify v6 signIn throws on error, returns void on success
-    await amplifySignIn({
+    const currentUser = await getCurrentUser();
+    if (currentUser) {
+      console.log('User already signed in, signing out first...');
+      await signOut();
+      // Wait a bit for sign out to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  } catch (err) {
+    // User is not signed in, continue
+    console.log('No existing session found, proceeding with sign in');
+  }
+
+  try {
+    // Amplify v6 signIn may return a challenge if password change is required
+    const signInResult = await amplifySignIn({
       username: email,
       password: password,
     });
+
+    // Check if sign-in requires a challenge (e.g., NEW_PASSWORD_REQUIRED for "Force change password" status)
+    if (signInResult && signInResult.isSignedIn === false && signInResult.nextStep) {
+      const { signInStep } = signInResult.nextStep;
+      
+      if (signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED' || 
+          signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD') {
+        // User needs to change password - this happens when user is in "Force change password" status
+        throw new Error('NEW_PASSWORD_REQUIRED: You must change your password before signing in. Please contact your administrator to set a permanent password, or use the AWS Cognito console to change your password.');
+      }
+    }
 
     // Wait a bit for the session to be established
     // Then fetch the session to ensure tokens are available
@@ -170,7 +213,9 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
     
     // Provide user-friendly error messages
     if (error instanceof Error) {
-      if (error.name === 'NotAuthorizedException') {
+      if (error.message.includes('NEW_PASSWORD_REQUIRED')) {
+        throw error; // Re-throw the NEW_PASSWORD_REQUIRED error as-is
+      } else if (error.name === 'NotAuthorizedException') {
         throw new Error('Incorrect email or password.');
       } else if (error.name === 'UserNotConfirmedException') {
         throw new Error('User account is not confirmed. Please check your email.');
