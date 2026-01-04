@@ -128,16 +128,18 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Add CategoryIndex GSI for querying questions by category
+    // NOTE: DynamoDB only allows one GSI operation per update, so we add this first
     this.questionsTable.addGlobalSecondaryIndex({
       indexName: 'CategoryIndex',
       partitionKey: { name: 'category', type: dynamodb.AttributeType.STRING },
     });
 
-    // Add UnansweredIndex GSI for querying unanswered questions by date
-    this.questionsTable.addGlobalSecondaryIndex({
-      indexName: 'UnansweredIndex',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-    });
+    // TODO: Add UnansweredIndex GSI in next deployment (after CategoryIndex is created)
+    // Uncomment the following after CategoryIndex is successfully deployed:
+    // this.questionsTable.addGlobalSecondaryIndex({
+    //   indexName: 'UnansweredIndex',
+    //   partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
+    // });
 
     this.unansweredQuestionsTable = new dynamodb.Table(this, 'UnansweredQuestionsTable', {
       tableName: `ada-clara-unanswered-questions${stackSuffix}`,
