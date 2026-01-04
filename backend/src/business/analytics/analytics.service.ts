@@ -421,9 +421,9 @@ export class AnalyticsService {
       const sortedQuestions = Array.from(questionCounts.entries())
         .map(([question, count]) => ({ question, count }))
         .sort((a, b) => b.count - a.count)
-        .slice(0, 8); // Top 8 questions
+        .slice(0, 6); // Top 6 questions
       
-      // If no real data, return fallback questions
+      // If no real data, return fallback questions (top 6)
       if (sortedQuestions.length === 0) {
         return [
           { question: 'What is type 1 diabetes?', count: 0 },
@@ -431,9 +431,7 @@ export class AnalyticsService {
           { question: 'What foods should I avoid?', count: 0 },
           { question: 'How often should I check glucose?', count: 0 },
           { question: 'What are diabetes complications?', count: 0 },
-          { question: 'How much insulin should I take?', count: 0 },
-          { question: 'Can I exercise with diabetes?', count: 0 },
-          { question: 'What is the difference between type 1 and type 2?', count: 0 }
+          { question: 'How much insulin should I take?', count: 0 }
         ];
       }
       
