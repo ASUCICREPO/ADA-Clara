@@ -187,27 +187,21 @@ export interface EmailTemplate {
   updatedAt: string;
 }
 
-/**
- * Enhanced Conversation Record - For admin dashboard analytics
- * DynamoDB Table: Conversations
- * PK: conversationId
- * SK: timestamp
- */
-export interface ConversationRecord {
+// Simple interface for conversation data returned by getConversationsByDateRange
+// This replaces the complex ConversationRecord interface
+export interface ConversationData {
   conversationId: string;
   userId: string;
   sessionId: string;
-  startTime: string; // ISO 8601
-  endTime?: string; // ISO 8601
-  timestamp: string; // ISO 8601 for sort key
-  date: string; // YYYY-MM-DD for GSI
+  startTime: string;
+  endTime?: string;
+  timestamp: string;
+  date: string;
   language: 'en' | 'es';
   messageCount: number;
-  totalConfidenceScore: number;
-  averageConfidenceScore: number;
-  outcome: 'resolved' | 'escalated' | 'abandoned';
+  outcome: 'resolved' | 'escalated';
   escalationReason?: string;
-  escalationTimestamp?: string; // ISO 8601
+  escalationTimestamp?: string;
   userInfo?: {
     name?: string;
     email?: string;
@@ -508,28 +502,7 @@ export class DataValidator {
     };
   }
 
-  static validateConversationRecord(conversation: Partial<ConversationRecord>): ValidationResult {
-    const errors: string[] = [];
-    
-    if (!conversation.conversationId) errors.push('conversationId is required');
-    if (!conversation.userId) errors.push('userId is required');
-    if (!conversation.sessionId) errors.push('sessionId is required');
-    if (!conversation.startTime) errors.push('startTime is required');
-    if (!conversation.language || !['en', 'es'].includes(conversation.language)) {
-      errors.push('language must be "en" or "es"');
-    }
-    if (!conversation.outcome || !['resolved', 'escalated', 'abandoned'].includes(conversation.outcome)) {
-      errors.push('outcome must be "resolved", "escalated", or "abandoned"');
-    }
-    if (conversation.averageConfidenceScore && (conversation.averageConfidenceScore < 0 || conversation.averageConfidenceScore > 1)) {
-      errors.push('averageConfidenceScore must be between 0 and 1');
-    }
-    
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
-  }
+  // validateConversationRecord method removed - ConversationRecord interface no longer used
 
   static validateMessageRecord(message: Partial<MessageRecord>): ValidationResult {
     const errors: string[] = [];

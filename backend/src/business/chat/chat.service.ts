@@ -1,6 +1,7 @@
 import { DynamoDBService } from '../../services/dynamodb-service';
 import { BedrockService } from '../../services/bedrock.service';
 import { ComprehendService } from '../../services/comprehend.service';
+import { QuestionProcessingService } from '../../services/question-processing.service';
 import { DynamoDBKeyGenerator, QuestionRecord } from '../../types/index';
 
 export interface ChatMessage {
@@ -71,16 +72,21 @@ export interface FrontendChatResponse {
 
 export class ChatService {
   private readonly SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
-  private readonly MESSAGES_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
+  private readonly MESSAGES_TABLE = process.env.MESSAGES_TABLE || 'ada-clara-messages'; // Fixed: use MESSAGES_TABLE env var
   private readonly ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
   private readonly ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
   private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
+  
+  private questionProcessingService: QuestionProcessingService;
 
   constructor(
     private dynamoService: DynamoDBService,
     private bedrockService: BedrockService,
     private comprehendService: ComprehendService
-  ) {}
+  ) {
+    // Initialize question processing service for enhanced question handling
+    this.questionProcessingService = new QuestionProcessingService(dynamoService);
+  }
 
   /**
    * Process incoming chat message
@@ -135,7 +141,15 @@ export class ChatService {
       }
     }
     
-    // Step 7: Record analytics
+    // Step 7: Update session with message count
+    try {
+      await this.updateSessionActivity(session.sessionId);
+    } catch (error) {
+      console.error('❌ Failed to update session activity:', error);
+      // Don't fail the chat if session update fails
+    }
+    
+    // Step 8: Record analytics
     await this.recordAnalytics('chat', 'message_processed', {
       sessionId: session.sessionId,
       language,
@@ -143,6 +157,21 @@ export class ChatService {
       escalated: escalationSuggested,
       processingTime
     });
+    
+    // Step 8: Process question for enhanced analytics (if not escalated due to out-of-scope)
+    try {
+      await this.questionProcessingService.processQuestion(
+        request.message,
+        finalResponse,
+        confidence,
+        language as 'en' | 'es',
+        session.sessionId,
+        escalationSuggested
+      );
+    } catch (error) {
+      console.error('❌ Failed to process question for analytics:', error);
+      // Don't fail the chat if question processing fails
+    }
     
     return {
       response: finalResponse,
@@ -254,18 +283,24 @@ export class ChatService {
       processingTime: 0
     };
     
-    // Store in conversations table with conversationId/timestamp pattern
-    await this.dynamoService.putItem(this.MESSAGES_TABLE, {
+    // Get current message count for this conversation to determine messageIndex
+    const existingMessages = await this.dynamoService.getMessagesByConversation(sessionId, 1000);
+    const messageIndex = existingMessages.length;
+    
+    // Store in messages table with conversationId/messageIndex pattern
+    const messageRecord = {
       conversationId: sessionId,
+      messageIndex: messageIndex,
       timestamp: timestamp.toISOString(),
-      messageId: userMessage.messageId,
-      sessionId: userMessage.sessionId,
-      content: userMessage.content,
-      sender: userMessage.sender,
-      language: userMessage.language,
-      processingTime: userMessage.processingTime,
-      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
-    });
+      type: 'user' as const,
+      content: content,
+      escalationTrigger: false,
+      isAnswered: false, // Will be updated when bot responds
+      language: language as 'en' | 'es',
+      processingTime: 0
+    };
+    
+    await this.dynamoService.createMessageRecord(messageRecord);
     
     return userMessage;
   }
@@ -297,20 +332,32 @@ export class ChatService {
       processingTime
     };
     
-    // Store in conversations table with conversationId/timestamp pattern
-    await this.dynamoService.putItem(this.MESSAGES_TABLE, {
+    // Get current message count for this conversation to determine messageIndex
+    const existingMessages = await this.dynamoService.getMessagesByConversation(sessionId, 1000);
+    const messageIndex = existingMessages.length;
+    
+    // Store in messages table with conversationId/messageIndex pattern
+    const messageRecord = {
       conversationId: sessionId,
+      messageIndex: messageIndex,
       timestamp: botMessage.timestamp,
-      messageId: botMessage.messageId,
-      sessionId: botMessage.sessionId,
-      content: botMessage.content,
-      sender: botMessage.sender,
-      language: botMessage.language,
-      confidence: botMessage.confidence,
-      sources: botMessage.sources,
-      processingTime: botMessage.processingTime,
-      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
-    });
+      type: 'bot' as const,
+      content: content,
+      confidenceScore: confidence,
+      escalationTrigger: confidence < 0.95, // Mark as escalation trigger if low confidence
+      isAnswered: confidence >= 0.95, // Consider answered if high confidence
+      language: language as 'en' | 'es',
+      processingTime: processingTime,
+      sources: sources.map(s => ({
+        url: s.url,
+        title: s.title,
+        excerpt: s.excerpt,
+        relevanceScore: 0.8,
+        contentType: 'article' as const
+      }))
+    };
+    
+    await this.dynamoService.createMessageRecord(messageRecord);
     
     return botMessage;
   }
@@ -519,22 +566,73 @@ export class ChatService {
   }
 
   /**
-   * Create escalation request
+   * Create escalation request using enhanced service method
    */
   private async createEscalation(sessionId: string, reason: string): Promise<void> {
     try {
       const escalationId = `esc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      await this.dynamoService.putItem(this.ESCALATION_TABLE, {
+      const timestamp = new Date(); // Use Date object instead of string
+      
+      // Use enhanced escalation service method
+      await this.dynamoService.addToEscalationQueue({
         escalationId,
         sessionId,
-        reason,
         status: 'pending',
-        timestamp: new Date().toISOString(),
-        ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60) // 90 days TTL
+        priority: 'medium',
+        reason,
+        userInfo: {
+          // We don't have detailed user info in chat context
+        },
+        conversationHistory: [], // Could be populated but keeping simple for now
+        createdAt: timestamp,
+        updatedAt: timestamp
+        // ttl is added automatically by the DynamoDB service
+      });
+      
+      console.log(`✅ Created escalation request: ${escalationId}`);
+    } catch (error) {
+      console.error('❌ Error creating escalation:', error);
+      // Don't throw - escalation failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Update session activity and message count
+   */
+  private async updateSessionActivity(sessionId: string): Promise<void> {
+    try {
+      // Get current message count
+      const messages = await this.dynamoService.getMessagesByConversation(sessionId, 1000);
+      const messageCount = messages.length;
+      
+      // Update session record
+      await this.dynamoService.putItem(this.SESSIONS_TABLE, {
+        PK: `SESSION#${sessionId}`,
+        SK: 'METADATA',
+        sessionId: sessionId,
+        messageCount: messageCount,
+        lastActivity: new Date().toISOString(),
+        // Keep existing fields by getting the current session first
+        ...(await this.getSessionData(sessionId))
       });
     } catch (error) {
-      console.error('Error creating escalation:', error);
-      // Don't throw - escalation failure shouldn't break chat
+      console.error('Error updating session activity:', error);
+      // Don't throw - session update failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Get current session data
+   */
+  private async getSessionData(sessionId: string): Promise<any> {
+    try {
+      const session = await this.dynamoService.getItem(this.SESSIONS_TABLE, {
+        PK: `SESSION#${sessionId}`,
+        SK: 'METADATA'
+      });
+      return session || {};
+    } catch (error) {
+      return {};
     }
   }
 
@@ -611,13 +709,13 @@ export class ChatService {
       );
 
       return result.map((item: any) => ({
-        messageId: item.messageId,
-        sessionId: item.sessionId,
+        messageId: item.messageId || `msg-${item.messageIndex}`,
+        sessionId: item.conversationId,
         content: item.content,
-        sender: item.sender,
+        sender: item.type, // Map 'type' field to 'sender' field
         timestamp: item.timestamp,
         language: item.language,
-        confidence: item.confidence,
+        confidence: item.confidenceScore,
         sources: item.sources,
         processingTime: item.processingTime
       }));
