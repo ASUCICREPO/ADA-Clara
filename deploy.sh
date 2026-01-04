@@ -305,9 +305,15 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         continue
       fi
       
-      # Show errors
+      # Show errors (exclude variable assignments and echo statements to avoid false positives)
       if [[ "$line" =~ "ERROR" ]] || [[ "$line" =~ "Error" ]] || [[ "$line" =~ "Failed" ]]; then
-        echo -e "${RED}[ERROR]${NC} $line"
+        # Skip lines that are variable assignments or echo statements (these are code, not errors)
+        if [[ ! "$line" =~ ^[[:space:]]*[A-Z_]*ERROR.*= ]] && \
+           [[ ! "$line" =~ ^[[:space:]]*echo.*ERROR ]] && \
+           [[ ! "$line" =~ ^[[:space:]]*DEPLOYMENT_ERROR ]] && \
+           [[ ! "$line" =~ ^[[:space:]]*echo.*Failed.*deployment ]]; then
+          echo -e "${RED}[ERROR]${NC} $line"
+        fi
       fi
       
       # Show success messages

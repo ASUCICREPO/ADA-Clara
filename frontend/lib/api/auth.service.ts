@@ -32,22 +32,29 @@ export function initializeAuth(): void {
   }
 
   try {
+    // Build Cognito config - only include identityPoolId if it's provided
+    const cognitoConfig: any = {
+      userPoolId: config.cognito.userPoolId,
+      userPoolClientId: config.cognito.clientId,
+      loginWith: {
+        email: true,
+      },
+      signUpVerificationMethod: 'code',
+      userAttributes: {
+        email: {
+          required: true,
+        },
+      },
+    };
+
+    // Only add identityPoolId if it's provided (it's optional)
+    if (config.cognito.identityPoolId) {
+      cognitoConfig.identityPoolId = config.cognito.identityPoolId;
+    }
+
     Amplify.configure({
       Auth: {
-        Cognito: {
-          userPoolId: config.cognito.userPoolId,
-          userPoolClientId: config.cognito.clientId,
-          ...(config.cognito.identityPoolId ? { identityPoolId: config.cognito.identityPoolId } : {}),
-          loginWith: {
-            email: true,
-          },
-          signUpVerificationMethod: 'code',
-          userAttributes: {
-            email: {
-              required: true,
-            },
-          },
-        },
+        Cognito: cognitoConfig,
       },
     });
 
