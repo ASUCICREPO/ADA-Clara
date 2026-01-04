@@ -1,6 +1,7 @@
 import { DynamoDBService } from '../../services/dynamodb-service';
 import { BedrockService } from '../../services/bedrock.service';
 import { ComprehendService } from '../../services/comprehend.service';
+import { DynamoDBKeyGenerator, QuestionRecord } from '../../types/index';
 
 export interface ChatMessage {
   messageId: string;
@@ -73,6 +74,7 @@ export class ChatService {
   private readonly MESSAGES_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
   private readonly ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
   private readonly ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+  private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
 
   constructor(
     private dynamoService: DynamoDBService,
@@ -120,6 +122,9 @@ export class ChatService {
     let finalResponse = response;
     if (escalationSuggested) {
       await this.createEscalation(session.sessionId, 'Low confidence or complex query');
+      
+      // Store unanswered question when chatbot shows "Talk to a person"
+      await this.storeUnansweredQuestion(request.message, language, confidence);
       
       // Replace generic escalation message with more helpful one
       if (response.includes('Sorry, I am unable to assist you with this request') || 
@@ -530,6 +535,41 @@ export class ChatService {
     } catch (error) {
       console.error('Error creating escalation:', error);
       // Don't throw - escalation failure shouldn't break chat
+    }
+  }
+
+  /**
+   * Store unanswered question when chatbot shows "Talk to a person" button
+   */
+  private async storeUnansweredQuestion(question: string, language: string, confidence: number): Promise<void> {
+    try {
+      const now = new Date();
+      const date = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const normalizedQuestion = DynamoDBKeyGenerator.normalizeQuestion(question);
+      const questionHash = DynamoDBKeyGenerator.generateQuestionHash(normalizedQuestion);
+      const questionLanguage = (language === 'es' ? 'es' : 'en') as 'en' | 'es';
+
+      const questionRecord: QuestionRecord = {
+        questionHash,
+        originalQuestion: question,
+        normalizedQuestion,
+        category: 'out-of-scope', // All unanswered questions are out-of-scope
+        date,
+        count: 1,
+        totalConfidenceScore: confidence,
+        averageConfidenceScore: confidence,
+        answeredCount: 0,
+        unansweredCount: 1, // This is an unanswered question
+        escalationCount: 1,
+        language: questionLanguage,
+        lastAsked: now.toISOString()
+      };
+
+      await this.dynamoService.createOrUpdateQuestionRecord(questionRecord);
+      console.log(`Stored unanswered question: ${question} (hash: ${questionHash})`);
+    } catch (error) {
+      console.error('Error storing unanswered question:', error);
+      // Don't throw - question storage failure shouldn't break chat
     }
   }
 

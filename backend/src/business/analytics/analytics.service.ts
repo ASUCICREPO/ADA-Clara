@@ -186,52 +186,53 @@ export class AnalyticsService {
       }).filter(Boolean));
       console.log(`[AnalyticsService] Recent session IDs: ${Array.from(recentSessionIds).length} sessions`);
       
-      // Filter escalations by date range and match to conversations
-      // Count escalations that are:
-      // 1. Form escalations (source === 'form_submit') - these are separate from conversations
-      // 2. Chat escalations (has reason/sessionId) that match recent conversations
+      // Filter escalations by date range
       const recentEscalations = allEscalations.filter(esc => {
         if (!esc.timestamp) return false;
         const escDate = new Date(esc.timestamp);
-        if (escDate < startDate || escDate > endDate) return false;
-        
-        // Include form escalations submitted via Submit button
-        if (esc.source === 'form_submit') return true;
-        
-        // Include chat escalations that match recent conversations by sessionId
-        if (esc.reason && esc.sessionId && !esc.source) {
-          // Match chat escalations to conversations by sessionId
-          return recentSessionIds.has(esc.sessionId);
-        }
-        
-        return false;
+        return escDate >= startDate && escDate <= endDateInclusive;
       });
 
-      // Count escalations that are linked to conversations (chat escalations)
-      // Form escalations are separate requests, not part of conversations
-      const chatEscalations = recentEscalations.filter(esc => esc.reason && esc.sessionId && !esc.source);
-      const escalatedCount = chatEscalations.length;
-      const escalationRate = totalConversations > 0 ? Math.round((escalatedCount / totalConversations) * 100) : 0;
-      console.log(`[AnalyticsService] Found ${escalatedCount} chat escalations (${recentEscalations.filter(e => e.source === 'form_submit').length} form escalations not counted), rate: ${escalationRate}%`);
-
-      // Calculate out of scope rate from escalation reasons
-      // Check both `reason` (chat escalations) and `escalationReason` (if it exists)
-      // Out-of-scope means the question was not related to diabetes
-      const outOfScopeEscalations = chatEscalations.filter(esc => {
-        // Check reason field (chat escalations)
-        const reason = (esc.reason || esc.escalationReason || '').toLowerCase();
-        // Low confidence or complex query doesn't necessarily mean out-of-scope
-        // Out-of-scope would be explicitly marked or contain specific keywords
-        return reason.includes('out of scope') ||
-               reason.includes('outside diabetes') ||
-               reason.includes('not diabetes related') ||
-               reason.includes('out-of-scope') ||
-               reason.includes('non-diabetes') ||
-               reason.includes('not related to diabetes');
-      }).length;
+      // For escalation rate: Count UNIQUE conversations that have at least one escalation
+      // A conversation can have multiple escalations, but we only count it once
+      const escalatedSessionIds = new Set<string>();
+      recentEscalations.forEach(esc => {
+        // Count chat escalations (have reason and sessionId, no source)
+        if (esc.reason && esc.sessionId && !esc.source) {
+          // Only count if sessionId matches a recent conversation
+          const sessionId = esc.sessionId;
+          if (recentSessionIds.has(sessionId)) {
+            escalatedSessionIds.add(sessionId);
+          }
+        }
+      });
       
-      const outOfScopeRate = totalConversations > 0 ? Math.round((outOfScopeEscalations / totalConversations) * 100) : 0;
-      console.log(`[AnalyticsService] Found ${outOfScopeEscalations} out-of-scope escalations out of ${escalatedCount} total escalations, rate: ${outOfScopeRate}%`);
+      const escalatedConversationsCount = escalatedSessionIds.size;
+      const escalationRate = totalConversations > 0 ? Math.round((escalatedConversationsCount / totalConversations) * 100) : 0;
+      console.log(`[AnalyticsService] Found ${escalatedConversationsCount} escalated conversations out of ${totalConversations} total conversations, rate: ${escalationRate}%`);
+
+      // Calculate out of scope rate from unanswered questions
+      // When chatbot shows "Talk to a person" (escalated: true), question is stored as unanswered
+      // Out-of-scope rate = total unanswered questions count / total conversations
+      let totalUnansweredCount = 0;
+      const metricsDate = new Date();
+      for (let i = 0; i < 30; i++) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        
+        try {
+          const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
+          // Sum up unansweredCount for all questions on this date
+          const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
+          totalUnansweredCount += dayUnansweredCount;
+        } catch (error) {
+          // Continue if no questions for this date
+        }
+      }
+      
+      const outOfScopeRate = totalConversations > 0 ? Math.round((totalUnansweredCount / totalConversations) * 100) : 0;
+      console.log(`[AnalyticsService] Found ${totalUnansweredCount} unanswered questions out of ${totalConversations} total conversations, out-of-scope rate: ${outOfScopeRate}%`);
 
       // Calculate trends (compare with previous 30 days)
       const previousStartDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -250,48 +251,45 @@ export class AnalyticsService {
         // Otherwise use sessionId field directly
         return s.sessionId;
       }).filter(Boolean));
-      const previousEscalations = allEscalations.filter(esc => {
-        if (!esc.timestamp) return false;
+
+      // Count previous escalated conversations (unique sessions)
+      const previousEscalatedSessionIds = new Set<string>();
+      allEscalations.forEach(esc => {
+        if (!esc.timestamp) return;
         const escDate = new Date(esc.timestamp);
-        if (escDate < previousStartDate || escDate >= startDate) return false;
+        if (escDate < previousStartDate || escDate >= startDate) return;
         
-        // Only count chat escalations that match previous conversations
+        // Count chat escalations that match previous conversations
         if (esc.reason && esc.sessionId && !esc.source) {
-          return previousSessionIds.has(esc.sessionId);
+          if (previousSessionIds.has(esc.sessionId)) {
+            previousEscalatedSessionIds.add(esc.sessionId);
+          }
         }
-        
-        return false;
-      }).length;
+      });
+      const previousEscalatedCount = previousEscalatedSessionIds.size;
 
       const conversationTrend = this.calculateTrend(totalConversations, previousConversations);
-      const previousEscalationRate = previousConversations > 0 ? Math.round((previousEscalations / previousConversations) * 100) : 0;
+      const previousEscalationRate = previousConversations > 0 ? Math.round((previousEscalatedCount / previousConversations) * 100) : 0;
       const escalationTrend = this.calculateTrend(escalationRate, previousEscalationRate);
       
-      const previousChatEscalations = allEscalations.filter(esc => {
-        if (!esc.timestamp) return false;
-        const escDate = new Date(esc.timestamp);
-        if (escDate < previousStartDate || escDate >= startDate) return false;
+      // Count previous out-of-scope from unanswered questions
+      let previousUnansweredCount = 0;
+      const previousMetricsDate = new Date();
+      for (let i = 30; i < 60; i++) {
+        const date = new Date(previousMetricsDate);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
         
-        // Only count chat escalations that match previous conversations
-        if (esc.reason && esc.sessionId && !esc.source) {
-          return previousSessionIds.has(esc.sessionId);
+        try {
+          const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
+          const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
+          previousUnansweredCount += dayUnansweredCount;
+        } catch (error) {
+          // Continue if no questions for this date
         }
-        
-        return false;
-      });
+      }
       
-      const previousOutOfScope = previousChatEscalations.filter(esc => {
-        // Check reason field (chat escalations) or escalationReason (if it exists)
-        const reason = (esc.reason || esc.escalationReason || '').toLowerCase();
-        return reason.includes('out of scope') ||
-               reason.includes('outside diabetes') ||
-               reason.includes('not diabetes related') ||
-               reason.includes('out-of-scope') ||
-               reason.includes('non-diabetes') ||
-               reason.includes('not related to diabetes');
-      }).length;
-      
-      const previousOutOfScopeRate = previousConversations > 0 ? Math.round((previousOutOfScope / previousConversations) * 100) : 0;
+      const previousOutOfScopeRate = previousConversations > 0 ? Math.round((previousUnansweredCount / previousConversations) * 100) : 0;
       const outOfScopeTrend = this.calculateTrend(outOfScopeRate, previousOutOfScopeRate);
 
       console.log(`[AnalyticsService] Metrics calculated: conversations=${totalConversations}, escalationRate=${escalationRate}%, outOfScopeRate=${outOfScopeRate}%`);
@@ -483,9 +481,9 @@ export class AnalyticsService {
       const sortedQuestions = Array.from(questionCounts.entries())
         .map(([question, count]) => ({ question, count }))
         .sort((a, b) => b.count - a.count)
-        .slice(0, 7); // Top 7 unanswered questions
+        .slice(0, 6); // Top 6 unanswered questions
       
-      // If no real data, return fallback questions
+      // If no real data, return fallback questions (top 6)
       if (sortedQuestions.length === 0) {
         return [
           { question: 'Can I take insulin with food?', count: 0 },
@@ -493,8 +491,7 @@ export class AnalyticsService {
           { question: 'How do I travel with diabetes supplies?', count: 0 },
           { question: 'Can diabetes affect my vision?', count: 0 },
           { question: 'What should I do during sick days?', count: 0 },
-          { question: 'How do I handle low blood sugar at night?', count: 0 },
-          { question: 'Can I drink alcohol with diabetes?', count: 0 }
+          { question: 'How do I handle low blood sugar at night?', count: 0 }
         ];
       }
       
