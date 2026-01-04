@@ -59,81 +59,87 @@ export default function AdminLoginPage() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center" style={{ padding: '24px' }}>
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-[16px] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] p-8">
-          {/* Logo and Title */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-[#a6192e]/10 rounded-[12px] mb-4">
-              <img 
-                src="/logo.png" 
-                alt="ADA Clara Logo" 
-                className="w-12 h-12 object-contain"
-              />
+      <div className="w-full max-w-[512px] mx-4">
+        <div className="bg-white rounded-[15px] shadow-lg">
+          {/* Header */}
+          <div style={{ padding: '24px', borderBottom: '1px solid #cbd5e1' }}>
+            <div className="flex items-start" style={{ gap: '12px' }}>
+              <div className="flex-shrink-0 flex items-center justify-center" style={{ width: '28px', height: '28px' }}>
+                <img 
+                  src="/logo.png" 
+                  alt="ADA Clara Logo" 
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              </div>
+              <div className="flex-1">
+                <h1 className="text-[#020617] text-xl font-normal m-0" style={{ marginBottom: '4px' }}>Admin Login</h1>
+                <p className="text-[#64748b] text-sm font-normal m-0" style={{ lineHeight: '20px' }}>
+                  Sign in to access the admin dashboard
+                </p>
+              </div>
             </div>
-            <h1 className="text-2xl font-semibold text-[#020617] mb-2">Admin Login</h1>
-            <p className="text-sm text-[#64748b]">Sign in to access the admin dashboard</p>
           </div>
 
-          {/* Error Message */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-[10px]">
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
+          {/* Form */}
+          <form onSubmit={handleSubmit} style={{ padding: '24px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              {/* Email Field */}
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-[#020617] m-0" style={{ marginBottom: '8px' }}>
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  placeholder="Enter your email address"
+                  className="w-full border border-[#cbd5e1] rounded-[10px] h-[44px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20"
+                  style={{ paddingLeft: '12px', paddingRight: '12px' }}
+                  disabled={loading}
+                />
+              </div>
 
-          {/* Login Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-[#020617] mb-2">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-3 border border-[#cbd5e1] rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20 focus:border-[#a6192e] text-[#020617]"
-                placeholder="admin@example.com"
-                disabled={loading}
-              />
-            </div>
+              {/* Password Field */}
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-[#020617] m-0" style={{ marginBottom: '8px' }}>
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  placeholder="Enter your password"
+                  className="w-full border border-[#cbd5e1] rounded-[10px] h-[44px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20"
+                  style={{ paddingLeft: '12px', paddingRight: '12px' }}
+                  disabled={loading}
+                />
+              </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-[#020617] mb-2">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-4 py-3 border border-[#cbd5e1] rounded-[10px] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20 focus:border-[#a6192e] text-[#020617]"
-                placeholder="Enter your password"
-                disabled={loading}
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-[#a6192e] text-white py-3 px-4 rounded-[10px] font-medium hover:bg-[#8b1425] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center">
-                  <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                  Signing in...
-                </span>
-              ) : (
-                'Sign In'
+              {/* Error Message */}
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-[10px] p-3 text-sm text-red-800">
+                  {error}
+                </div>
               )}
-            </button>
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full h-[48px] bg-[#a6192e] text-white rounded-[10px] text-sm font-normal hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
+            </div>
           </form>
         </div>
 
         {/* Footer */}
-        <p className="text-center text-xs text-[#94a3b8] mt-6">
+        <p className="text-center text-xs text-[#94a3b8]" style={{ marginTop: '32px' }}>
           ADA Clara Admin Dashboard
         </p>
       </div>

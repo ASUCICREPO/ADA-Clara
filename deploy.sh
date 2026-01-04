@@ -298,20 +298,36 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         continue
       fi
       
-      # Show CDK outputs
+      # Show CDK outputs (including Stack ARN value which appears after "Stack ARN:")
       if [[ "$line" =~ "Outputs:" ]] || [[ "$line" =~ "Stack ARN:" ]] || \
+         [[ "$line" =~ ^[[:space:]]*arn:aws:cloudformation ]] || \
          [[ "$line" =~ ^AdaClaraUnifiedStack\. ]]; then
         echo -e "${GREEN}[CDK OUTPUT]${NC} $line"
         continue
       fi
       
-      # Show errors (exclude variable assignments and echo statements to avoid false positives)
+      # Show errors (exclude command syntax, variable assignments, and conditional statements)
       if [[ "$line" =~ "ERROR" ]] || [[ "$line" =~ "Error" ]] || [[ "$line" =~ "Failed" ]]; then
-        # Skip lines that are variable assignments or echo statements (these are code, not errors)
-        if [[ ! "$line" =~ ^[[:space:]]*[A-Z_]*ERROR.*= ]] && \
-           [[ ! "$line" =~ ^[[:space:]]*echo.*ERROR ]] && \
-           [[ ! "$line" =~ ^[[:space:]]*DEPLOYMENT_ERROR ]] && \
-           [[ ! "$line" =~ ^[[:space:]]*echo.*Failed.*deployment ]]; then
+        # Skip lines that are command syntax, not actual errors:
+        # - Lines containing both "if" and "ERROR" or "Failed" (command syntax)
+        # - Lines containing both "echo" and "ERROR" or "Failed" (echo statements in code)
+        # - Lines containing "DEPLOYMENT_ERROR=" (variable assignment)
+        # - Lines containing "SyntaxError" and "deployment_response.json" (expected node errors)
+        # - Lines containing "grep" and "ERROR" (conditional checks)
+        should_skip=false
+        if [[ "$line" =~ if ]] && ([[ "$line" =~ ERROR ]] || [[ "$line" =~ Failed ]]); then
+          should_skip=true
+        elif [[ "$line" =~ echo ]] && ([[ "$line" =~ ERROR ]] || [[ "$line" =~ Failed ]]); then
+          should_skip=true
+        elif [[ "$line" =~ DEPLOYMENT_ERROR.*= ]]; then
+          should_skip=true
+        elif [[ "$line" =~ SyntaxError ]] && [[ "$line" =~ deployment_response\.json ]]; then
+          should_skip=true
+        elif [[ "$line" =~ grep ]] && [[ "$line" =~ ERROR ]]; then
+          should_skip=true
+        fi
+        
+        if [ "$should_skip" = false ]; then
           echo -e "${RED}[ERROR]${NC} $line"
         fi
       fi

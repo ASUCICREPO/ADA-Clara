@@ -18,24 +18,24 @@ export default function AdminDashboard() {
       <div className="bg-[#a6192e] w-full" style={{ height: '2px' }}></div>
       
       {/* Main Content Area */}
-      <div className="bg-[#f8fafc] w-full" style={{ padding: '32px 80px', paddingBottom: '48px' }}>
+      <div className="bg-[#f8fafc] w-full" style={{ padding: '40px 80px', paddingBottom: '56px' }}>
         <div className="max-w-[1440px] mx-auto">
-          <div style={{ marginBottom: '32px' }}>
+          <div style={{ marginBottom: '40px' }}>
             <MetricCards />
           </div>
 
-          <div style={{ marginBottom: '32px', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+          <div style={{ marginBottom: '40px', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
             <ConversationsChart />
             <LanguageSplitChart />
           </div>
 
           {/* Escalation Requests - Full Width */}
-          <div style={{ marginBottom: '32px' }}>
+          <div style={{ marginBottom: '40px' }}>
             <EscalationRequestsTable />
           </div>
 
           {/* FAQ and Top Unanswered - Side by Side */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
             <FrequentlyAskedQuestions />
             <TopUnansweredQuestions />
           </div>

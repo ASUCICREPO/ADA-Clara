@@ -57,8 +57,8 @@ export default function MetricCards() {
 
   if (loading) {
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
-        <div className="flex" style={{ gap: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+        <div className="flex" style={{ gap: '32px' }}>
           <div className="bg-white border border-[#cbd5e1] rounded-[15px] p-6 flex-1">
             <div className="animate-pulse">Loading...</div>
           </div>
@@ -82,9 +82,9 @@ export default function MetricCards() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
       {/* First two cards - aligned with Conversations Over Time chart */}
-      <div className="flex" style={{ gap: '24px' }}>
+      <div className="flex" style={{ gap: '32px' }}>
         <MetricCard
           title="Total Conversations"
           value={formatNumber(data.totalConversations)}

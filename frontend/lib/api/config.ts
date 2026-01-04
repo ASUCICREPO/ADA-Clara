@@ -26,7 +26,23 @@ export function getApiConfig(): ApiConfig {
   const region = process.env.NEXT_PUBLIC_AWS_REGION || process.env.NEXT_PUBLIC_COGNITO_REGION || 'us-east-1';
   
   if (!apiBaseUrl) {
-    throw new Error('NEXT_PUBLIC_API_BASE_URL is not set. This should be provided by the deployment system.');
+    const errorMessage = `
+NEXT_PUBLIC_API_BASE_URL is not set. 
+
+For local development:
+1. Copy frontend/.env.local.example to frontend/.env.local
+2. Fill in the values from your deployed stack:
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs" --region us-east-1
+3. Or get values from AWS Console: CloudFormation → AdaClaraUnifiedStack → Outputs tab
+
+Required environment variables:
+- NEXT_PUBLIC_API_BASE_URL (from ApiGatewayUrl output)
+- NEXT_PUBLIC_COGNITO_USER_POOL_ID (from UserPoolId output)
+- NEXT_PUBLIC_COGNITO_CLIENT_ID (from UserPoolClientId output)
+- NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID (from IdentityPoolId output)
+- NEXT_PUBLIC_COGNITO_DOMAIN (from CognitoDomain output)
+`;
+    throw new Error(errorMessage);
   }
 
   const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID;

@@ -8,8 +8,8 @@ export default function TopUnansweredQuestions() {
   const questions = data?.questions?.map(q => q.question) || [];
 
   return (
-    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '16px' }}>
-      <div className="bg-[#f8fafc] rounded-[10px] mb-4" style={{ padding: '12px 16px' }}>
+    <div className="bg-white border border-[#cbd5e1] rounded-[15px] shadow-[0px_1px_3px_0px_rgba(0,0,0,0.1)]" style={{ padding: '24px' }}>
+      <div className="bg-[#f8fafc] rounded-[10px] mb-6" style={{ padding: '12px 16px' }}>
         <h2 className="text-[#a6192e] text-lg font-medium m-0">
           Top Unanswered Questions
         </h2>
@@ -23,7 +23,7 @@ export default function TopUnansweredQuestions() {
           ) : (
             questions.map((question, index) => (
               <div key={index}>
-                <div className="text-[#020617] text-sm font-normal" style={{ padding: '12px 0' }}>
+                <div className="text-[#020617] text-sm font-normal" style={{ padding: '14px 0' }}>
                   {question}
                 </div>
                 {index < questions.length - 1 && (
