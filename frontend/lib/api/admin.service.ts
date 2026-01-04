@@ -163,9 +163,9 @@ export async function getLanguageSplit(): Promise<LanguageSplit> {
 /**
  * Get escalation requests
  */
-export async function getEscalationRequests(): Promise<EscalationRequestsResponse> {
+export async function getEscalationRequests(page: number = 1, limit: number = 10): Promise<EscalationRequestsResponse> {
   try {
-    const response = await authenticatedFetch('/admin/escalation-requests', {
+    const response = await authenticatedFetch(`/admin/escalation-requests?page=${page}&limit=${limit}`, {
       method: 'GET',
     });
 

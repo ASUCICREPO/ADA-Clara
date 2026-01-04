@@ -142,17 +142,31 @@ export class EscalationController {
   private async getEscalationRequests(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
     try {
       const limit = event.queryStringParameters?.limit ?
-        parseInt(event.queryStringParameters.limit) : 50;
+        parseInt(event.queryStringParameters.limit) : 10;
+      const page = event.queryStringParameters?.page ?
+        parseInt(event.queryStringParameters.page) : 1;
+
+      console.log(`[EscalationController] Received request: page=${page}, limit=${limit}, queryParams=`, event.queryStringParameters);
 
       // Validate limit parameter
-      if (isNaN(limit) || limit < 1 || limit > 1000) {
+      if (isNaN(limit) || limit < 1 || limit > 100) {
         return this.createResponse(400, {
           error: 'Invalid limit parameter',
-          message: 'Limit must be a number between 1 and 1000'
+          message: 'Limit must be a number between 1 and 100'
         });
       }
 
-      const result = await this.escalationService.getEscalationRequests(limit);
+      // Validate page parameter
+      if (isNaN(page) || page < 1) {
+        return this.createResponse(400, {
+          error: 'Invalid page parameter',
+          message: 'Page must be a number greater than 0'
+        });
+      }
+
+      const result = await this.escalationService.getEscalationRequests(limit, page);
+      
+      console.log(`[EscalationController] Returning ${result.requests.length} requests for page ${page}, total: ${result.total}`);
 
       return this.createResponse(200, result);
 

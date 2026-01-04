@@ -123,37 +123,61 @@ export function useLanguageSplit() {
   return { data, loading, error };
 }
 
-export function useEscalationRequests() {
+export function useEscalationRequests(page: number = 1, limit: number = 10) {
   const [data, setData] = useState<EscalationRequestsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    
+    // Clear previous data when page changes
+    setData(null);
+    setLoading(true);
+    setError(null);
+    
     async function fetchData(skipLoading = false) {
       try {
         if (!skipLoading) {
           setLoading(true);
         }
         setError(null);
-        const requests = await getEscalationRequests();
-        setData(requests);
+        console.log(`[useEscalationRequests] Fetching page ${page}, limit ${limit}`);
+        const requests = await getEscalationRequests(page, limit);
+        console.log(`[useEscalationRequests] Received ${requests.requests.length} requests for page ${page}, total: ${requests.total}`);
+        
+        // Only update state if component is still mounted and we're still on the same page
+        if (isMounted) {
+          setData(requests);
+        }
       } catch (err) {
         console.error('Error fetching escalation requests:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load escalation requests');
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Failed to load escalation requests');
+        }
       } finally {
-        if (!skipLoading) {
+        if (isMounted && !skipLoading) {
           setLoading(false);
         }
       }
     }
 
-    fetchData();
+    // Always fetch with loading state when page/limit changes
+    fetchData(false);
     
     // Refresh data every 30 seconds for real-time updates (without showing loading state)
-    const interval = setInterval(() => fetchData(true), 30000);
+    // Only refresh if still on the same page
+    const interval = setInterval(() => {
+      if (isMounted) {
+        fetchData(true);
+      }
+    }, 30000);
     
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [page, limit]);
 
   return { data, loading, error };
 }

@@ -6,6 +6,7 @@ export interface EscalationRequest {
   phoneNumber?: string;
   zipCode?: string;
   message?: string;
+  escalationType?: string; // 'submit' or 'talk_to_person'
 }
 
 export interface EscalationRecord {
@@ -63,7 +64,7 @@ export class EscalationService {
       }),
       timestamp: now.toISOString(),
       status: 'pending',
-      source: 'chat_escalation'
+      source: request.escalationType === 'submit' ? 'form_submit' : 'talk_to_person'
     };
 
     // Store in DynamoDB
@@ -79,33 +80,46 @@ export class EscalationService {
 
   /**
    * Get escalation requests (for admin dashboard)
+   * Only returns requests where source = 'form_submit' (submitted via Submit button)
    */
-  async getEscalationRequests(limit: number = 50): Promise<EscalationListResponse> {
+  async getEscalationRequests(limit: number = 10, page: number = 1): Promise<EscalationListResponse> {
     try {
-      console.log(`Fetching escalation requests from DynamoDB table: ${this.ESCALATION_TABLE}`);
+      console.log(`Fetching escalation requests from DynamoDB table: ${this.ESCALATION_TABLE}, limit: ${limit}, page: ${page}`);
       
       // Scan DynamoDB table for escalation requests
-      const items = await this.dynamoService.scanItems(this.ESCALATION_TABLE, {
-        limit,
-        // Filter out expired items (TTL handles deletion, but we can filter here too)
-        filterExpression: 'attribute_exists(escalationId)'
+      // We'll filter client-side to only include requests submitted via Submit button (source = 'form_submit')
+      const allItems = await this.dynamoService.scanItems(this.ESCALATION_TABLE, {
+        limit: 1000 // Get all items to filter and paginate
       });
 
-      console.log(`Found ${items.length} escalation requests in DynamoDB`);
+      // Filter to only include requests submitted via Submit button
+      const submittedItems = allItems.filter(item => 
+        item.escalationId && item.source === 'form_submit'
+      );
 
-      if (!items || items.length === 0) {
+      console.log(`Found ${submittedItems.length} submitted escalation requests out of ${allItems.length} total requests in DynamoDB`);
+
+      if (!submittedItems || submittedItems.length === 0) {
         return {
           requests: [],
           total: 0
         };
       }
 
-      // Sort by timestamp descending (newest first) and map to frontend format
-      const sortedItems = items
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, limit);
+      // Sort by timestamp descending (newest first)
+      const sortedItems = submittedItems.sort((a, b) => 
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
 
-      const requests = sortedItems.map(item => ({
+      // Calculate pagination
+      const total = sortedItems.length;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedItems = sortedItems.slice(startIndex, endIndex);
+
+      console.log(`[EscalationService] Pagination: page=${page}, limit=${limit}, total=${total}, startIndex=${startIndex}, endIndex=${endIndex}, itemsReturned=${paginatedItems.length}`);
+
+      const requests = paginatedItems.map(item => ({
         name: item.name || 'Unknown',
         email: item.email || 'No email',
         phone: item.phoneNumber || '-',
@@ -115,7 +129,7 @@ export class EscalationService {
 
       return {
         requests,
-        total: items.length
+        total
       };
     } catch (error) {
       console.error('Failed to get escalation requests from DynamoDB:', error);

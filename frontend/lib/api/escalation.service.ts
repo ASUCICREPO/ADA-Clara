@@ -39,6 +39,7 @@ export async function submitEscalationRequest(
         email: request.email,
         phoneNumber: request.phoneNumber || undefined,
         zipCode: request.zipCode || undefined,
+        escalationType: 'submit', // Mark as submitted via Submit button
       }),
     });
 

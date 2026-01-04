@@ -60,15 +60,15 @@ export default function AdminHeader() {
               <button
                 onClick={handleLogoutClick}
                 className="flex items-center bg-white border border-white/20 rounded-full cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ gap: '8px', height: '36px', paddingLeft: '12px', paddingRight: '12px' }}
+                style={{ gap: '10px', height: '42px', paddingLeft: '16px', paddingRight: '16px' }}
               >
-                <div className="w-6 h-6 bg-[#a6192e] rounded-full flex items-center justify-center flex-shrink-0">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <div className="w-7 h-7 bg-[#a6192e] rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 8C9.65685 8 11 6.65685 11 5C11 3.34315 9.65685 2 8 2C6.34315 2 5 3.34315 5 5C5 6.65685 6.34315 8 8 8Z" fill="white"/>
                     <path d="M8 9C5.79086 9 4 10.7909 4 13V14H12V13C12 10.7909 10.2091 9 8 9Z" fill="white"/>
                   </svg>
                 </div>
-                <span className="text-[#a6192e] text-xs font-normal">Admin</span>
+                <span className="text-[#a6192e] text-sm font-normal">Admin</span>
               </button>
             </div>
           </div>
@@ -95,13 +95,15 @@ export default function AdminHeader() {
             <div className="flex items-center justify-end" style={{ gap: '12px' }}>
               <button
                 onClick={handleLogoutCancel}
-                className="px-4 py-2 text-sm font-normal text-[#64748b] border border-[#cbd5e1] rounded-[10px] hover:bg-[#f8fafc] transition-colors"
+                className="px-6 py-3 text-base font-normal text-[#64748b] border border-[#cbd5e1] rounded-[10px] hover:bg-[#f8fafc] transition-colors"
+                style={{ minWidth: '100px' }}
               >
                 Cancel
               </button>
               <button
                 onClick={handleLogoutConfirm}
-                className="px-4 py-2 text-sm font-normal text-white bg-[#a6192e] rounded-[10px] hover:opacity-90 transition-opacity"
+                className="px-6 py-3 text-base font-normal text-white bg-[#a6192e] rounded-[10px] hover:opacity-90 transition-opacity"
+                style={{ minWidth: '100px' }}
               >
                 Log Out
               </button>

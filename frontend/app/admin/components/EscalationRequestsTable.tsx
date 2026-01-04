@@ -3,14 +3,28 @@
 import { useState } from 'react';
 import { useEscalationRequests } from '../hooks/useAdminData';
 
+const ITEMS_PER_PAGE = 10;
+
 export default function EscalationRequestsTable() {
   const [searchQuery, setSearchQuery] = useState('');
-  const { data, loading, error } = useEscalationRequests();
+  const [currentPage, setCurrentPage] = useState(1);
+  const { data, loading, error } = useEscalationRequests(currentPage, ITEMS_PER_PAGE);
 
+  // Calculate total pages
+  const totalPages = data?.total ? Math.ceil(data.total / ITEMS_PER_PAGE) : 0;
+
+  // Filter data by search query (client-side filtering on current page)
   const filteredData = data?.requests?.filter(item =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.email.toLowerCase().includes(searchQuery.toLowerCase())
   ) || [];
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+      setSearchQuery(''); // Clear search when changing pages
+    }
+  };
 
   return (
     <div 
@@ -107,6 +121,75 @@ export default function EscalationRequestsTable() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && !error && totalPages > 1 && (
+        <div className="flex items-center justify-center" style={{ marginTop: '24px', gap: '10px' }}>
+          {/* Previous Button */}
+          <button
+            onClick={() => handlePageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="px-6 py-3 text-base font-normal text-[#64748b] border border-[#cbd5e1] rounded-[10px] bg-white hover:bg-[#f8fafc] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ minWidth: '100px' }}
+          >
+            Previous
+          </button>
+
+          {/* Page Numbers */}
+          <div className="flex items-center" style={{ gap: '6px' }}>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
+              // Show first page, last page, current page, and pages around current
+              if (
+                pageNum === 1 ||
+                pageNum === totalPages ||
+                (pageNum >= currentPage - 1 && pageNum <= currentPage + 1)
+              ) {
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => handlePageChange(pageNum)}
+                    className={`px-5 py-3 text-base font-normal rounded-[10px] transition-colors ${
+                      currentPage === pageNum
+                        ? 'bg-[#a6192e] text-white'
+                        : 'text-[#64748b] border border-[#cbd5e1] bg-white hover:bg-[#f8fafc]'
+                    }`}
+                    style={{ minWidth: '44px' }}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              } else if (
+                pageNum === currentPage - 2 ||
+                pageNum === currentPage + 2
+              ) {
+                return (
+                  <span key={pageNum} className="px-3 text-[#64748b] text-base">
+                    ...
+                  </span>
+                );
+              }
+              return null;
+            })}
+          </div>
+
+          {/* Next Button */}
+          <button
+            onClick={() => handlePageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="px-6 py-3 text-base font-normal text-[#64748b] border border-[#cbd5e1] rounded-[10px] bg-white hover:bg-[#f8fafc] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ minWidth: '100px' }}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
+      {/* Page Info */}
+      {!loading && !error && data && (
+        <div className="text-center text-sm text-[#64748b] mt-4">
+          Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, data.total)} of {data.total} requests
         </div>
       )}
     </div>
