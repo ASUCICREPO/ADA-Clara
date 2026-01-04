@@ -313,6 +313,14 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
+    // ========== COGNITO AUTHORIZER ==========
+    // Create Cognito User Pool Authorizer for admin endpoints
+    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'AdminCognitoAuthorizer', {
+      cognitoUserPools: [this.userPool],
+      authorizerName: `ada-clara-admin-authorizer${stackSuffix}`,
+      identitySource: 'method.request.header.Authorization',
+    });
+
     // RAG Processor Lambda (created before chat processor to reference its function name)
     const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
       logGroupName: `/aws/lambda/ada-clara-rag-processor-v2-${region}${stackSuffix}`,
@@ -455,26 +463,38 @@ export class AdaClaraUnifiedStack extends Stack {
     const escalationRequestResource = escalationResource.addResource('request');
     escalationRequestResource.addMethod('POST', new apigateway.LambdaIntegration(this.escalationHandler));
 
-    // Admin endpoints
+    // Admin endpoints (all require Cognito authentication)
     const adminResource = this.api.root.addResource('admin');
     const metricsResource = adminResource.addResource('metrics');
-    metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics));
+    metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
     
     const conversationsResource = adminResource.addResource('conversations');
     const chartResource = conversationsResource.addResource('chart');
-    chartResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics));
+    chartResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
     
     const languageSplitResource = adminResource.addResource('language-split');
-    languageSplitResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics));
+    languageSplitResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
     
     const faqResource = adminResource.addResource('frequently-asked-questions');
-    faqResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics));
+    faqResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
     
     const unansweredResource = adminResource.addResource('unanswered-questions');
-    unansweredResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics));
+    unansweredResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
     
     const adminEscalationResource = adminResource.addResource('escalation-requests');
-    adminEscalationResource.addMethod('GET', new apigateway.LambdaIntegration(this.escalationHandler));
+    adminEscalationResource.addMethod('GET', new apigateway.LambdaIntegration(this.escalationHandler), {
+      authorizer: cognitoAuthorizer,
+    });
 
     // RAG query endpoint
     const queryResource = this.api.root.addResource('query');

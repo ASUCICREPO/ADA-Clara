@@ -21,14 +21,10 @@ export class AdminAnalyticsController {
       const path = event.path;
       const method = event.httpMethod;
 
-      // Check for admin authentication (simplified - in production would validate JWT)
-      const authHeader = event.headers.Authorization || event.headers.authorization;
-      if (!authHeader && !path.includes('/health')) {
-        return this.createResponse(401, {
-          error: 'Authentication required',
-          message: 'Admin access required for analytics data'
-        });
-      }
+      // Authentication is handled by API Gateway Cognito Authorizer
+      // The request will only reach this Lambda if the token is valid
+      // We can extract user information from the request context if needed
+      // event.requestContext.authorizer.claims contains user claims
 
       // Route requests based on path and method
       if (method === 'GET') {

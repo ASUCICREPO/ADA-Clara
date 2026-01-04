@@ -53,17 +53,17 @@ export interface FAQResponse {
 
 /**
  * Get authentication token from Cognito
- * This should be called from the auth service
+ * Uses the auth service to get the current token
  */
 async function getAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
   
-  // Try to get token from localStorage or Amplify Auth
   try {
-    // Will be replaced with actual Amplify Auth call when implemented
-    const token = localStorage.getItem('cognito_id_token');
-    return token;
-  } catch {
+    // Import dynamically to avoid circular dependencies
+    const { getAuthToken: getToken } = await import('./auth.service');
+    return await getToken();
+  } catch (error) {
+    console.error('Error getting auth token:', error);
     return null;
   }
 }
