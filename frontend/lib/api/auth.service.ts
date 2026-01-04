@@ -4,7 +4,7 @@
  */
 
 import { Amplify } from 'aws-amplify';
-import { fetchAuthSession, signIn as amplifySignIn, signOut as amplifySignOut, getCurrentUser as amplifyGetCurrentUser, confirmSignIn } from 'aws-amplify/auth';
+import { fetchAuthSession, signIn as amplifySignIn, signOut as amplifySignOut, getCurrentUser as amplifyGetCurrentUser } from 'aws-amplify/auth';
 import { getConfig } from './config';
 
 export interface AuthUser {
