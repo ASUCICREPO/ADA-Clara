@@ -110,6 +110,7 @@ export class AnalyticsService {
 
   /**
    * Get dashboard metrics (real data implementation)
+   * Uses multiple data sources: chat sessions, escalation requests, and analytics
    */
   async getMetrics(): Promise<DashboardMetrics> {
     try {
@@ -120,38 +121,92 @@ export class AnalyticsService {
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = endDate.toISOString().split('T')[0];
 
-      // Get real conversation data
-      const conversations = await this.getDynamoService().getConversationsByDateRange(startDateStr, endDateStr);
-      const totalConversations = conversations.length;
+      console.log(`[AnalyticsService] Calculating metrics for date range: ${startDateStr} to ${endDateStr}`);
 
-      // Calculate escalation rate from real data
-      const escalatedConversations = conversations.filter(c => c.outcome === 'escalated').length;
-      const escalationRate = totalConversations > 0 ? Math.round((escalatedConversations / totalConversations) * 100) : 0;
+      // Get total conversations from chat sessions table
+      // Chat sessions are stored with PK: SESSION#{sessionId}, SK: METADATA
+      const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
+      const allSessions = await this.getDynamoService().scanItems(CHAT_SESSIONS_TABLE, {
+        filterExpression: 'begins_with(PK, :pk)',
+        expressionAttributeValues: {
+          ':pk': 'SESSION#'
+        }
+      });
 
-      // Calculate out of scope rate from real data
-      const outOfScopeConversations = conversations.filter(c => 
-        c.escalationReason?.includes('out of scope') ||
-        c.escalationReason?.includes('outside diabetes') ||
-        c.escalationReason?.includes('not diabetes related')
-      ).length;
-      const outOfScopeRate = totalConversations > 0 ? Math.round((outOfScopeConversations / totalConversations) * 100) : 0;
+      // Filter sessions by date range (last 30 days)
+      const recentSessions = allSessions.filter(session => {
+        if (!session.startTime) return false;
+        const sessionDate = new Date(session.startTime);
+        return sessionDate >= startDate && sessionDate <= endDate;
+      });
+
+      const totalConversations = recentSessions.length;
+      console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range`);
+
+      // Get escalation requests (only those submitted via Submit button)
+      const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+      const allEscalations = await this.getDynamoService().scanItems(ESCALATION_TABLE, {});
+      
+      // Filter escalations by date range and source
+      const recentEscalations = allEscalations.filter(esc => {
+        if (esc.source !== 'form_submit') return false;
+        if (!esc.timestamp) return false;
+        const escDate = new Date(esc.timestamp);
+        return escDate >= startDate && escDate <= endDate;
+      });
+
+      const escalatedCount = recentEscalations.length;
+      const escalationRate = totalConversations > 0 ? Math.round((escalatedCount / totalConversations) * 100) : 0;
+      console.log(`[AnalyticsService] Found ${escalatedCount} escalations, rate: ${escalationRate}%`);
+
+      // Calculate out of scope rate from escalation reasons
+      const outOfScopeEscalations = recentEscalations.filter(esc => {
+        const reason = esc.escalationReason?.toLowerCase() || '';
+        return reason.includes('out of scope') ||
+               reason.includes('outside diabetes') ||
+               reason.includes('not diabetes related') ||
+               reason.includes('out-of-scope');
+      }).length;
+      
+      const outOfScopeRate = totalConversations > 0 ? Math.round((outOfScopeEscalations / totalConversations) * 100) : 0;
+      console.log(`[AnalyticsService] Found ${outOfScopeEscalations} out-of-scope escalations, rate: ${outOfScopeRate}%`);
 
       // Calculate trends (compare with previous 30 days)
       const previousStartDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const previousStartDateStr = previousStartDate.toISOString().split('T')[0];
-      const previousConversations = await this.getDynamoService().getConversationsByDateRange(previousStartDateStr, startDateStr);
-      
-      const conversationTrend = this.calculateTrend(totalConversations, previousConversations.length);
-      const previousEscalated = previousConversations.filter(c => c.outcome === 'escalated').length;
-      const previousEscalationRate = previousConversations.length > 0 ? (previousEscalated / previousConversations.length) * 100 : 0;
+      const previousSessions = allSessions.filter(session => {
+        if (!session.startTime) return false;
+        const sessionDate = new Date(session.startTime);
+        return sessionDate >= previousStartDate && sessionDate < startDate;
+      });
+
+      const previousConversations = previousSessions.length;
+      const previousEscalations = allEscalations.filter(esc => {
+        if (esc.source !== 'form_submit') return false;
+        if (!esc.timestamp) return false;
+        const escDate = new Date(esc.timestamp);
+        return escDate >= previousStartDate && escDate < startDate;
+      }).length;
+
+      const conversationTrend = this.calculateTrend(totalConversations, previousConversations);
+      const previousEscalationRate = previousConversations > 0 ? Math.round((previousEscalations / previousConversations) * 100) : 0;
       const escalationTrend = this.calculateTrend(escalationRate, previousEscalationRate);
       
-      const previousOutOfScope = previousConversations.filter(c => 
-        c.escalationReason?.includes('out of scope') ||
-        c.escalationReason?.includes('outside diabetes')
-      ).length;
-      const previousOutOfScopeRate = previousConversations.length > 0 ? (previousOutOfScope / previousConversations.length) * 100 : 0;
+      const previousOutOfScope = allEscalations.filter(esc => {
+        if (esc.source !== 'form_submit') return false;
+        if (!esc.timestamp) return false;
+        const escDate = new Date(esc.timestamp);
+        if (escDate < previousStartDate || escDate >= startDate) return false;
+        const reason = esc.escalationReason?.toLowerCase() || '';
+        return reason.includes('out of scope') ||
+               reason.includes('outside diabetes') ||
+               reason.includes('not diabetes related') ||
+               reason.includes('out-of-scope');
+      }).length;
+      
+      const previousOutOfScopeRate = previousConversations > 0 ? Math.round((previousOutOfScope / previousConversations) * 100) : 0;
       const outOfScopeTrend = this.calculateTrend(outOfScopeRate, previousOutOfScopeRate);
+
+      console.log(`[AnalyticsService] Metrics calculated: conversations=${totalConversations}, escalationRate=${escalationRate}%, outOfScopeRate=${outOfScopeRate}%`);
 
       return {
         totalConversations,

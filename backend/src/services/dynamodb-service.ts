@@ -494,22 +494,40 @@ export class DynamoDBService {
   }
 
   async getConversationsByDateRange(startDate: string, endDate: string, language?: 'en' | 'es'): Promise<ConversationRecord[]> {
-    const command = new QueryCommand({
-      TableName: this.CONVERSATIONS_TABLE,
-      IndexName: 'DateIndex',
-      KeyConditionExpression: '#date = :date',
-      ExpressionAttributeNames: {
-        '#date': 'date'
-      },
-      ExpressionAttributeValues: {
-        ':date': startDate // Query for specific date
-      }
-    });
+    // Query each date in the range and combine results
+    // Since DateIndex is a GSI on the date field, we need to query each date separately
+    const allConversations: ConversationRecord[] = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // Iterate through each date in the range
+    for (let currentDate = new Date(start); currentDate <= end; currentDate.setDate(currentDate.getDate() + 1)) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      try {
+        const command = new QueryCommand({
+          TableName: this.CONVERSATIONS_TABLE,
+          IndexName: 'DateIndex',
+          KeyConditionExpression: '#date = :date',
+          ExpressionAttributeNames: {
+            '#date': 'date'
+          },
+          ExpressionAttributeValues: {
+            ':date': dateStr
+          }
+        });
 
-    const result = await this.client.send(command);
-    let conversations = (result.Items || []) as ConversationRecord[];
+        const result = await this.client.send(command);
+        const dayConversations = (result.Items || []) as ConversationRecord[];
+        allConversations.push(...dayConversations);
+      } catch (error) {
+        console.error(`Error querying conversations for date ${dateStr}:`, error);
+        // Continue with next date if one fails
+      }
+    }
 
     // Filter by language if specified
+    let conversations = allConversations;
     if (language) {
       conversations = conversations.filter(conv => conv.language === language);
     }
@@ -939,12 +957,23 @@ export class DynamoDBService {
    * Generic scan items method for backward compatibility
    */
   async scanItems(tableName: string, options?: any): Promise<any[]> {
-    const command = new ScanCommand({
-      TableName: tableName,
-      ...options
-    });
+    const allItems: any[] = [];
+    let lastEvaluatedKey: any = undefined;
 
-    const result = await this.client.send(command);
-    return result.Items || [];
+    do {
+      const command = new ScanCommand({
+        TableName: tableName,
+        ExclusiveStartKey: lastEvaluatedKey,
+        ...options
+      });
+
+      const result = await this.client.send(command);
+      if (result.Items) {
+        allItems.push(...result.Items);
+      }
+      lastEvaluatedKey = result.LastEvaluatedKey;
+    } while (lastEvaluatedKey);
+
+    return allItems;
   }
 }
