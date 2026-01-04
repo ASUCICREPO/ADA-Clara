@@ -124,10 +124,44 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
       password: password,
     });
 
+    // Wait a bit for the session to be established
+    // Then fetch the session to ensure tokens are available
+    await fetchAuthSession({ forceRefresh: true });
+
     // Get user details after successful sign in
-    const user = await getCurrentUser();
+    // Retry logic in case the session isn't immediately available
+    let user: AuthUser | null = null;
+    let retries = 3;
+    while (!user && retries > 0) {
+      try {
+        user = await getCurrentUser();
+        if (!user) {
+          // Wait a bit before retrying
+          await new Promise(resolve => setTimeout(resolve, 100));
+          retries--;
+        }
+      } catch (err) {
+        console.warn('getCurrentUser attempt failed, retrying...', err);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        retries--;
+      }
+    }
+
     if (!user) {
-      throw new Error('Failed to get user details after sign in');
+      // If we still can't get the user, try to construct from session
+      const session = await fetchAuthSession();
+      const idTokenPayload = session.tokens?.idToken?.payload;
+      if (idTokenPayload) {
+        return {
+          username: email,
+          email: (idTokenPayload.email as string) || email,
+          attributes: {
+            email: (idTokenPayload.email as string) || email,
+            ...(idTokenPayload as Record<string, string>),
+          },
+        };
+      }
+      throw new Error('Failed to get user details after sign in. Please try again.');
     }
 
     return user;
@@ -142,6 +176,10 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
         throw new Error('User account is not confirmed. Please check your email.');
       } else if (error.name === 'UserNotFoundException') {
         throw new Error('User not found. Please check your email.');
+      }
+      // Don't re-throw the "Failed to get user details" error as-is, wrap it
+      if (error.message.includes('Failed to get user details')) {
+        throw error;
       }
       throw error;
     }
