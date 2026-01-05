@@ -50,6 +50,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
   // Bedrock Knowledge Base
   public readonly knowledgeBase: CfnKnowledgeBase;
+  public readonly dataSource: CfnDataSource;
 
   // EventBridge
   public readonly webScraperScheduleRule: events.Rule;
@@ -277,10 +278,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.vectorIndex = new Index(this, 'VectorIndex', {
       vectorBucketName: this.vectorsBucket.vectorBucketName,
-      indexName: `ada-clara-index${stackSuffix}`,
+      indexName: `ada-clara-index-v2${stackSuffix}`, // New index name to force recreation
       dimension: 1024, // Titan v2 embedding dimensions
       distanceMetric: 'cosine',
       dataType: 'float32',
+      metadataConfiguration: {
+        nonFilterableMetadataKeys: ['url', 'title', 'scraped'] // Store these as non-filterable to avoid size limits
+      }
     });
 
     // ========== BEDROCK KNOWLEDGE BASE ==========
@@ -300,6 +304,16 @@ export class AdaClaraUnifiedStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: ['s3vectors:*'],
       resources: ['*'],
+    }));
+
+    // Grant Bedrock model invocation permissions for embeddings
+    kbRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel'],
+      resources: [
+        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
+        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v1:0`
+      ],
     }));
 
     this.knowledgeBase = new CfnKnowledgeBase(this, 'KnowledgeBase', {
@@ -323,7 +337,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Create data source separately
-    new CfnDataSource(this, 'KnowledgeBaseDataSource', {
+    this.dataSource = new CfnDataSource(this, 'KnowledgeBaseDataSource', {
       knowledgeBaseId: this.knowledgeBase.attrKnowledgeBaseId,
       name: `ada-clara-datasource${stackSuffix}`,
       dataSourceConfiguration: {
@@ -365,6 +379,22 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        BedrockAgentAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'bedrock:StartIngestionJob',
+                'bedrock:GetIngestionJob',
+                'bedrock:ListIngestionJobs'
+              ],
+              resources: [
+                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
+                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}/*`
+              ],
+            }),
+          ],
+        }),
       },
     });
 
@@ -381,49 +411,25 @@ export class AdaClaraUnifiedStack extends Stack {
       handler: 'index.handler',
       code: lambda.Code.fromAsset('dist/web-scraper'),
       timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
-      memorySize: 2048, // Increased memory for AI processing
+      memorySize: 1024, // Reduced memory for simplified scraper
       logGroup: webScraperLogGroup,
       role: lambdaExecutionRole,
       environment: {
-        // S3 Vectors configuration
+        // S3 configuration
         CONTENT_BUCKET: this.contentBucket.bucketName,
-        VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
-        VECTOR_INDEX: this.vectorIndex.indexName,
-        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
         
-        // DynamoDB configuration
-        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
+        // Knowledge Base configuration
+        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
+        DATA_SOURCE_ID: this.dataSource.attrDataSourceId,
         
         // Domain and scraping configuration
         TARGET_DOMAIN: 'diabetes.org',
-        MAX_PAGES: '50', // Increased for comprehensive discovery
         RATE_LIMIT_DELAY: '2000',
-        
-        // Path configuration
-        ALLOWED_PATHS: '/about-diabetes,/living-with-diabetes,/food-nutrition,/tools-and-resources,/community,/professionals',
-        BLOCKED_PATHS: '/admin,/login,/api/internal,/private,/search,/cart,/checkout',
-        
-        // Enhanced processing configuration
-        ENABLE_CONTENT_ENHANCEMENT: 'true',
-        ENABLE_INTELLIGENT_CHUNKING: 'true',
-        ENABLE_STRUCTURED_EXTRACTION: 'true',
-        CHUNKING_STRATEGY: 'hybrid',
-        
-        // Change detection configuration
-        ENABLE_CHANGE_DETECTION: 'true',
-        SKIP_UNCHANGED_CONTENT: 'true',
-        FORCE_REFRESH: 'false',
-        
-        // Quality and performance settings
-        QUALITY_THRESHOLD: '0.7',
-        MAX_RETRIES: '3',
-        BATCH_SIZE: '3',
       },
     });
 
     // Grant permissions to web scraper
     this.contentBucket.grantReadWrite(this.webScraperProcessor);
-    this.contentTrackingTable.grantReadWriteData(this.webScraperProcessor);
 
     // EventBridge Rule for weekly scraping (Sundays at 2 AM UTC)
     this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {

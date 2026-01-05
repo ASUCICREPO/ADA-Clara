@@ -5,48 +5,28 @@ phases:
     runtime-versions:
       nodejs: 20
     commands:
-      - echo "Installing AWS CDK CLI..."
-      - npm install -g aws-cdk
-      - echo "Installing zip utility for frontend..."
-      - yum install -y zip
+      - echo "Installing dependencies for frontend deployment..."
 
   pre_build:
     commands:
-      - echo "=== BACKEND DEPLOYMENT ==="
-      - echo "Changing into backend directory"
-      - cd backend
-      - echo "Installing backend dependencies..."
-      - npm ci
-      - echo "Building TypeScript..."
-      - npm run build
-      - echo "Bootstrapping CDK..."
-      - cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
-
-  build:
-    commands:
-      - echo "Deploying CDK stack..."
-      - cdk deploy --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
-      - |
-        if [ $? -ne 0 ]; then
-          echo "CDK deployment failed. Skipping frontend deployment."
-          exit 1
-        fi
-      - echo "CDK deployment complete."
-      - echo "Extracting API Gateway URL and Cognito configuration..."
-      - cd ..
+      - echo "=== FRONTEND DEPLOYMENT TO AMPLIFY ==="
+      - echo "Extracting backend configuration from existing stack..."
       - export API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
       - export USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
       - export USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
       - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
       - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
       - export AWS_REGION=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`Region`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      # AMPLIFY_APP_ID is passed from deploy.sh as environment variable (created before CDK deployment)
       - export FRONTEND_URL="https://main.${AMPLIFY_APP_ID}.amplifyapp.com"
-      - echo "API Gateway URL=$API_GATEWAY_URL"
-      - echo "User Pool ID=$USER_POOL_ID"
-      - echo "Region=$AWS_REGION"
-      - echo ""
-      - echo "=== FRONTEND DEPLOYMENT ==="
+      - echo "Configuration extracted:"
+      - echo "API Gateway URL: $API_GATEWAY_URL"
+      - echo "User Pool ID: $USER_POOL_ID"
+      - echo "Region: $AWS_REGION"
+      - echo "Frontend URL: $FRONTEND_URL"
+
+  build:
+    commands:
+      - echo "Building Next.js frontend..."
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
@@ -60,51 +40,59 @@ phases:
       - echo "NEXT_PUBLIC_COGNITO_DOMAIN=$COGNITO_DOMAIN" >> .env.local
       - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_IN=$FRONTEND_URL/auth/callback" >> .env.local
       - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_OUT=$FRONTEND_URL" >> .env.local
+      - echo "Environment file created:"
+      - cat .env.local
       - echo "Building Next.js application..."
       - npm run build
       - echo "Creating deployment package..."
-      - cd out && zip -r build.zip .
+      - cd out
+      - zip -r ../build.zip .
+      - cd ..
+      - echo "Build package created: $(ls -la build.zip)"
 
   post_build:
     commands:
-      - echo "Deploying frontend to Amplify..."
-      - echo "Creating Amplify deployment..."
-      - cd ../..
+      - echo "Deploying to Amplify..."
       - |
-        # Create deployment and capture both exit code and output
-        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
-          echo "✅ Amplify deployment created successfully"
+        # Create Amplify deployment
+        echo "Creating Amplify deployment..."
+        DEPLOYMENT_RESULT=$(aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json)
+        
+        if echo "$DEPLOYMENT_RESULT" | grep -q "zipUploadUrl"; then
+          echo "SUCCESS: Deployment created"
+          UPLOAD_URL=$(echo "$DEPLOYMENT_RESULT" | jq -r '.zipUploadUrl')
+          JOB_ID=$(echo "$DEPLOYMENT_RESULT" | jq -r '.jobId')
+          echo "Upload URL obtained, Job ID: $JOB_ID"
         else
-          DEPLOYMENT_ERROR=$(cat deployment_response.json)
-          # Check if error is because deployment already exists (not a real failure)
-          if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
-            echo "⚠️  Deployment already in progress, checking status..."
-            # Try to get the active job ID
-            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
-            if [ -n "$ACTIVE_JOB" ]; then
-              echo "✅ Found active deployment job: $ACTIVE_JOB"
-              echo "Complete deployment finished successfully! (Using existing deployment)"
-              exit 0
-            fi
-          fi
-          echo "❌ Failed to create Amplify deployment"
-          cat deployment_response.json
+          echo "ERROR: Failed to create deployment"
+          echo "$DEPLOYMENT_RESULT"
           exit 1
         fi
-      - echo "Extracting upload URL and job ID..."
-      - export UPLOAD_URL=$(node -e "const data=require('./deployment_response.json'); console.log(data.zipUploadUrl)")
-      - export JOB_ID=$(node -e "const data=require('./deployment_response.json'); console.log(data.jobId)")
-      - echo "Uploading build.zip to Amplify..."
-      - cd frontend/out
       - |
-        # Upload with better error handling
-        if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
-          echo "✅ Build.zip uploaded successfully"
+        # Upload build package
+        echo "Uploading build package to Amplify..."
+        UPLOAD_RESULT=$(curl -X PUT -T build.zip "$UPLOAD_URL" -w "%{http_code}" -o /tmp/upload_response.txt -s)
+        
+        if [ "$UPLOAD_RESULT" = "200" ]; then
+          echo "SUCCESS: Build package uploaded successfully"
         else
-          echo "❌ Failed to upload build.zip to Amplify"
+          echo "ERROR: Upload failed with HTTP code: $UPLOAD_RESULT"
+          echo "Response: $(cat /tmp/upload_response.txt)"
           exit 1
         fi
-      - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "⚠️  Deployment start command completed (may already be running)"
-      - echo "Complete deployment finished successfully!"
-
+      - |
+        # Start deployment
+        echo "Starting Amplify deployment..."
+        aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION
+        
+        if [ $? -eq 0 ]; then
+          echo "SUCCESS: Amplify deployment started"
+          echo "Monitor progress at: https://console.aws.amazon.com/amplify/home?region=$AWS_DEFAULT_REGION#/$AMPLIFY_APP_ID"
+          echo "Frontend will be available at: https://main.$AMPLIFY_APP_ID.amplifyapp.com"
+        else
+          echo "ERROR: Failed to start deployment"
+          exit 1
+        fi
+      - echo "=== DEPLOYMENT COMPLETE ==="
+      - echo "Frontend deployed to Amplify successfully!"
+      - echo "URL: https://main.$AMPLIFY_APP_ID.amplifyapp.com"

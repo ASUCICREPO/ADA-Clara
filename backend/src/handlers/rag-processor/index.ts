@@ -24,7 +24,7 @@ let ragController: RAGController;
  */
 function initializeServices(): void {
   if (!ragController) {
-    console.log('🚀 Initializing RAG Processor services...');
+    console.log('Initializing RAG Processor services...');
     
     // Initialize core services
     bedrockService = new BedrockService({
@@ -45,7 +45,7 @@ function initializeServices(): void {
 
     ragController = new RAGController(ragService);
     
-    console.log('✅ RAG Processor services initialized');
+    console.log('RAG Processor services initialized');
   }
 }
 
@@ -55,7 +55,7 @@ function initializeServices(): void {
 export const handler: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> = async (
   event: APIGatewayProxyEvent
 ): Promise<APIGatewayProxyResult> => {
-  console.log('🚀 RAG Query Processing Lambda started');
+  console.log('RAG Query Processing Lambda started');
   console.log('Event:', JSON.stringify(event, null, 2));
 
   try {
@@ -66,7 +66,7 @@ export const handler: Handler<APIGatewayProxyEvent, APIGatewayProxyResult> = asy
     return await ragController.handleRequest(event);
 
   } catch (error) {
-    console.error('❌ RAG processing failed:', error);
+    console.error('RAG processing failed:', error);
     
     return {
       statusCode: 500,

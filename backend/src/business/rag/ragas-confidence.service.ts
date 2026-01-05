@@ -78,7 +78,7 @@ export class RAGASConfidenceService {
     // Generate explanation
     const explanation = this.generateExplanation(metrics, calibrationFactors, calibratedConfidence);
     
-    console.log(`✅ RAGAS confidence: ${(calibratedConfidence * 100).toFixed(1)}%`);
+    console.log(`RAGAS confidence: ${(calibratedConfidence * 100).toFixed(1)}%`);
     console.log(`   Faithfulness: ${(metrics.faithfulness * 100).toFixed(1)}%`);
     console.log(`   Answer Relevancy: ${(metrics.answerRelevancy * 100).toFixed(1)}%`);
     console.log(`   Context Precision: ${(metrics.contextPrecision * 100).toFixed(1)}%`);

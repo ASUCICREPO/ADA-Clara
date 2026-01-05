@@ -145,7 +145,7 @@ export class ChatService {
     try {
       await this.updateSessionActivity(session.sessionId);
     } catch (error) {
-      console.error('❌ Failed to update session activity:', error);
+      console.error('Failed to update session activity:', error);
       // Don't fail the chat if session update fails
     }
     
@@ -169,7 +169,7 @@ export class ChatService {
         escalationSuggested
       );
     } catch (error) {
-      console.error('❌ Failed to process question for analytics:', error);
+      console.error('Failed to process question for analytics:', error);
       // Don't fail the chat if question processing fails
     }
     
@@ -381,10 +381,10 @@ export class ChatService {
       const ragResponse = await this.callRAGService(ragRequest);
       
       // Use RAGAS confidence directly (no additional enhancement needed)
-      console.log(`📊 RAGAS confidence: ${(ragResponse.confidence * 100).toFixed(1)}%`);
+      console.log(`RAGAS confidence: ${(ragResponse.confidence * 100).toFixed(1)}%`);
       
       if (ragResponse.ragasMetrics) {
-        console.log(`📋 RAGAS metrics - F:${(ragResponse.ragasMetrics.faithfulness * 100).toFixed(1)}% AR:${(ragResponse.ragasMetrics.answerRelevancy * 100).toFixed(1)}% CP:${(ragResponse.ragasMetrics.contextPrecision * 100).toFixed(1)}% CR:${(ragResponse.ragasMetrics.contextRecall * 100).toFixed(1)}%`);
+        console.log(`RAGAS metrics - F:${(ragResponse.ragasMetrics.faithfulness * 100).toFixed(1)}% AR:${(ragResponse.ragasMetrics.answerRelevancy * 100).toFixed(1)}% CP:${(ragResponse.ragasMetrics.contextPrecision * 100).toFixed(1)}% CR:${(ragResponse.ragasMetrics.contextRecall * 100).toFixed(1)}%`);
       }
 
       return {
@@ -425,7 +425,7 @@ export class ChatService {
     }
     
     try {
-      console.log(`🚀 Calling RAG processor via API Gateway: ${ragEndpoint}`);
+      console.log(`Calling RAG processor via API Gateway: ${ragEndpoint}`);
       
       // Call RAG processor via API Gateway (using native fetch in Node.js 18+)
       const response = await fetch(ragEndpoint, {
@@ -446,13 +446,13 @@ export class ChatService {
       }
       
       const responseText = await response.text();
-      console.log(`📄 RAG processor raw response: ${responseText.substring(0, 500)}`);
+      console.log(`RAG processor raw response: ${responseText.substring(0, 500)}`);
       
       const body: any = JSON.parse(responseText);
       
-      console.log(`✅ RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
-      console.log(`📋 Response keys: ${Object.keys(body).join(', ')}`);
-      console.log(`📋 Answer preview: ${body.answer ? body.answer.substring(0, 100) : 'NO ANSWER'}`);
+      console.log(`RAG processor response: ${(body.confidence * 100).toFixed(1)}% confidence`);
+      console.log(`Response keys: ${Object.keys(body).join(', ')}`);
+      console.log(`Answer preview: ${body.answer ? body.answer.substring(0, 100) : 'NO ANSWER'}`);
       
       return {
         answer: body.answer,
@@ -589,9 +589,9 @@ export class ChatService {
         // ttl is added automatically by the DynamoDB service
       });
       
-      console.log(`✅ Created escalation request: ${escalationId}`);
+      console.log(`Created escalation request: ${escalationId}`);
     } catch (error) {
-      console.error('❌ Error creating escalation:', error);
+      console.error('Error creating escalation:', error);
       // Don't throw - escalation failure shouldn't break chat
     }
   }

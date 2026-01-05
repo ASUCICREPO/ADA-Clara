@@ -30,7 +30,7 @@ export class DomainDiscoveryService {
    * Now with improved robots.txt compliance and rate limiting
    */
   async discoverDomainUrls(domain: string, options: DiscoveryOptions): Promise<ComprehensiveDiscoveryResult> {
-    console.log(`🚀 Starting ENHANCED domain discovery for: ${domain}`);
+    console.log(`Starting ENHANCED domain discovery for: ${domain}`);
     console.log(`Target: ${options.maxUrls} URLs with ${options.maxDepth} levels depth`);
     console.log(`Rate limiting: ${options.rateLimitDelay || this.DEFAULT_DELAY}ms delay`);
     console.log(`Robots.txt compliance: ${options.respectRobotsTxt ? 'Enabled' : 'Disabled'}`);
@@ -51,44 +51,44 @@ export class DomainDiscoveryService {
 
     try {
       // Strategy 1: Comprehensive Sitemap Discovery
-      console.log('📋 Strategy 1: Comprehensive Sitemap Discovery');
+      console.log('Strategy 1: Comprehensive Sitemap Discovery');
       const sitemapUrls = await this.discoverAllSitemaps(domain);
       for (const url of sitemapUrls) {
         if (await this.addUrlIfValid(url) && this.discoveredUrls.size < options.maxUrls) {
           discoveryBreakdown.sitemaps++;
         }
       }
-      console.log(`   ✅ Found ${discoveryBreakdown.sitemaps} URLs from sitemaps`);
+      console.log(`   Found ${discoveryBreakdown.sitemaps} URLs from sitemaps`);
 
       // Strategy 2: Systematic Link Following
-      console.log('🔗 Strategy 2: Systematic Link Following');
+      console.log('Strategy 2: Systematic Link Following');
       const linkUrls = await this.systematicLinkFollowing(domain, options.maxDepth, options.maxUrls);
       for (const url of linkUrls) {
         if (await this.addUrlIfValid(url) && this.discoveredUrls.size < options.maxUrls) {
           discoveryBreakdown.linkFollowing++;
         }
       }
-      console.log(`   ✅ Found ${discoveryBreakdown.linkFollowing} URLs from link following`);
+      console.log(`   Found ${discoveryBreakdown.linkFollowing} URLs from link following`);
 
       // Strategy 3: Navigation Menu Extraction
-      console.log('📱 Strategy 3: Navigation Menu Extraction');
+      console.log('Strategy 3: Navigation Menu Extraction');
       const menuUrls = await this.extractNavigationMenus(domain);
       for (const url of menuUrls) {
         if (await this.addUrlIfValid(url) && this.discoveredUrls.size < options.maxUrls) {
           discoveryBreakdown.pathGeneration++; // Count as path generation for compatibility
         }
       }
-      console.log(`   ✅ Found navigation URLs`);
+      console.log(`   Found navigation URLs`);
 
       // Strategy 4: Systematic Path Generation
-      console.log('🗂️  Strategy 4: Systematic Path Generation');
+      console.log('Strategy 4: Systematic Path Generation');
       const pathUrls = await this.generateSystematicPaths(domain);
       for (const url of pathUrls) {
         if (await this.addUrlIfValid(url) && this.discoveredUrls.size < options.maxUrls) {
           discoveryBreakdown.pathGeneration++;
         }
       }
-      console.log(`   ✅ Generated systematic paths`);
+      console.log(`   Generated systematic paths`);
 
       // Strategy 5: Archive Discovery (for compatibility)
       console.log('📚 Strategy 5: Archive Discovery');
@@ -98,13 +98,13 @@ export class DomainDiscoveryService {
           discoveryBreakdown.archiveDiscovery++;
         }
       }
-      console.log(`   ✅ Found archived content`);
+      console.log(`   Found archived content`);
 
       const processingTime = Date.now() - startTime;
       const totalUrls = this.discoveredUrls.size;
       const coverageEstimate = Math.min(100, (totalUrls / 1311) * 100); // Based on realistic estimate
 
-      console.log(`🎯 ENHANCED DISCOVERY COMPLETE:`);
+      console.log(`ENHANCED DISCOVERY COMPLETE:`);
       console.log(`   Total Unique URLs: ${totalUrls}`);
       console.log(`   Coverage: ${coverageEstimate.toFixed(1)}%`);
       console.log(`   Time: ${processingTime}ms`);
@@ -139,7 +139,7 @@ export class DomainDiscoveryService {
     const baseUrl = `https://${domain}`;
     const sitemapUrls = new Set<string>();
 
-    console.log('   🔍 Checking robots.txt for sitemaps...');
+    console.log('   Checking robots.txt for sitemaps...');
     
     // Check robots.txt first
     try {
@@ -153,16 +153,16 @@ export class DomainDiscoveryService {
         if (line.toLowerCase().startsWith('sitemap:')) {
           const sitemapUrl = line.substring(8).trim();
           if (sitemapUrl) {
-            console.log(`     📋 Found in robots.txt: ${sitemapUrl}`);
+            console.log(`     Found in robots.txt: ${sitemapUrl}`);
             await this.parseSitemap(sitemapUrl, sitemapUrls);
           }
         }
       }
     } catch (error) {
-      console.log('     ⚠️  No robots.txt found, checking common locations');
+      console.log('     No robots.txt found, checking common locations');
     }
 
-    console.log('   🔍 Checking common sitemap locations...');
+    console.log('   Checking common sitemap locations...');
     
     // Check common sitemap locations
     const commonLocations = [
@@ -188,7 +188,7 @@ export class DomainDiscoveryService {
         });
         
         if (response.status === 200) {
-          console.log(`     ✅ Found sitemap: ${location}`);
+          console.log(`     Found sitemap: ${location}`);
           await this.parseSitemap(sitemapUrl, sitemapUrls);
         }
       } catch (error) {
@@ -197,7 +197,7 @@ export class DomainDiscoveryService {
     }
 
     // Special handling for diabetes.org paginated sitemaps
-    console.log('   🔍 Checking for paginated sitemaps...');
+    console.log('   Checking for paginated sitemaps...');
     
     try {
       // Check if main sitemap is an index pointing to paginated sitemaps
@@ -209,19 +209,19 @@ export class DomainDiscoveryService {
       // Look for paginated sitemap URLs
       const paginatedMatches = mainSitemapResponse.data.match(/sitemap\.xml\?page=\d+/g);
       if (paginatedMatches) {
-        console.log(`     📄 Found ${paginatedMatches.length} paginated sitemaps`);
+        console.log(`     Found ${paginatedMatches.length} paginated sitemaps`);
         
         for (const paginatedPath of paginatedMatches) {
           const paginatedUrl = `${baseUrl}/${paginatedPath}`;
-          console.log(`     📋 Processing paginated sitemap: ${paginatedUrl}`);
+          console.log(`     Processing paginated sitemap: ${paginatedUrl}`);
           await this.parseSitemap(paginatedUrl, sitemapUrls);
         }
       }
     } catch (error) {
-      console.log('     ⚠️  Could not check for paginated sitemaps');
+      console.log('     Could not check for paginated sitemaps');
     }
 
-    console.log(`   ✅ Total URLs discovered from sitemaps: ${sitemapUrls.size}`);
+    console.log(`   Total URLs discovered from sitemaps: ${sitemapUrls.size}`);
     return Array.from(sitemapUrls);
   }
 
@@ -230,7 +230,7 @@ export class DomainDiscoveryService {
    */
   private async parseSitemap(sitemapUrl: string, discoveredUrls: Set<string>): Promise<void> {
     try {
-      console.log(`   📋 Parsing sitemap: ${sitemapUrl}`);
+      console.log(`   Parsing sitemap: ${sitemapUrl}`);
       
       const response = await axios.get(sitemapUrl, {
         timeout: 20000,
@@ -274,7 +274,7 @@ export class DomainDiscoveryService {
         }
       }
 
-      console.log(`     ✅ Added ${urlCount} URLs from sitemap`);
+      console.log(`     Added ${urlCount} URLs from sitemap`);
 
       // Rate limiting between sitemap requests
       await this.sleep(500);
@@ -307,7 +307,7 @@ export class DomainDiscoveryService {
     let currentLevel = [...seedUrls];
     
     for (let depth = 0; depth < maxDepth && currentLevel.length > 0; depth++) {
-      console.log(`     📊 Depth ${depth + 1}: Processing ${currentLevel.length} URLs`);
+      console.log(`     Depth ${depth + 1}: Processing ${currentLevel.length} URLs`);
       
       const nextLevel = new Set<string>();
       
@@ -350,7 +350,7 @@ export class DomainDiscoveryService {
       }
       
       currentLevel = Array.from(nextLevel);
-      console.log(`        ✅ Found ${nextLevel.size} URLs for next level`);
+      console.log(`        Found ${nextLevel.size} URLs for next level`);
     }
 
     return discoveredUrls;

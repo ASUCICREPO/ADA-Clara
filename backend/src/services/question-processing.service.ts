@@ -29,7 +29,7 @@ export class QuestionProcessingService {
       const isDiabetesRelated = this.isDiabetesRelated(botResponse);
       
       if (!isDiabetesRelated) {
-        console.log(`🚫 Skipping out-of-scope question: ${originalQuestion.substring(0, 100)}...`);
+        console.log(`Skipping out-of-scope question: ${originalQuestion.substring(0, 100)}...`);
         return;
       }
 
@@ -65,7 +65,7 @@ export class QuestionProcessingService {
       // Store or update the question record
       await this.dynamoService.createOrUpdateQuestionRecord(questionRecord);
       
-      console.log(`✅ Processed question: ${category} | ${normalizedQuestion.substring(0, 50)}... | Answered: ${isAnswered}`);
+      console.log(`Processed question: ${category} | ${normalizedQuestion.substring(0, 50)}... | Answered: ${isAnswered}`);
     } catch (error) {
       console.error('Error processing question:', error);
       // Don't throw - question processing shouldn't break chat flow

@@ -59,7 +59,7 @@ print_amplify() {
 }
 
 # --- Phase 1: Create IAM Service Role ---
-print_status "🔐 Phase 1: Creating IAM Service Role..."
+print_status "Phase 1: Creating IAM Service Role..."
 
 ROLE_NAME="${PROJECT_NAME}-service-role"
 print_status "Checking for IAM role: $ROLE_NAME"
@@ -129,7 +129,7 @@ else
 fi
 
 # --- Phase 2: Create Amplify App (Static Hosting) ---
-print_amplify "🌐 Phase 2: Creating Amplify Application for Static Hosting..."
+print_amplify "Phase 2: Creating Amplify Application for Static Hosting..."
 
 # Check if app already exists
 EXISTING_APP_ID=$(AWS_PAGER="" aws amplify list-apps --query "apps[?name=='$AMPLIFY_APP_NAME'].appId" --output text --region "$AWS_REGION" 2>/dev/null || echo "None")
@@ -181,7 +181,7 @@ else
 fi
 
 # --- Phase 3: Create Unified CodeBuild Project ---
-print_codebuild "🏗️ Phase 3: Creating Unified CodeBuild Project..."
+print_codebuild "Phase 3: Creating Unified CodeBuild Project..."
 
 # Build environment variables for unified deployment
 ENV_VARS_ARRAY='{
@@ -231,7 +231,7 @@ AWS_PAGER="" aws codebuild create-project \
 print_success "Unified CodeBuild project '$CODEBUILD_PROJECT_NAME' created."
 
 # --- Phase 4: Start Unified Build ---
-print_codebuild "🚀 Phase 4: Starting Unified Deployment (Backend + Frontend)..."
+print_codebuild "Phase 4: Starting Unified Deployment (Backend + Frontend)..."
 
 print_status "Starting deployment build for project '$CODEBUILD_PROJECT_NAME'..."
 BUILD_ID=$(AWS_PAGER="" aws codebuild start-build \
@@ -382,7 +382,7 @@ if [ -z "$AMPLIFY_URL" ] || [ "$AMPLIFY_URL" = "None" ]; then
 fi
 
 # --- Phase 5: Initial Knowledge Base Population ---
-print_status "🧠 Phase 5: Populating Knowledge Base with diabetes.org content..."
+print_status "Phase 5: Populating Knowledge Base with diabetes.org content..."
 
 # Wait a moment for the Lambda function to be fully ready
 print_status "Waiting for Lambda function to be ready..."
@@ -407,7 +407,10 @@ fi
 # Trigger initial scraping
 print_status "Triggering initial diabetes.org domain scraping..."
 
-SCRAPER_PAYLOAD='{
+# Create a temporary payload file with the correct action name
+PAYLOAD_FILE="/tmp/scraper-payload.json"
+cat > "$PAYLOAD_FILE" << 'EOF'
+{
   "action": "discover-scrape",
   "domain": "diabetes.org",
   "maxUrls": 50,
@@ -416,20 +419,45 @@ SCRAPER_PAYLOAD='{
   "enableStructuredExtraction": true,
   "chunkingStrategy": "hybrid",
   "forceRefresh": true
-}'
+}
+EOF
 
-# Invoke the web scraper Lambda function
+print_status "Payload file created: $PAYLOAD_FILE"
+
+# Invoke the web scraper Lambda function asynchronously
+print_status "Invoking Lambda function asynchronously..."
 SCRAPER_RESULT=$(AWS_PAGER="" aws lambda invoke \
   --function-name "$WEB_SCRAPER_FUNCTION" \
-  --payload "$SCRAPER_PAYLOAD" \
+  --cli-binary-format raw-in-base64-out \
+  --invocation-type Event \
+  --payload "file://$PAYLOAD_FILE" \
   --region "$AWS_REGION" \
   /tmp/scraper-response.json 2>&1)
 
-if [ $? -eq 0 ]; then
+INVOKE_EXIT_CODE=$?
+
+if [ $INVOKE_EXIT_CODE -eq 0 ]; then
   # Check if the invocation was successful
-  STATUS_CODE=$(echo "$SCRAPER_RESULT" | jq -r '.StatusCode' 2>/dev/null || echo "200")
+  STATUS_CODE=$(echo "$SCRAPER_RESULT" | jq -r '.StatusCode' 2>/dev/null || echo "unknown")
   
-  if [ "$STATUS_CODE" = "200" ]; then
+  print_status "Lambda StatusCode: $STATUS_CODE"
+  
+  if [ "$STATUS_CODE" = "202" ]; then
+    print_success "Initial scraping triggered successfully (asynchronous)!"
+    
+    print_success "Knowledge base population started!"
+    echo ""
+    echo "What happens next:"
+    echo "  - The web scraper is now running in the background"
+    echo "  - It will discover relevant pages on diabetes.org"
+    echo "  - Content will be processed with AI enhancement"
+    echo "  - Vectors will be stored in S3 Vectors for the knowledge base"
+    echo "  - This process may take 10-15 minutes to complete"
+    echo ""
+    echo "You can monitor progress in CloudWatch logs:"
+    echo "  Log Group: /aws/lambda/$WEB_SCRAPER_FUNCTION"
+    
+  elif [ "$STATUS_CODE" = "200" ]; then
     print_success "Initial scraping triggered successfully!"
     
     # Try to extract some basic info from the response
@@ -450,12 +478,13 @@ if [ $? -eq 0 ]; then
     print_warning "Initial scraping may not have started successfully."
   fi
 else
-  print_warning "Failed to trigger initial scraping: $SCRAPER_RESULT"
+  print_warning "Failed to trigger initial scraping (exit code $INVOKE_EXIT_CODE): $SCRAPER_RESULT"
   print_warning "You can manually trigger scraping later via the API or admin interface."
 fi
 
-# Clean up temporary file
+# Clean up temporary files
 rm -f /tmp/scraper-response.json
+rm -f "$PAYLOAD_FILE"
 
 # --- Final Summary ---
 print_success "COMPLETE DEPLOYMENT SUCCESSFUL!"

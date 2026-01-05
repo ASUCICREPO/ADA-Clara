@@ -618,6 +618,7 @@ export class WebScraperService {
                 key: chunk.id,
                 vector: embedding.embedding,
                 metadata: {
+                  content: chunk.content, // Add the actual text content for Bedrock KB
                   sourceUrl: chunk.metadata.sourceUrl,
                   sourceTitle: chunk.metadata.sourceTitle,
                   section: chunk.metadata.section,

@@ -70,13 +70,13 @@ export class RAGService {
     const startTime = Date.now();
 
     try {
-      console.log(`🔍 Processing RAG query via Knowledge Base: "${request.query}"`);
+      console.log(`Processing RAG query via Knowledge Base: "${request.query}"`);
 
       // Check if question is off-topic before processing
       const isOffTopic = this.isOffTopicQuestion(request.query);
       
       if (isOffTopic) {
-        console.log('🚫 Off-topic question detected - returning redirect response');
+        console.log('Off-topic question detected - returning redirect response');
         return this.createOffTopicResponse(request, startTime);
       }
 
@@ -87,7 +87,7 @@ export class RAGService {
         request.maxResults || this.config.maxResults
       );
 
-      console.log(`✅ Knowledge Base response received`);
+      console.log(`Knowledge Base response received`);
 
       // Extract answer and sources from KB response
       const answer = kbResponse.output?.text || 'I apologize, but I couldn\'t generate a response at this time.';
@@ -107,9 +107,9 @@ export class RAGService {
 
       const processingTime = Date.now() - startTime;
 
-      console.log(`✅ RAG processing completed in ${processingTime}ms`);
-      console.log(`📊 RAGAS Confidence: ${(ragasEvaluation.confidence * 100).toFixed(1)}%`);
-      console.log(`📋 Escalation: ${escalationSuggested ? 'YES' : 'NO'}`);
+      console.log(`RAG processing completed in ${processingTime}ms`);
+      console.log(`RAGAS Confidence: ${(ragasEvaluation.confidence * 100).toFixed(1)}%`);
+      console.log(`Escalation: ${escalationSuggested ? 'YES' : 'NO'}`);
 
       return {
         answer,
@@ -124,7 +124,7 @@ export class RAGService {
       };
 
     } catch (error) {
-      console.error('❌ RAG query processing failed:', error);
+      console.error('RAG query processing failed:', error);
       
       // Return fallback response
       return {

@@ -61,13 +61,13 @@ export class CacheService {
     // Check if cached data is still valid
     if (cached && this.isValidCacheEntry(cached)) {
       this.stats.hits++;
-      console.log(`🎯 Cache HIT for key: ${key}`);
+      console.log(`Cache HIT for key: ${key}`);
       return cached.data;
     }
     
     // Cache miss - fetch fresh data
     this.stats.misses++;
-    console.log(`❌ Cache MISS for key: ${key}`);
+    console.log(`Cache MISS for key: ${key}`);
     
     try {
       const data = await fetchFunction();
@@ -78,7 +78,7 @@ export class CacheService {
       
       // Return stale data if available and error occurred
       if (cached) {
-        console.log(`⚠️ Returning stale data for key: ${key}`);
+        console.log(`Returning stale data for key: ${key}`);
         return cached.data;
       }
       
@@ -117,7 +117,7 @@ export class CacheService {
     const deleted = this.cache.delete(cacheKey);
     
     if (deleted) {
-      console.log(`🗑️ Invalidated cache for key: ${key}`);
+      console.log(`Invalidated cache for key: ${key}`);
     }
     
     return deleted;
@@ -137,7 +137,7 @@ export class CacheService {
       }
     }
     
-    console.log(`🗑️ Invalidated ${deletedCount} cache entries matching pattern: ${pattern}`);
+    console.log(`Invalidated ${deletedCount} cache entries matching pattern: ${pattern}`);
     return deletedCount;
   }
 
@@ -194,7 +194,7 @@ export class CacheService {
     });
     
     await Promise.all(warmUpPromises);
-    console.log(`✅ Cache warm-up completed`);
+    console.log(`Cache warm-up completed`);
   }
 
   // Private methods
@@ -262,7 +262,7 @@ export class CacheService {
   private async persistToDynamoDB(entry: CacheEntry<any>): Promise<void> {
     // TODO: Implement DynamoDB persistence for cross-Lambda cache sharing
     // This would store cache entries in a DynamoDB table with TTL
-    console.log(`📝 TODO: Persist cache entry to DynamoDB: ${entry.key}`);
+    console.log(`TODO: Persist cache entry to DynamoDB: ${entry.key}`);
   }
 }
 

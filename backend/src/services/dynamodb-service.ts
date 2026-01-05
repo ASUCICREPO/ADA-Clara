@@ -48,7 +48,7 @@ export class DynamoDBService {
 
   constructor(config?: { region?: string; endpoint?: string }) {
     const dynamoClient = new DynamoDBClient({
-      region: config?.region || process.env.AWS_REGION || 'us-east-1',
+      region: config?.region || process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION || 'us-east-1',
       ...(config?.endpoint ? { endpoint: config.endpoint } : {})
     });
     this.client = DynamoDBDocumentClient.from(dynamoClient, {

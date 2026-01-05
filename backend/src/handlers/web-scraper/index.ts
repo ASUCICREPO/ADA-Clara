@@ -9,11 +9,9 @@ import { APIGatewayProxyEvent, APIGatewayProxyResult, Context } from 'aws-lambda
 import { ServiceContainer } from '../../services/container';
 import { 
   WebScraperController,
-  DiscoverAndScrapeRequest,
   ScrapeUrlsRequest,
   ScrapeUrlRequest,
-  TestScraperRequest,
-  CheckContentChangesRequest
+  TestScraperRequest
 } from './web-scraper.controller';
 
 /**
@@ -65,7 +63,7 @@ export const handler = async (
   event: any,
   context: Context
 ): Promise<APIGatewayProxyResult | any> => {
-  console.log('🚀 Web Scraper Lambda started');
+  console.log('Web Scraper Lambda started');
   console.log('Event:', JSON.stringify(event, null, 2));
 
   try {
@@ -76,46 +74,23 @@ export const handler = async (
       const eventBridgeEvent = event as EventBridgeEvent;
       const detail = eventBridgeEvent.detail;
       
-      // Handle scheduled scraping with AI processing
+      // Handle scheduled scraping with simplified processing
       let result: APIGatewayProxyResult;
       
       switch (detail.action) {
-        case 'scheduled-discover-scrape':
-          const discoverRequest: DiscoverAndScrapeRequest = {
-            action: 'discover-scrape',
-            domain: detail.domain || 'diabetes.org',
-            maxUrls: detail.maxUrls || 50,
-            enableContentEnhancement: true,
-            enableIntelligentChunking: true,
-            enableStructuredExtraction: true,
-            chunkingStrategy: 'hybrid'
-          };
-          result = await controller.handleDiscoverAndScrape(discoverRequest);
-          break;
-          
         case 'scheduled-scrape-urls':
           if (detail.urls && detail.urls.length > 0) {
             const scrapeRequest: ScrapeUrlsRequest = {
               action: 'scrape-urls',
-              urls: detail.urls,
-              enableContentEnhancement: true,
-              enableIntelligentChunking: true,
-              enableStructuredExtraction: true,
-              chunkingStrategy: 'hybrid'
+              urls: detail.urls
             };
             result = await controller.handleScrapeUrls(scrapeRequest);
           } else {
-            // Fallback to discover and scrape
-            const discoverRequest: DiscoverAndScrapeRequest = {
-              action: 'discover-scrape',
-              domain: detail.domain || 'diabetes.org',
-              maxUrls: detail.maxUrls || 50,
-              enableContentEnhancement: true,
-              enableIntelligentChunking: true,
-              enableStructuredExtraction: true,
-              chunkingStrategy: 'hybrid'
+            // Use default URLs for scheduled execution
+            const scrapeRequest: ScrapeUrlsRequest = {
+              action: 'scrape-urls'
             };
-            result = await controller.handleDiscoverAndScrape(discoverRequest);
+            result = await controller.handleScrapeUrls(scrapeRequest);
           }
           break;
           
@@ -138,16 +113,16 @@ export const handler = async (
       
       // Log success/failure for CloudWatch metrics
       if (eventBridgeResponse.success) {
-        console.log(`✅ SUCCESS: Scheduled execution completed successfully`);
+        console.log(`SUCCESS: Scheduled execution completed successfully`);
       } else {
-        console.error(`❌ ERROR: Scheduled execution failed with status ${result.statusCode}`);
+        console.error(`ERROR: Scheduled execution failed with status ${result.statusCode}`);
       }
       
       return eventBridgeResponse;
     }
 
     // Handle HTTP API Gateway requests
-    console.log('🌐 Processing HTTP API Gateway request');
+    console.log('Processing HTTP API Gateway request');
     
     const apiEvent = event as APIGatewayProxyEvent;
     // Handle CORS preflight requests
@@ -195,10 +170,6 @@ export const handler = async (
     const action = requestBody.action || apiEvent.queryStringParameters?.action;
 
     switch (action) {
-      case 'discover-scrape':
-      case 'discover-domain': // Legacy support
-        return await controller.handleDiscoverAndScrape(requestBody as DiscoverAndScrapeRequest);
-
       case 'scrape-urls':
         return await controller.handleScrapeUrls(requestBody as ScrapeUrlsRequest);
 
@@ -207,9 +178,6 @@ export const handler = async (
 
       case 'test-scraper':
         return await controller.handleTestScraper(requestBody as TestScraperRequest);
-        
-      case 'check-content-changes':
-        return await controller.handleCheckContentChanges(requestBody as CheckContentChangesRequest);
 
       case 'health':
         return await controller.healthCheck();
@@ -224,43 +192,31 @@ export const handler = async (
           body: JSON.stringify({
             error: 'Invalid or missing action parameter',
             supportedActions: [
-              'discover-scrape', 'discover-domain',
               'scrape-urls', 'scrape-single',
-              'test-scraper', 'check-content-changes', 'health'
+              'test-scraper', 'health'
             ],
             examples: {
-              'discover-scrape': {
-                action: 'discover-scrape',
-                domain: 'diabetes.org',
-                maxUrls: 50,
-                enableContentEnhancement: true,
-                enableIntelligentChunking: true,
-                enableStructuredExtraction: true,
-                chunkingStrategy: 'hybrid'
-              },
               'scrape-urls': {
                 action: 'scrape-urls',
                 urls: [
                   'https://diabetes.org/about-diabetes/type-1',
                   'https://diabetes.org/about-diabetes/type-2'
-                ],
-                enableContentEnhancement: true,
-                enableIntelligentChunking: true,
-                chunkingStrategy: 'semantic'
-              },
-              'check-content-changes': {
-                action: 'check-content-changes',
-                urls: [
-                  'https://diabetes.org/about-diabetes/type-1',
-                  'https://diabetes.org/about-diabetes/type-2'
                 ]
+              },
+              'scrape-single': {
+                action: 'scrape-single',
+                url: 'https://diabetes.org/about-diabetes/type-1'
+              },
+              'test-scraper': {
+                action: 'test-scraper',
+                testUrl: 'https://diabetes.org/about-diabetes/type-1'
               }
             }
           })
         };
     }
   } catch (error) {
-    console.error('❌ Web Scraper handler error:', error);
+    console.error('Web Scraper handler error:', error);
     
     const errorResponse = {
       statusCode: 500,
@@ -287,7 +243,7 @@ export const handler = async (
         executionId: event.detail?.executionId || 'unknown'
       };
       
-      console.error(`❌ ERROR: Scheduled execution failed:`, JSON.stringify(eventBridgeErrorResponse, null, 2));
+      console.error(`ERROR: Scheduled execution failed:`, JSON.stringify(eventBridgeErrorResponse, null, 2));
       
       return eventBridgeErrorResponse;
     }

@@ -600,7 +600,7 @@ export class AnalyticsService {
    * Get real-time metrics (advanced interface)
    */
   async getRealTimeMetrics(): Promise<RealTimeMetrics> {
-    console.log('⚡ Getting enhanced real-time metrics');
+    console.log('Getting enhanced real-time metrics');
 
     try {
       const [
@@ -690,7 +690,7 @@ export class AnalyticsService {
         alerts: alerts
       };
     } catch (error) {
-      console.error('❌ Error getting real-time metrics:', error);
+      console.error('Error getting real-time metrics:', error);
       throw new Error(`Failed to get real-time metrics: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

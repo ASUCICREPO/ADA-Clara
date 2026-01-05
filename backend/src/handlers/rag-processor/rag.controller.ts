@@ -18,7 +18,7 @@ export class RAGController {
    */
   async processQuery(event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> {
     try {
-      console.log('🔍 RAG query request received');
+      console.log('RAG query request received');
 
       // Parse request body
       const body = event.body ? JSON.parse(event.body) : {};
@@ -60,7 +60,7 @@ export class RAGController {
       // Check if response meets accuracy requirements (>95% = confidence > 0.95)
       const meetsAccuracyRequirement = response.confidence > 0.95;
 
-      console.log(`✅ RAG query processed successfully. Confidence: ${response.confidence.toFixed(2)}`);
+      console.log(`RAG query processed successfully. Confidence: ${response.confidence.toFixed(2)}`);
 
       return {
         statusCode: 200,
@@ -79,7 +79,7 @@ export class RAGController {
       };
 
     } catch (error) {
-      console.error('❌ RAG query processing failed:', error);
+      console.error('RAG query processing failed:', error);
       return this.createErrorResponse(500, 'RAG query processing failed', error);
     }
   }
@@ -113,7 +113,7 @@ export class RAGController {
       };
 
     } catch (error) {
-      console.error('❌ RAG health check failed:', error);
+      console.error('RAG health check failed:', error);
       return this.createErrorResponse(503, 'Health check failed', error);
     }
   }
@@ -161,7 +161,7 @@ export class RAGController {
       return this.createErrorResponse(404, `Route not found: ${method} ${path}`);
 
     } catch (error) {
-      console.error('❌ Request handling failed:', error);
+      console.error('Request handling failed:', error);
       return this.createErrorResponse(500, 'Internal server error', error);
     }
   }
