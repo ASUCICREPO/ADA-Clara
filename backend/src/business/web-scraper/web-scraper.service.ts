@@ -1,5 +1,5 @@
 /**
- * Enhanced Web Scraper Service
+ * Web Scraper Service
  * 
  * Integrates all enhanced services for comprehensive content processing:
  * - Domain Discovery for intelligent URL discovery
@@ -63,7 +63,6 @@ export interface EnhancedScrapingConfig {
   // Change detection configuration
   enableChangeDetection: boolean;
   skipUnchangedContent: boolean;
-  maxContentAgeHours: number;
   forceRefresh: boolean;
   
   // Quality and performance settings
@@ -118,10 +117,10 @@ export interface BatchEnhancedScrapingResult {
 }
 
 /**
- * Enhanced Web Scraper Service
+ * Web Scraper Service
  * Orchestrates all enhanced services for comprehensive content processing
  */
-export class EnhancedWebScraperService {
+export class WebScraperService {
   private domainDiscoveryService: DomainDiscoveryService;
   private structuredContentService: StructuredContentExtractorService;
   private contentEnhancementService: ContentEnhancementService;
@@ -530,19 +529,8 @@ export class EnhancedWebScraperService {
             return { url, shouldProcess: true, reason: 'new' };
           }
           
-          // Check if content is older than max age
-          const ageHours = (Date.now() - lastCrawled.getTime()) / (1000 * 60 * 60);
-          if (ageHours > this.config.maxContentAgeHours) {
-            return { url, shouldProcess: true, reason: 'aged' };
-          }
-          
-          // For scheduled executions, we can be more conservative
-          // and skip content that was recently processed
-          if (ageHours < 24) { // Less than 24 hours old
-            return { url, shouldProcess: false, reason: 'recent' };
-          }
-          
-          // For content between 24 hours and max age, do a quick check
+          // Skip age-based checks - only use content hash comparison
+          // For scheduled executions, always check for content changes
           try {
             const headResponse = await fetch(url, { 
               method: 'HEAD',
@@ -575,8 +563,6 @@ export class EnhancedWebScraperService {
       // Log change detection results
       const stats = {
         new: 0,
-        aged: 0,
-        recent: 0,
         unchanged: 0,
         'potentially-changed': 0,
         'detection-failed': 0
@@ -715,7 +701,7 @@ export class EnhancedWebScraperService {
       // Metadata
       processedAt: new Date().toISOString(),
       version: '1.0',
-      source: 'enhanced-web-scraper'
+      source: 'web-scraper'
     };
 
     await this.s3Service.putJsonObject(this.config.contentBucket, key, contentData, {
@@ -855,6 +841,129 @@ export class EnhancedWebScraperService {
   }
 
   /**
+   * Check content changes for multiple URLs
+   */
+  async checkContentChanges(urls: string[]): Promise<Array<{
+    url: string;
+    hasChanged?: boolean;
+    lastCrawled?: string;
+    status: string;
+    error?: string;
+  }>> {
+    const changeResults = [];
+    
+    for (const url of urls) {
+      try {
+        // Validate URL first
+        if (!this.isValidUrl(url)) {
+          changeResults.push({
+            url,
+            status: 'invalid',
+            error: 'Invalid or blocked URL'
+          });
+          continue;
+        }
+        
+        const hasChanged = await this.checkContentChanged(url);
+        const lastCrawled = await this.contentDetectionService.getLastCrawlTimestamp(url);
+        
+        changeResults.push({
+          url,
+          hasChanged,
+          lastCrawled: lastCrawled ? lastCrawled.toISOString() : 'Never',
+          status: hasChanged ? 'needs-update' : 'current'
+        });
+      } catch (error) {
+        changeResults.push({
+          url,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          status: 'error'
+        });
+      }
+    }
+    
+    return changeResults;
+  }
+
+  /**
+   * Check if content has changed since last crawl
+   */
+  private async checkContentChanged(url: string): Promise<boolean> {
+    try {
+      const changeResult = await this.contentDetectionService.detectChanges(url, '');
+      
+      if (changeResult.changeType === 'new') {
+        return true; // New content
+      }
+      
+      // For existing content, fetch current content to compare
+      const scrapingResult = await this.scrapingService.scrapeUrl(url);
+      if (!scrapingResult.success || !scrapingResult.data) {
+        return true; // Default to processing if scraping fails
+      }
+      
+      const currentChangeResult = await this.contentDetectionService.detectChanges(
+        url, 
+        scrapingResult.data.content
+      );
+      
+      const hasChanged = currentChangeResult.hasChanged;
+      
+      console.log(`Content change check for ${url}: ${hasChanged ? 'CHANGED' : 'UNCHANGED'}`);
+      return hasChanged;
+      
+    } catch (error) {
+      console.error(`Content change check failed for ${url}:`, error);
+      return true; // Default to processing if check fails
+    }
+  }
+
+  /**
+   * Validate URL against allowed/blocked patterns
+   */
+  private isValidUrl(url: string): boolean {
+    try {
+      const urlObj = new URL(url);
+      
+      // Check domain
+      if (!urlObj.hostname.includes(this.config.targetDomain)) {
+        return false;
+      }
+      
+      // Check protocol
+      if (urlObj.protocol !== 'https:') {
+        return false;
+      }
+      
+      // Check blocked paths (get from config or environment)
+      const blockedPaths = process.env.BLOCKED_PATHS?.split(',') || [
+        '/admin', '/login', '/api/internal', '/private', '/search', '/cart', '/checkout'
+      ];
+      
+      for (const blockedPath of blockedPaths) {
+        if (urlObj.pathname.startsWith(blockedPath)) {
+          return false;
+        }
+      }
+      
+      // Check allowed paths (if configured)
+      const allowedPaths = process.env.ALLOWED_PATHS?.split(',') || [];
+      if (allowedPaths.length > 0) {
+        const isAllowed = allowedPaths.some(allowedPath => 
+          urlObj.pathname.startsWith(allowedPath)
+        );
+        if (!isAllowed) {
+          return false;
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
    * Health check for all enhanced services
    */
   async healthCheck(): Promise<boolean> {
@@ -894,7 +1003,7 @@ export class EnhancedWebScraperService {
 
       return true;
     } catch (error) {
-      console.error('Enhanced web scraper health check failed:', error);
+      console.error('Web scraper health check failed:', error);
       return false;
     }
   }

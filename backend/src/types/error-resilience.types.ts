@@ -2,7 +2,7 @@
  * Error Resilience Types
  * 
  * Type definitions for error handling, circuit breakers, rate limiting,
- * and resilience patterns in the enhanced web scraper.
+ * and resilience patterns in the web scraper.
  */
 
 export interface RetryConfig {
