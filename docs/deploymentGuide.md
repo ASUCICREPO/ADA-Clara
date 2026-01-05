@@ -1,257 +1,208 @@
 # Deployment Guide
 
-This guide provides step-by-step instructions for deploying ADA Clara.
+This guide provides step-by-step instructions for deploying ADA Clara. The deployment process is simple and can be completed entirely from AWS CloudShell with no local dependencies required.
 
 ---
 
 ## Table of Contents
 
 - [Deployment Guide](#deployment-guide)
-  - [Requirements](#requirements)
-  - [Pre-Deployment](#pre-deployment)
-    - [AWS Account Setup](#aws-account-setup)
-    - [CLI Tools Installation](#cli-tools-installation)
-    - [Environment Configuration](#environment-configuration)
-  - [Deployment](#deployment)
-    - [Backend Deployment](#backend-deployment)
-    - [Frontend Deployment](#frontend-deployment)
+  - [Prerequisites](#prerequisites)
+  - [Quick Start](#quick-start)
+  - [Detailed Deployment Steps](#detailed-deployment-steps)
+  - [What the Deployment Script Does](#what-the-deployment-script-does)
   - [Post-Deployment Verification](#post-deployment-verification)
   - [Troubleshooting](#troubleshooting)
+  - [Cleanup](#cleanup)
 
 ---
 
-## Requirements
+## Prerequisites
 
-Before you deploy, you must have the following:
+Before you deploy, ensure you have:
 
-### Accounts
 - [ ] **AWS Account** - [Create an AWS Account](https://aws.amazon.com/)
-- [ ] AWS account with appropriate service quotas for Lambda, DynamoDB, API Gateway, and Bedrock
+- [ ] AWS account with appropriate service quotas for Lambda, DynamoDB, API Gateway, Bedrock, Amplify, and CodeBuild
+- [ ] IAM permissions for the services listed above (typically AdministratorAccess or equivalent)
 
-### CLI Tools
-- [ ] **AWS CLI** (v2.x) - [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
-- [ ] **Node.js** (v18.x or later) - [Install Node.js](https://nodejs.org/)
-- [ ] **npm** (v9.x or later) - Included with Node.js
-- [ ] **AWS CDK** (v2.x) - Install via `npm install -g aws-cdk`
-- [ ] **Git** - [Install Git](https://git-scm.com/downloads)
-
-### Access Permissions
-- [ ] AWS IAM user/role with permissions for:
-  - CloudFormation (full access)
-  - Lambda (create, update, invoke)
-  - API Gateway (full access)
-  - DynamoDB (create tables, read/write)
-  - S3 (create buckets, read/write)
-  - Bedrock (invoke models, manage knowledge bases)
-  - Cognito (create user pools, manage users)
-  - Amplify (create apps, manage deployments)
-  - CodeBuild (create projects, start builds)
-  - EventBridge (create rules)
-  - IAM (create roles and policies)
-  - CloudWatch Logs (create log groups)
-
-### Software Dependencies
-- [ ] Git - [Install Git](https://git-scm.com/downloads)
-- [ ] Bash shell (for running deployment script)
+> **Note**: No local installation required! All deployment is done from AWS CloudShell, which comes pre-configured with AWS CLI, Git, and other necessary tools. The deployment uses AWS CodeBuild for building, so no local Node.js, npm, or CDK installation is needed.
 
 ---
 
-## Pre-Deployment
+## Quick Start
 
-### AWS Account Setup
+Deploying ADA Clara is straightforward - everything can be done from AWS CloudShell:
 
-1. **Configure AWS CLI**
-   ```bash
-   aws configure
-   ```
-   Enter your:
-   - AWS Access Key ID
-   - AWS Secret Access Key
-   - Default region: `us-west-2` (or your preferred region)
-   - Default output format: `json`
+1. Open AWS Console and start CloudShell
+2. Clone the repository
+3. Make the deployment script executable
+4. Run the script
 
-2. **Verify AWS credentials**
-   ```bash
-   aws sts get-caller-identity
-   ```
-   This should display your AWS account ID and user ARN.
+That's it! The deployment script handles everything automatically.
 
-3. **Bootstrap CDK** (first-time CDK users only)
-   ```bash
-   cd backend
-   cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/$(aws configure get region)
-   ```
-   This bootstraps CDK in your account and region.
+---
 
-### CLI Tools Installation
+## Detailed Deployment Steps
 
-1. **Install Node.js dependencies for backend**
-   ```bash
-   cd backend
-   npm install
-   ```
+### Step 1: Open AWS CloudShell
 
-2. **Install Node.js dependencies for frontend**
-   ```bash
-   cd frontend
-   npm install
-   ```
+1. Log in to your [AWS Console](https://console.aws.amazon.com/)
+2. Click on the **CloudShell** icon in the top navigation bar (or search for "CloudShell" in the services search)
+3. Wait for CloudShell to initialize (this may take a few moments on first use)
 
-3. **Install AWS CDK globally** (if not already installed)
-   ```bash
-   npm install -g aws-cdk
-   ```
+> **Note**: AWS CloudShell comes pre-configured with AWS CLI, Git, and other essential tools. No local installation is required.
 
-### Environment Configuration
+### Step 2: Clone the Repository
 
-The deployment script automatically handles environment configuration. No manual environment variable setup is required for basic deployment.
-
-**Note**: The deployment script uses dynamic values from:
-- AWS CLI configuration (region, account ID)
-- CDK context variables (environment, tableVersion)
-- AWS service outputs (API Gateway URL, Amplify App ID)
-
-If you need to customize the deployment, you can modify the `deploy.sh` script or pass context variables to CDK:
+In the CloudShell terminal, run:
 
 ```bash
-cdk deploy --context environment=dev --context tableVersion=v2
+git clone https://github.com/ASUCICREPO/ADA-Clara.git
 ```
+
+This will clone the repository into your CloudShell environment.
+
+### Step 3: Navigate to the Project Directory
+
+```bash
+cd ADA-Clara
+```
+
+### Step 4: Make the Deployment Script Executable
+
+```bash
+chmod +x deploy.sh
+```
+
+This grants execute permissions to the deployment script.
+
+### Step 5: Run the Deployment Script
+
+```bash
+./deploy.sh
+```
+
+The deployment script will:
+- Automatically detect your AWS account and region
+- Verify AWS credentials
+- Deploy all backend infrastructure (CDK stack)
+- Create or update the Amplify app
+- Configure CodeBuild for CI/CD
+- Deploy the frontend application
+- Optionally trigger the web scraper to populate the knowledge base
+
+### Step 6: Follow the Prompts
+
+During deployment, you'll be prompted to:
+
+1. **Confirm deployment** - Review the deployment details and type `y` to proceed
+2. **Populate knowledge base** - After successful deployment, you'll be asked if you want to populate the knowledge base with the web scraper
+   - Type `y` to trigger the scraper (recommended for first-time deployment)
+   - Type `n` to skip (you can run it later)
+
+The deployment process typically takes 15-30 minutes depending on your AWS region and account configuration.
 
 ---
 
-## Deployment
+## What the Deployment Script Does
 
-ADA Clara uses a unified deployment script that handles both backend and frontend deployment automatically.
+The `deploy.sh` script automates the entire deployment process:
 
-### Unified Deployment
+### Backend Deployment
+- **CDK Stack Deployment**: Deploys all AWS resources including:
+  - Lambda functions (Chat Processor, RAG Processor, Admin Analytics, Escalation Handler, Web Scraper)
+  - DynamoDB tables (Chat Sessions, Messages, Conversations, Analytics, Questions, Escalation Requests, Content Tracking)
+  - API Gateway with all endpoints
+  - Cognito User Pool for admin authentication
+  - S3 buckets for content and vector storage
+  - Bedrock Knowledge Base configuration
+  - EventBridge rules for scheduled web scraping
 
-1. **Navigate to the project root**
-   ```bash
-   cd /path/to/ADA-Clara
-   ```
+### Frontend Deployment
+- **Amplify App Creation**: Creates or updates the AWS Amplify app
+- **CodeBuild Configuration**: Sets up CodeBuild project for automated builds
+- **Buildspec Setup**: Configures the build specification for frontend deployment
+- **Automatic Deployment**: Triggers the frontend build and deployment
 
-2. **Make the deployment script executable** (if needed)
-   ```bash
-   chmod +x deploy.sh
-   ```
+### Infrastructure Management
+- **IAM Roles**: Creates necessary IAM roles and policies
+- **Environment Variables**: Configures all required environment variables automatically
+- **CORS Configuration**: Sets up CORS for API Gateway
+- **Monitoring**: Configures CloudWatch Logs for all Lambda functions
 
-3. **Run the deployment script**
-   ```bash
-   ./deploy.sh
-   ```
-
-   The script will:
-   - Verify AWS credentials and region configuration
-   - Install backend dependencies
-   - Deploy the CDK stack (all backend resources)
-   - Create or update the Amplify app
-   - Configure CodeBuild for CI/CD
-   - Set up the buildspec.yml for automated builds
-   - Deploy the frontend to Amplify
-   - Optionally trigger the web scraper to populate the knowledge base
-
-4. **Follow the prompts**
-   - The script will ask for confirmation before deploying
-   - After successful deployment, you'll be prompted whether to populate the knowledge base with the web scraper
-   - Answer `y` to trigger the scraper, or `n` to skip
-
-### Manual Backend Deployment (Alternative)
-
-If you prefer to deploy manually:
-
-1. **Navigate to the backend directory**
-   ```bash
-   cd backend
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Synthesize the CloudFormation template** (optional, for review)
-   ```bash
-   cdk synth
-   ```
-
-4. **Deploy the backend stack**
-   ```bash
-   cdk deploy AdaClaraUnifiedStack
-   ```
-   
-   When prompted:
-   - Review the IAM changes
-   - Type `y` to confirm deployment
-
-5. **Note the outputs**
-   
-   After deployment, note down the following outputs:
-   - **API Endpoint**: The API Gateway URL
-   - **User Pool ID**: For admin authentication
-   - **Amplify App ID**: If Amplify app was created
-   
-   > **Important**: Save these values as they will be needed for frontend configuration
-
-### Manual Frontend Deployment (Alternative)
-
-The frontend is automatically deployed via Amplify when using the unified script. For manual deployment:
-
-1. **The frontend is configured to deploy via AWS Amplify**
-   - Connect your GitHub repository to Amplify
-   - Amplify will automatically build and deploy on git push
-   - Or use the Amplify CLI to deploy manually
+> **Key Advantage**: Since the deployment uses AWS CodeBuild, all building and compilation happens in the cloud. You don't need Node.js, npm, or CDK installed locally - everything runs in CloudShell and CodeBuild.
 
 ---
 
 ## Post-Deployment Verification
 
+After the deployment script completes successfully, verify that everything is working:
+
 ### Verify Backend Deployment
+
+In CloudShell, run these commands to verify backend resources:
 
 1. **Check CloudFormation stack status**
    ```bash
-   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].StackStatus" --output text
    ```
    
-   Expected status: `CREATE_COMPLETE` or `UPDATE_COMPLETE`
+   Expected output: `CREATE_COMPLETE` or `UPDATE_COMPLETE`
 
-2. **Test API health endpoint**
+2. **Check Lambda functions**
    ```bash
-   curl -X GET https://[API_ID].execute-api.[REGION].amazonaws.com/prod/health
+   aws lambda list-functions --query "Functions[?contains(FunctionName, 'ada-clara')].FunctionName" --output table
    ```
    
-   Expected response: `{"status": "healthy"}`
+   You should see 5 Lambda functions listed.
 
-3. **Check Lambda functions**
+3. **Verify DynamoDB tables**
    ```bash
-   aws lambda list-functions --query "Functions[?contains(FunctionName, 'ada-clara')]"
+   aws dynamodb list-tables --query "TableNames[?contains(@, 'ada-clara')]" --output table
    ```
    
-   You should see 5 Lambda functions:
-   - `ada-clara-chat-processor-[env]`
-   - `ada-clara-admin-analytics-[env]`
-   - `ada-clara-escalation-handler-[env]`
-   - `ada-clara-rag-processor-[env]`
-   - `ada-clara-web-scraper-[env]`
+   You should see multiple DynamoDB tables created.
 
-4. **Verify DynamoDB tables**
+4. **Get API Gateway endpoint** (from deployment output or CloudFormation)
    ```bash
-   aws dynamodb list-tables --query "TableNames[?contains(@, 'ada-clara')]"
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" --output text
    ```
 
 ### Verify Frontend Deployment
 
-1. **Access the application**
+1. **Get Amplify App URL**
    
-   Navigate to the Amplify URL provided after deployment, or check:
+   The deployment script will display the Amplify URL at the end. You can also retrieve it:
    ```bash
-   aws amplify list-apps --query "apps[?name=='AdaClara']"
+   aws amplify list-apps --query "apps[?name=='AdaClara'].defaultDomain" --output text
    ```
+   
+   The application will be available at: `https://main.[APP_ID].amplifyapp.com`
 
-2. **Test basic functionality**
+2. **Test the application**
+   - Open the Amplify URL in your browser
    - [ ] Chat interface loads correctly
    - [ ] Can send a message and receive a response
    - [ ] Language switching works
-   - [ ] Admin dashboard is accessible (requires login)
+   - [ ] Admin dashboard is accessible at `/admin` (requires Cognito login)
+
+### Verify Knowledge Base (if scraper was triggered)
+
+If you chose to populate the knowledge base:
+
+1. **Check web scraper logs**
+   ```bash
+   aws logs tail /aws/lambda/ada-clara-web-scraper-dev-v2 --follow --region $(aws configure get region)
+   ```
+   
+   Look for successful completion messages.
+
+2. **Verify content in S3**
+   ```bash
+   aws s3 ls s3://ada-clara-content-$(aws configure get region)-$(aws sts get-caller-identity --query Account --output text)/ --recursive | head -20
+   ```
+   
+   You should see scraped content files.
 
 ---
 
@@ -259,84 +210,129 @@ The frontend is automatically deployed via Amplify when using the unified script
 
 ### Common Issues
 
-#### Issue: CDK Bootstrap Required
-**Symptoms**: Error message: "This stack uses assets, so the toolkit stack must be deployed to the environment"
+#### Issue: CloudShell Session Expired
+**Symptoms**: CloudShell session times out during deployment
 
 **Solution**:
-```bash
-cd backend
-cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/$(aws configure get region)
-```
+- CloudShell sessions remain active for up to 20 minutes of inactivity
+- If your session expires, simply restart CloudShell and navigate back to the project:
+  ```bash
+  cd ADA-Clara
+  ```
+- The deployment script can be safely re-run - it will detect existing resources and update them
 
 #### Issue: Region Not Configured
 **Symptoms**: Error: "AWS region must be set via CDK_DEFAULT_REGION or AWS_REGION environment variable"
 
 **Solution**:
+In CloudShell, set your region:
 ```bash
 export AWS_REGION=us-west-2
-# Or configure via AWS CLI
+# Or set it permanently
 aws configure set region us-west-2
 ```
 
-#### Issue: DynamoDB Table Already Exists
-**Symptoms**: Error about table already existing in another stack
-
-**Solution**:
-The deployment uses a `tableVersion` context variable to create new tables. If you encounter conflicts:
+Then re-run the deployment script:
 ```bash
-cdk deploy --context tableVersion=v3
-```
-This will create tables with a `v3` suffix to avoid conflicts.
-
-#### Issue: CDK Bootstrap Error
-**Symptoms**: Error message about CDK not being bootstrapped
-
-**Solution**:
-```bash
-cdk bootstrap aws://[ACCOUNT_ID]/[REGION]
+./deploy.sh
 ```
 
 #### Issue: Permission Denied
 **Symptoms**: Access denied errors during deployment
 
 **Solution**:
-- Verify your AWS credentials are configured correctly
-- Ensure your IAM user/role has the required permissions
-- Check if you're deploying to the correct region
+- Verify your IAM user/role has the required permissions
+- The deployment requires permissions for: CloudFormation, Lambda, API Gateway, DynamoDB, S3, Bedrock, Cognito, Amplify, CodeBuild, EventBridge, IAM, and CloudWatch Logs
+- Check your IAM permissions in the AWS Console
+- If using an IAM user, ensure they have AdministratorAccess or equivalent permissions
+
+#### Issue: DynamoDB Table Already Exists
+**Symptoms**: Error about table already existing in another stack
+
+**Solution**:
+The deployment script handles this automatically by using versioned table names. If you encounter conflicts, the script will provide guidance. You can also manually specify a different table version by modifying the script or using CDK context variables.
+
+#### Issue: Deployment Script Fails Midway
+**Symptoms**: Script fails partway through deployment
+
+**Solution**:
+- Check the error message in CloudShell for specific details
+- Review CloudFormation stack events:
+  ```bash
+  aws cloudformation describe-stack-events --stack-name AdaClaraUnifiedStack --max-items 10
+  ```
+- The script is idempotent - you can safely re-run it:
+  ```bash
+  ./deploy.sh
+  ```
+- It will detect existing resources and update them rather than creating duplicates
+
+#### Issue: CodeBuild Build Fails
+**Symptoms**: Frontend deployment fails during CodeBuild phase
+
+**Solution**:
+- Check CodeBuild logs in the AWS Console:
+  - Navigate to CodeBuild → Build projects → Find your project → View recent builds
+- Common issues:
+  - Missing environment variables (should be handled automatically by the script)
+  - Build timeout (increase timeout in buildspec.yml if needed)
+  - Dependency installation failures (check buildspec.yml configuration)
 
 ---
 
 ## Cleanup
 
-To remove all deployed resources:
+To remove all deployed resources, you can delete them from CloudShell:
 
-1. **Delete the CloudFormation stack**
+### Option 1: Delete via CloudFormation (Recommended)
+
+1. **Delete the CloudFormation stack** (this removes most resources)
    ```bash
-   cd backend
-   cdk destroy AdaClaraUnifiedStack
+   aws cloudformation delete-stack --stack-name AdaClaraUnifiedStack
    ```
+
+2. **Wait for stack deletion to complete**
+   ```bash
+   aws cloudformation wait stack-delete-complete --stack-name AdaClaraUnifiedStack
+   ```
+
+3. **Delete the Amplify app**
+   ```bash
+   # Get the Amplify App ID
+   APP_ID=$(aws amplify list-apps --query "apps[?name=='AdaClara'].appId" --output text)
    
-   When prompted, type `y` to confirm.
-
-2. **Delete the Amplify app** (if created separately)
-   ```bash
-   aws amplify delete-app --app-id [AMPLIFY_APP_ID]
+   # Delete the app
+   aws amplify delete-app --app-id $APP_ID
    ```
 
-3. **Manually delete S3 buckets** (if they contain data)
+4. **Manually delete S3 buckets** (if they still exist and contain data)
    ```bash
-   aws s3 rb s3://[BUCKET_NAME] --force
+   # List buckets
+   aws s3 ls | grep ada-clara
+   
+   # Delete each bucket (replace BUCKET_NAME with actual bucket name)
+   aws s3 rb s3://BUCKET_NAME --force
    ```
 
-> **Warning**: This will delete all resources created by this stack, including:
+### Option 2: Delete via AWS Console
+
+1. Navigate to CloudFormation in AWS Console
+2. Select `AdaClaraUnifiedStack`
+3. Click "Delete"
+4. Navigate to Amplify and delete the `AdaClara` app
+5. Navigate to S3 and manually delete any remaining buckets
+
+> **Warning**: This will delete all resources created by this deployment, including:
 > - All DynamoDB tables and data
-> - All Lambda functions
+> - All Lambda functions and their logs
 > - API Gateway endpoints
-> - Cognito user pools
-> - S3 buckets and content
+> - Cognito user pools and users
+> - S3 buckets and all content (scraped content, vectors)
 > - Bedrock Knowledge Base
+> - CodeBuild projects
+> - EventBridge rules
 > 
-> Make sure to backup any important data before proceeding.
+> **This action cannot be undone.** Make sure to backup any important data before proceeding.
 
 ---
 

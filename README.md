@@ -61,7 +61,15 @@ For a detailed overview of the user journey and application workflow, including 
 
 ## Deployment
 
-For detailed deployment instructions, including prerequisites and step-by-step guides, see [docs/deploymentGuide.md](docs/deploymentGuide.md).
+Deploying ADA Clara is simple and requires no local dependencies. Everything can be done from AWS CloudShell:
+
+1. Open AWS Console and start CloudShell
+2. Clone the repository: `git clone https://github.com/ASUCICREPO/ADA-Clara.git`
+3. Navigate to the project: `cd ADA-Clara`
+4. Make the script executable: `chmod +x deploy.sh`
+5. Run the deployment: `./deploy.sh`
+
+The deployment script handles everything automatically, including backend infrastructure, frontend deployment via CodeBuild, and knowledge base setup. For detailed instructions, see [docs/deploymentGuide.md](docs/deploymentGuide.md).
 
 ## Usage
 
