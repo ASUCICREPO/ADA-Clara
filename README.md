@@ -1,144 +1,96 @@
-# [INSERT_PROJECT_NAME]
+# ADA Clara
 
-[INSERT_PROJECT_DESCRIPTION - 2-3 sentences describing what the project does, who it's for, and the key problem it solves]
+An AI-powered diabetes chatbot assistant that provides accurate, evidence-based information about diabetes using trusted American Diabetes Association (ADA) resources, powered by AWS Bedrock and Retrieval Augmented Generation (RAG).
 
----
+## Demo Video
 
-## Visual Demo
+Watch the complete demonstration of ADA Clara:
 
-![User Interface Demo](./docs/media/user-interface.gif)
+<div align="center">
+  <a href="[INSERT_DEMO_VIDEO_URL]">
+    <img src="./docs/media/demo-thumbnail.png" alt="ADA Clara Demo" width="650">
+  </a>
+  <p><em>Click the image above to watch the demo</em></p>
+</div>
 
-> **[PLACEHOLDER]** Please provide a GIF or screenshot of the application interface and save it as `docs/media/user-interface.gif`
+> **[PLACEHOLDER]** Please provide a demo video thumbnail image and save it as `docs/media/demo-thumbnail.png`, and update the video URL link above.
 
----
+## Index
 
-## Table of Contents
-
-| Index                                               | Description                                              |
-| :-------------------------------------------------- | :------------------------------------------------------- |
-| [High Level Architecture](#high-level-architecture) | High level overview illustrating component interactions  |
-| [Deployment Guide](#deployment-guide)               | How to deploy the project                                |
-| [User Guide](#user-guide)                           | End-user instructions and walkthrough                    |
-| [API Documentation](#api-documentation)             | Documentation on the APIs the project uses               |
-| [Directories](#directories)                         | General project directory structure                      |
-| [Modification Guide](#modification-guide)           | Guide for developers extending the project               |
-| [Credits](#credits)                                 | Contributors and acknowledgments                         |
-| [License](#license)                                 | License information                                      |
-
----
-
-## High Level Architecture
-
-[INSERT_ARCHITECTURE_OVERVIEW - Brief paragraph explaining the architecture, how components interact, and the overall system design]
-
-![Architecture Diagram](./docs/media/architecture.png)
-
-> **[PLACEHOLDER]** Please create and provide an architecture diagram showing:
-> - All major components/services
-> - Data flow between components
-> - User interaction points
-> - External services/APIs
-> 
-> Save the diagram as `docs/media/architecture.png` (or .jpeg/.jpg)
-
-For a detailed explanation of the architecture, see the [Architecture Deep Dive](./docs/architectureDeepDive.md).
+| Description           | Link                                                  |
+| --------------------- | ----------------------------------------------------- |
+| Overview              | [Overview](#overview)                                 |
+| Architecture          | [Architecture](#architecture-diagram)                 |
+| Detailed Architecture | [Detailed Architecture](docs/architectureDeepDive.md) |
+| Deployment            | [Deployment](docs/deploymentGuide.md)                 |
+| User Guide            | [User Guide](docs/userGuide.md)                       |
+| API Documentation     | [API Documentation](docs/APIDoc.md)                   |
+| Infrastructure        | [Infrastructure](docs/architectureDeepDive.md)        |
+| Modification Guide    | [Modification Guide](docs/modificationGuide.md)      |
+| Credits               | [Credits](#credits)                                   |
+| License               | [License](#license)                                   |
 
 ---
 
-## Deployment Guide
+## Overview
 
-For complete deployment instructions, see the [Deployment Guide](./docs/deploymentGuide.md).
+This application combines AI-powered conversational AI with intelligent knowledge retrieval to deliver accurate, evidence-based diabetes information. Built on a serverless architecture with RAG (Retrieval Augmented Generation), automated content management, and comprehensive analytics, ADA Clara enables healthcare organizations to provide 24/7 diabetes support with trusted ADA resources.
 
-**Quick Start:**
-1. [INSERT_QUICK_START_STEP_1]
-2. [INSERT_QUICK_START_STEP_2]
-3. [INSERT_QUICK_START_STEP_3]
+### Key Features
 
----
+- **AI-Powered Chatbot** powered by AWS Bedrock with Claude Sonnet 3
+- **RAG System** using Amazon Bedrock Knowledge Base with Titan Text Embedding V2 for vector embeddings
+- **Multi-Language Support** with language selection and interface localization
+- **Automated Knowledge Base** with web scraping from diabetes.org
+- **Admin Dashboard** with real-time analytics and conversation insights
+- **Escalation Management** for connecting users with healthcare professionals
+- **Source Citations** with links to original diabetes.org content
+- **Question Analytics** tracking frequently asked and unanswered questions
 
-## User Guide
+## Architecture Diagram
 
-For detailed usage instructions with screenshots, see the [User Guide](./docs/userGuide.md).
+![ADA Clara Architecture Diagram](./docs/media/ada-clara-architecture.png)
 
----
+The application implements a serverless, event-driven architecture with a RAG-powered AI system at its core, combining automated content processing with intelligent question answering and comprehensive analytics.
 
-## API Documentation
+For a detailed deep dive into the architecture, including core principles, component interactions, data flow, security, and implementation details, see [docs/architectureDeepDive.md](docs/architectureDeepDive.md).
 
-For complete API reference, see the [API Documentation](./docs/APIDoc.md).
+## User Flow
 
----
+For a detailed overview of the user journey and application workflow, including step-by-step user interactions, see [docs/userGuide.md](docs/userGuide.md).
+
+## Deployment
+
+For detailed deployment instructions, including prerequisites and step-by-step guides, see [docs/deploymentGuide.md](docs/deploymentGuide.md).
+
+## Usage
+
+For detailed backend testing and usage instructions, including configuration steps and how to test the application from AWS Console, see [docs/userGuide.md](docs/userGuide.md).
+
+For frontend user guide and application features, see [docs/userGuide.md](docs/userGuide.md).
+
+## Infrastructure
+
+For a detailed overview of the application infrastructure, including component interactions, AWS services, and data flow, see [docs/architectureDeepDive.md](docs/architectureDeepDive.md).
+
+## Documentation
+
+- **[API Documentation](docs/APIDoc.md)** - Comprehensive API reference for all endpoints
+- **[Architecture Deep Dive](docs/architectureDeepDive.md)** - Detailed system architecture and design
 
 ## Modification Guide
 
-For developers looking to extend or modify this project, see the [Modification Guide](./docs/modificationGuide.md).
+Steps to implement optional modifications such as changing the Bedrock model, adding new features, or customizing the frontend can be found [here](docs/modificationGuide.md).
 
 ---
 
-## Directories
-
-```
-├── backend/
-│   ├── bin/
-│   │   └── backend.ts
-│   ├── lambda/
-│   │   └── [INSERT_LAMBDA_FUNCTIONS]
-│   ├── lib/
-│   │   └── backend-stack.ts
-│   ├── agent/
-│   │   └── [INSERT_AGENT_FILES]
-│   ├── cdk.json
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/
-│   ├── app/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx
-│   │   └── globals.css
-│   ├── public/
-│   └── package.json
-├── docs/
-│   ├── architectureDeepDive.md
-│   ├── deploymentGuide.md
-│   ├── userGuide.md
-│   ├── APIDoc.md
-│   ├── modificationGuide.md
-│   └── media/
-│       ├── architecture.png
-│       └── user-interface.gif
-├── LICENSE
-└── README.md
-```
-
-### Directory Explanations:
-
-1. **backend/** - Contains all backend infrastructure and serverless functions
-   - `bin/` - CDK app entry point
-   - `lambda/` - AWS Lambda function handlers
-   - `lib/` - CDK stack definitions
-   - `agent/` - [INSERT_AGENT_DESCRIPTION]
-
-2. **frontend/** - Next.js frontend application
-   - `app/` - Next.js App Router pages and layouts
-   - `public/` - Static assets
-
-3. **docs/** - Project documentation
-   - `media/` - Images, diagrams, and GIFs for documentation
-
----
 
 ## Credits
 
-This application was developed by:
-
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_1]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_2]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_3]</a>
-
-[INSERT_ADDITIONAL_ACKNOWLEDGMENTS - Teams, supporters, or organizations to acknowledge]
+This application was architected and developed by [Shaashvat Mittal](https://www.linkedin.com/in/shaashvatm156/), [Sean Sannier](https://www.linkedin.com/in/sean-sannier-565889381/), and [Omdevsinh Zala](https://www.linkedin.com/in/omdevsinhzala/) with solutions architect [Arun Arunachalam](https://www.linkedin.com/in/arunarunachalam/), program manager [Thomas Orr](https://www.linkedin.com/in/thomas-orr/) and product manager [Rachel Hayden](https://www.linkedin.com/in/rachelhayden/). Thanks to the ASU Cloud Innovation Center Technical and Project Management teams for their guidance and support.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
-
+See [LICENSE](LICENSE) file for details.
