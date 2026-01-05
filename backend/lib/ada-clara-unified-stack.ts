@@ -378,8 +378,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
       functionName: `ada-clara-web-scraper-${region}${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'src/handlers/web-scraper/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('dist/web-scraper'),
       timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
       memorySize: 2048, // Increased memory for AI processing
       logGroup: webScraperLogGroup,
@@ -522,9 +522,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Grant Bedrock permissions
-    // Note: Currently using existing KB (UUGQXLYUXG) that has data
-    // TODO: Update to use this.knowledgeBase.attrKnowledgeBaseId once new KB is populated
-    const knowledgeBaseId = 'UUGQXLYUXG'; // Existing KB with data
+    // Grant access to the Knowledge Base created by this stack
     this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -536,8 +534,7 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
         `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
-        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${knowledgeBaseId}`,
-        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`, // Also grant access to new KB for future use
+        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
 
