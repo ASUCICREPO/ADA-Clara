@@ -163,27 +163,7 @@ export class AdminAnalyticsController {
    */
   private async getFrequentlyAskedQuestions(): Promise<APIGatewayProxyResult> {
     try {
-      // Use the enhanced question processing service if available
-      const dynamoService = this.analyticsService.getDynamoService();
-      if (dynamoService) {
-        const { QuestionProcessingService } = require('../../services/question-processing.service');
-        const questionService = new QuestionProcessingService(dynamoService);
-        
-        // Get enhanced FAQ data (limit to 6 to match frontend expectations)
-        const enhancedQuestions = await questionService.getFrequentlyAskedQuestions(6);
-        
-        if (enhancedQuestions.length > 0) {
-          // Transform to match frontend expectations
-          const questions = enhancedQuestions.map((q: any) => ({
-            question: q.question,
-            count: q.count
-          }));
-          
-          return this.createResponse(200, { questions });
-        }
-      }
-
-      // Fallback to original analytics service implementation
+      // Use the analytics service directly (it's been fixed)
       const faqData = await this.analyticsService.getFrequentlyAskedQuestions();
       return this.createResponse(200, { questions: faqData });
     } catch (error) {
@@ -200,27 +180,7 @@ export class AdminAnalyticsController {
    */
   private async getUnansweredQuestions(): Promise<APIGatewayProxyResult> {
     try {
-      // Use the enhanced question processing service if available
-      const dynamoService = this.analyticsService.getDynamoService();
-      if (dynamoService) {
-        const { QuestionProcessingService } = require('../../services/question-processing.service');
-        const questionService = new QuestionProcessingService(dynamoService);
-        
-        // Get enhanced unanswered questions data (limit to 6 to match frontend expectations)
-        const enhancedQuestions = await questionService.getUnansweredQuestions(6);
-        
-        if (enhancedQuestions.length > 0) {
-          // Transform to match frontend expectations
-          const questions = enhancedQuestions.map((q: any) => ({
-            question: q.question,
-            count: q.count
-          }));
-          
-          return this.createResponse(200, { questions });
-        }
-      }
-
-      // Fallback to original analytics service implementation
+      // Use the analytics service directly (it's been fixed)
       const unansweredData = await this.analyticsService.getUnansweredQuestions();
       return this.createResponse(200, { questions: unansweredData });
     } catch (error) {

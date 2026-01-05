@@ -178,28 +178,60 @@ export class AnalyticsService {
       const escalationRate = totalConversations > 0 ? Math.round((escalatedConversationsCount / totalConversations) * 100) : 0;
       console.log(`[AnalyticsService] Found ${escalatedConversationsCount} escalated conversations out of ${totalConversations} total conversations, rate: ${escalationRate}%`);
 
-      // Calculate out of scope rate from unanswered questions
-      // When chatbot shows "Talk to a person" (escalated: true), question is stored as unanswered
-      // Out-of-scope rate = total unanswered questions count / total conversations
-      let totalUnansweredCount = 0;
-      const metricsDate = new Date();
-      for (let i = 0; i < 30; i++) {
-        const date = new Date(today);
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
+      // Calculate out of scope rate from analytics table
+      // Out-of-scope entries are stored in analytics table with PK = 'ANALYTICS#out-of-scope'
+      let outOfScopeConversationsCount = 0;
+      try {
+        const outOfScopeEntries = await this.getDynamoService().queryItems(
+          this.ANALYTICS_TABLE,
+          'PK = :pk',
+          { ':pk': 'ANALYTICS#out-of-scope' }
+        );
         
-        try {
-          const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
-          // Sum up unansweredCount for all questions on this date
-          const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
-          totalUnansweredCount += dayUnansweredCount;
-        } catch (error) {
-          // Continue if no questions for this date
+        // Filter by date range and count unique conversations (not total entries)
+        const endDateInclusive = new Date(endDate);
+        endDateInclusive.setHours(23, 59, 59, 999);
+        
+        const outOfScopeSessionIds = new Set<string>();
+        outOfScopeEntries.forEach(entry => {
+          if (!entry.timestamp) return;
+          const entryDate = new Date(entry.timestamp);
+          if (entryDate >= startDate && entryDate <= endDateInclusive) {
+            // Extract session ID from the SK (format: timestamp#question-sessionIndex-questionIndex)
+            const sk = entry.SK;
+            if (sk && sk.includes('#question-')) {
+              const sessionPart = sk.split('#question-')[1];
+              if (sessionPart) {
+                const sessionIndex = sessionPart.split('-')[0];
+                outOfScopeSessionIds.add(`session-${sessionIndex}`);
+              }
+            }
+          }
+        });
+        
+        outOfScopeConversationsCount = outOfScopeSessionIds.size;
+        console.log(`[AnalyticsService] Found ${outOfScopeConversationsCount} conversations with out-of-scope questions in date range`);
+      } catch (error) {
+        console.error('[AnalyticsService] Error fetching out-of-scope analytics:', error);
+        // Fallback to unanswered questions method
+        for (let i = 0; i < 30; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+          
+          try {
+            const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
+            // Sum up unansweredCount for all questions on this date
+            const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
+            outOfScopeConversationsCount += dayUnansweredCount;
+          } catch (error) {
+            // Continue if no questions for this date
+          }
         }
       }
       
-      const outOfScopeRate = totalConversations > 0 ? Math.round((totalUnansweredCount / totalConversations) * 100) : 0;
-      console.log(`[AnalyticsService] Found ${totalUnansweredCount} unanswered questions out of ${totalConversations} total conversations, out-of-scope rate: ${outOfScopeRate}%`);
+      const outOfScopeRate = totalConversations > 0 ? Math.round((outOfScopeConversationsCount / totalConversations) * 100) : 0;
+      console.log(`[AnalyticsService] Found ${outOfScopeConversationsCount} conversations with out-of-scope questions out of ${totalConversations} total conversations, out-of-scope rate: ${outOfScopeRate}%`);
 
       // Calculate trends (compare with previous 30 days)
       const previousStartDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -229,24 +261,52 @@ export class AnalyticsService {
       const previousEscalationRate = previousConversations.length > 0 ? Math.round((previousEscalatedCount / previousConversations.length) * 100) : 0;
       const escalationTrend = this.calculateTrend(escalationRate, previousEscalationRate);
       
-      // Count previous out-of-scope from unanswered questions
-      let previousUnansweredCount = 0;
-      const previousMetricsDate = new Date();
-      for (let i = 30; i < 60; i++) {
-        const date = new Date(previousMetricsDate);
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
+      // Count previous out-of-scope from analytics table
+      let previousOutOfScopeConversationsCount = 0;
+      try {
+        const previousOutOfScopeEntries = await this.getDynamoService().queryItems(
+          this.ANALYTICS_TABLE,
+          'PK = :pk',
+          { ':pk': 'ANALYTICS#out-of-scope' }
+        );
         
-        try {
-          const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
-          const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
-          previousUnansweredCount += dayUnansweredCount;
-        } catch (error) {
-          // Continue if no questions for this date
+        const previousOutOfScopeSessionIds = new Set<string>();
+        previousOutOfScopeEntries.forEach(entry => {
+          if (!entry.timestamp) return;
+          const entryDate = new Date(entry.timestamp);
+          if (entryDate >= previousStartDate && entryDate < startDate) {
+            // Extract session ID from the SK
+            const sk = entry.SK;
+            if (sk && sk.includes('#question-')) {
+              const sessionPart = sk.split('#question-')[1];
+              if (sessionPart) {
+                const sessionIndex = sessionPart.split('-')[0];
+                previousOutOfScopeSessionIds.add(`session-${sessionIndex}`);
+              }
+            }
+          }
+        });
+        
+        previousOutOfScopeConversationsCount = previousOutOfScopeSessionIds.size;
+      } catch (error) {
+        console.error('[AnalyticsService] Error fetching previous out-of-scope analytics:', error);
+        // Fallback to unanswered questions method
+        for (let i = 30; i < 60; i++) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+          
+          try {
+            const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 1000);
+            const dayUnansweredCount = dayQuestions.reduce((sum, q) => sum + (q.unansweredCount || 0), 0);
+            previousOutOfScopeConversationsCount += dayUnansweredCount;
+          } catch (error) {
+            // Continue if no questions for this date
+          }
         }
       }
       
-      const previousOutOfScopeRate = previousConversations.length > 0 ? Math.round((previousUnansweredCount / previousConversations.length) * 100) : 0;
+      const previousOutOfScopeRate = previousConversations.length > 0 ? Math.round((previousOutOfScopeConversationsCount / previousConversations.length) * 100) : 0;
       const outOfScopeTrend = this.calculateTrend(outOfScopeRate, previousOutOfScopeRate);
 
       console.log(`[AnalyticsService] Metrics calculated: conversations=${totalConversations}, escalationRate=${escalationRate}%, outOfScopeRate=${outOfScopeRate}%`);
@@ -350,6 +410,47 @@ export class AnalyticsService {
    */
   async getFrequentlyAskedQuestions(): Promise<Question[]> {
     try {
+      console.log('[AnalyticsService] Fetching frequently asked questions (FIXED)...');
+      console.log(`[AnalyticsService] Using table: ${this.QUESTIONS_TABLE}`);
+      console.log(`[AnalyticsService] Environment QUESTIONS_TABLE: ${process.env.QUESTIONS_TABLE}`);
+      
+      // Try direct table access first
+      const dynamoService = this.getDynamoService();
+      if (dynamoService) {
+        try {
+          const questionItems = await dynamoService.scanItems(this.QUESTIONS_TABLE, {});
+          console.log(`[AnalyticsService] Found ${questionItems.length} items in questions table`);
+          
+          if (questionItems.length > 0) {
+            console.log(`[AnalyticsService] First item sample:`, {
+              question: questionItems[0].question,
+              answered: questionItems[0].answered,
+              count: questionItems[0].count,
+              answeredCount: questionItems[0].answeredCount
+            });
+            
+            const validQuestions = questionItems
+              .filter(item => {
+                const isAnswered = item.answered === true;
+                const hasCount = (item.count || 0) > 0;
+                console.log(`[AnalyticsService] Item "${item.question}": answered=${isAnswered}, count=${item.count}, hasCount=${hasCount}`);
+                return isAnswered && hasCount;
+              })
+              .map(item => ({
+                question: item.question,
+                count: item.count || item.answeredCount || 0
+              }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 6);
+            
+            console.log(`[AnalyticsService] Returning ${validQuestions.length} FAQ questions`);
+            return validQuestions;
+          }
+        } catch (error) {
+          console.error('[AnalyticsService] Error reading questions table:', error);
+        }
+      }
+
       // Use the enhanced question processing service if available
       if (this.questionProcessingService) {
         const enhancedQuestions = await this.questionProcessingService.getFrequentlyAskedQuestions(6); // Top 6 questions
@@ -362,45 +463,7 @@ export class AnalyticsService {
         }
       }
 
-      // Fallback to original implementation with enhanced categories
-      const categories = ['diabetes-general', 'type-1', 'type-2', 'medication', 'diet', 'exercise', 'complications', 'blood-sugar', 'symptoms', 'management'];
-      
-      const questions: Question[] = [];
-      const questionCounts = new Map<string, number>();
-      
-      for (const category of categories) {
-        try {
-          const categoryQuestions = await this.getDynamoService().getQuestionsByCategory(category, 50);
-          
-          for (const q of categoryQuestions) {
-            const normalizedQuestion = q.originalQuestion.trim();
-            const currentCount = questionCounts.get(normalizedQuestion) || 0;
-            questionCounts.set(normalizedQuestion, currentCount + q.count);
-          }
-        } catch (error) {
-          console.log(`No questions found for category: ${category}`);
-        }
-      }
-      
-      // Convert to array and sort by frequency
-      const sortedQuestions = Array.from(questionCounts.entries())
-        .map(([question, count]) => ({ question, count }))
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 6); // Top 6 questions
-      
-      // If no real data, return fallback questions (top 6)
-      if (sortedQuestions.length === 0) {
-        return [
-          { question: 'What is type 1 diabetes?', count: 0 },
-          { question: 'How do I manage blood sugar?', count: 0 },
-          { question: 'What foods should I avoid?', count: 0 },
-          { question: 'How often should I check glucose?', count: 0 },
-          { question: 'What are diabetes complications?', count: 0 },
-          { question: 'How much insulin should I take?', count: 0 }
-        ];
-      }
-      
-      return sortedQuestions;
+      return [];
     } catch (error) {
       console.error('Error fetching real frequently asked questions:', error);
       return [];
