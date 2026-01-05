@@ -746,6 +746,24 @@ export class AdaClaraUnifiedStack extends Stack {
       description: 'AWS Region',
       exportName: `AdaClara-Region-${region}`,
     });
+
+    new CfnOutput(this, 'WebScraperFunctionName', {
+      value: this.webScraperProcessor.functionName,
+      description: 'Web Scraper Lambda Function Name',
+      exportName: `AdaClara-WebScraperFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'VectorsBucketName', {
+      value: this.vectorsBucket.vectorBucketName,
+      description: 'S3 Vectors Bucket Name',
+      exportName: `AdaClara-VectorsBucket-${region}`,
+    });
+
+    new CfnOutput(this, 'KnowledgeBaseId', {
+      value: this.knowledgeBase.attrKnowledgeBaseId,
+      description: 'Bedrock Knowledge Base ID',
+      exportName: `AdaClara-KnowledgeBaseId-${region}`,
+    });
   }
 }
 
