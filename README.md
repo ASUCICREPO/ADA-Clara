@@ -40,7 +40,7 @@ This application combines AI-powered conversational AI with intelligent knowledg
 
 - **AI-Powered Chatbot** powered by AWS Bedrock with Claude 3 Sonnet
 - **RAG System** using Amazon Bedrock Knowledge Base with vector embeddings
-- **Multi-Language Support** with automatic language detection via Amazon Comprehend
+- **Multi-Language Support** with language selection and interface localization
 - **Automated Knowledge Base** with web scraping from diabetes.org
 - **Admin Dashboard** with real-time analytics and conversation insights
 - **Escalation Management** for connecting users with healthcare professionals

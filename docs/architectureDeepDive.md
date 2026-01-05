@@ -22,7 +22,7 @@ User messages are sent via HTTPS to API Gateway, which routes POST requests to t
 
 ### 3. Chat Processing
 The `chatProcessor` Lambda function receives the request and performs several operations:
-- Detects the language of the user's message using Amazon Comprehend
+- Processes the user's message and determines the language from the request
 - Creates or retrieves the chat session from DynamoDB
 - Stores the user message in the messages table
 - Determines if the question requires escalation based on content analysis
@@ -78,9 +78,10 @@ The generated response is:
   - Used for generating contextual responses based on retrieved knowledge base content
   - Content enhancement for web-scraped content using Claude models
 
-- **Amazon Comprehend**: Natural language processing for language detection
-  - Automatically detects user message language (English, Spanish, etc.)
-  - Enables multi-language support without explicit language selection
+- **Language Support**: Multi-language interface support
+  - Users can select their preferred language via the language switcher
+  - Supports English and Spanish interfaces
+  - Language preference is maintained throughout the session
 
 - **Amazon Bedrock Knowledge Base**: RAG system for retrieving relevant information
   - Stores vector embeddings of diabetes.org content in S3

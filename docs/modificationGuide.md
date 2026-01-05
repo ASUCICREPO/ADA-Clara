@@ -41,7 +41,7 @@ This document provides guidance on how to modify and extend ADA Clara. Whether y
 │   │   ├── services/                     # Infrastructure services
 │   │   │   ├── bedrock.service.ts        # Bedrock AI service
 │   │   │   ├── dynamodb-service.ts       # DynamoDB operations
-│   │   │   ├── comprehend.service.ts     # Language detection
+│   │   │   ├── [service files]
 │   │   │   └── question-processing.service.ts  # Question processing
 │   │   └── types/                        # TypeScript definitions
 │   └── package.json
@@ -189,7 +189,7 @@ newResource.addMethod('GET', new apigateway.LambdaIntegration(this.newLambda));
 
 **Steps**:
 1. Add the new language option to `LanguageSwitcher.tsx`
-2. Update the language detection logic if needed (Comprehend supports many languages)
+2. Add the new language option to the language switcher component
 3. Test with questions in the new language
 
 ---
@@ -332,7 +332,7 @@ ADA Clara is designed to be extensible. We encourage developers to modify and im
 
 - **Additional AI models**: Easy to swap Bedrock models via environment variables
 - **New analytics**: Add metrics by extending the analytics service
-- **Additional languages**: Comprehend supports many languages out of the box
+- **Additional languages**: Add new language options to the language switcher component
 - **Custom knowledge sources**: Extend the web scraper to include additional sources
 - **Enhanced escalation**: Add integrations with ticketing systems or CRM platforms
 
