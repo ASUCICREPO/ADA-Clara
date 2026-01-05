@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide provides step-by-step instructions for deploying [INSERT_PROJECT_NAME].
+This guide provides step-by-step instructions for deploying ADA Clara.
 
 ---
 
@@ -26,27 +26,33 @@ Before you deploy, you must have the following:
 
 ### Accounts
 - [ ] **AWS Account** - [Create an AWS Account](https://aws.amazon.com/)
-- [ ] [INSERT_ADDITIONAL_ACCOUNT_REQUIREMENTS]
+- [ ] AWS account with appropriate service quotas for Lambda, DynamoDB, API Gateway, and Bedrock
 
 ### CLI Tools
 - [ ] **AWS CLI** (v2.x) - [Install AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 - [ ] **Node.js** (v18.x or later) - [Install Node.js](https://nodejs.org/)
 - [ ] **npm** (v9.x or later) - Included with Node.js
 - [ ] **AWS CDK** (v2.x) - Install via `npm install -g aws-cdk`
-- [ ] [INSERT_ADDITIONAL_CLI_TOOLS]
+- [ ] **Git** - [Install Git](https://git-scm.com/downloads)
 
 ### Access Permissions
 - [ ] AWS IAM user/role with permissions for:
-  - CloudFormation
-  - Lambda
-  - API Gateway
-  - S3
-  - [INSERT_ADDITIONAL_AWS_SERVICES]
-- [ ] [INSERT_ADDITIONAL_PERMISSIONS]
+  - CloudFormation (full access)
+  - Lambda (create, update, invoke)
+  - API Gateway (full access)
+  - DynamoDB (create tables, read/write)
+  - S3 (create buckets, read/write)
+  - Bedrock (invoke models, manage knowledge bases)
+  - Cognito (create user pools, manage users)
+  - Amplify (create apps, manage deployments)
+  - CodeBuild (create projects, start builds)
+  - EventBridge (create rules)
+  - IAM (create roles and policies)
+  - CloudWatch Logs (create log groups)
 
 ### Software Dependencies
 - [ ] Git - [Install Git](https://git-scm.com/downloads)
-- [ ] [INSERT_ADDITIONAL_DEPENDENCIES]
+- [ ] Bash shell (for running deployment script)
 
 ---
 
@@ -61,14 +67,21 @@ Before you deploy, you must have the following:
    Enter your:
    - AWS Access Key ID
    - AWS Secret Access Key
-   - Default region: `us-east-1` (or [INSERT_PREFERRED_REGION])
+   - Default region: `us-west-2` (or your preferred region)
    - Default output format: `json`
 
-2. **Bootstrap CDK** (first-time CDK users only)
+2. **Verify AWS credentials**
    ```bash
-   cdk bootstrap aws://[ACCOUNT_ID]/[REGION]
+   aws sts get-caller-identity
    ```
-   > **[PLACEHOLDER]** Replace `[ACCOUNT_ID]` with your AWS account ID and `[REGION]` with your deployment region
+   This should display your AWS account ID and user ARN.
+
+3. **Bootstrap CDK** (first-time CDK users only)
+   ```bash
+   cd backend
+   cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/$(aws configure get region)
+   ```
+   This bootstraps CDK in your account and region.
 
 ### CLI Tools Installation
 
@@ -91,101 +104,102 @@ Before you deploy, you must have the following:
 
 ### Environment Configuration
 
-1. **Create environment configuration file**
-   
-   [INSERT_ENV_CONFIGURATION_INSTRUCTIONS]
-   
-   ```bash
-   # Example: Create .env file
-   cp .env.example .env
-   ```
+The deployment script automatically handles environment configuration. No manual environment variable setup is required for basic deployment.
 
-2. **Configure required environment variables**
-   
-   [INSERT_ENV_VARIABLES_TABLE]
-   
-   | Variable | Description | Example |
-   |----------|-------------|---------|
-   | `[INSERT_VAR_1]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
-   | `[INSERT_VAR_2]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
-   | `[INSERT_VAR_3]` | [INSERT_DESCRIPTION] | [INSERT_EXAMPLE] |
+**Note**: The deployment script uses dynamic values from:
+- AWS CLI configuration (region, account ID)
+- CDK context variables (environment, tableVersion)
+- AWS service outputs (API Gateway URL, Amplify App ID)
 
-3. **[INSERT_ADDITIONAL_CONFIGURATION_STEPS]**
-   
-   > **Important**: [INSERT_IMPORTANT_NOTES]
+If you need to customize the deployment, you can modify the `deploy.sh` script or pass context variables to CDK:
+
+```bash
+cdk deploy --context environment=dev --context tableVersion=v2
+```
 
 ---
 
 ## Deployment
 
-### Backend Deployment
+ADA Clara uses a unified deployment script that handles both backend and frontend deployment automatically.
+
+### Unified Deployment
+
+1. **Navigate to the project root**
+   ```bash
+   cd /path/to/ADA-Clara
+   ```
+
+2. **Make the deployment script executable** (if needed)
+   ```bash
+   chmod +x deploy.sh
+   ```
+
+3. **Run the deployment script**
+   ```bash
+   ./deploy.sh
+   ```
+
+   The script will:
+   - Verify AWS credentials and region configuration
+   - Install backend dependencies
+   - Deploy the CDK stack (all backend resources)
+   - Create or update the Amplify app
+   - Configure CodeBuild for CI/CD
+   - Set up the buildspec.yml for automated builds
+   - Deploy the frontend to Amplify
+   - Optionally trigger the web scraper to populate the knowledge base
+
+4. **Follow the prompts**
+   - The script will ask for confirmation before deploying
+   - After successful deployment, you'll be prompted whether to populate the knowledge base with the web scraper
+   - Answer `y` to trigger the scraper, or `n` to skip
+
+### Manual Backend Deployment (Alternative)
+
+If you prefer to deploy manually:
 
 1. **Navigate to the backend directory**
    ```bash
    cd backend
    ```
 
-2. **Synthesize the CloudFormation template** (optional, for review)
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Synthesize the CloudFormation template** (optional, for review)
    ```bash
    cdk synth
    ```
 
-3. **Deploy the backend stack**
+4. **Deploy the backend stack**
    ```bash
-   cdk deploy
+   cdk deploy AdaClaraUnifiedStack
    ```
    
    When prompted:
    - Review the IAM changes
    - Type `y` to confirm deployment
 
-4. **Note the outputs**
+5. **Note the outputs**
    
    After deployment, note down the following outputs:
-   - **API Endpoint**: `[INSERT_OUTPUT_NAME]`
-   - **[INSERT_ADDITIONAL_OUTPUT]**: [INSERT_DESCRIPTION]
+   - **API Endpoint**: The API Gateway URL
+   - **User Pool ID**: For admin authentication
+   - **Amplify App ID**: If Amplify app was created
    
    > **Important**: Save these values as they will be needed for frontend configuration
 
-### Frontend Deployment
+### Manual Frontend Deployment (Alternative)
 
-1. **Navigate to the frontend directory**
-   ```bash
-   cd frontend
-   ```
+The frontend is automatically deployed via Amplify when using the unified script. For manual deployment:
 
-2. **Configure the frontend environment**
-   
-   [INSERT_FRONTEND_CONFIG_INSTRUCTIONS]
-   
-   ```bash
-   # Example: Update API endpoint
-   echo "NEXT_PUBLIC_API_URL=[YOUR_API_ENDPOINT]" >> .env.local
-   ```
-
-3. **Build the frontend**
-   ```bash
-   npm run build
-   ```
-
-4. **Deploy the frontend**
-   
-   [INSERT_FRONTEND_DEPLOYMENT_METHOD]
-   
-   **Option A: Deploy to Vercel**
-   ```bash
-   npx vercel --prod
-   ```
-   
-   **Option B: Deploy to AWS Amplify**
-   ```bash
-   [INSERT_AMPLIFY_COMMANDS]
-   ```
-   
-   **Option C: [INSERT_ALTERNATIVE_DEPLOYMENT]**
-   ```bash
-   [INSERT_COMMANDS]
-   ```
+1. **The frontend is configured to deploy via AWS Amplify**
+   - Connect your GitHub repository to Amplify
+   - Amplify will automatically build and deploy on git push
+   - Or use the Amplify CLI to deploy manually
 
 ---
 
@@ -195,33 +209,49 @@ Before you deploy, you must have the following:
 
 1. **Check CloudFormation stack status**
    ```bash
-   aws cloudformation describe-stacks --stack-name [INSERT_STACK_NAME]
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack
    ```
    
    Expected status: `CREATE_COMPLETE` or `UPDATE_COMPLETE`
 
-2. **Test API endpoint**
+2. **Test API health endpoint**
    ```bash
-   curl -X GET [INSERT_API_ENDPOINT]/[INSERT_TEST_PATH]
+   curl -X GET https://[API_ID].execute-api.[REGION].amazonaws.com/prod/health
    ```
    
-   Expected response: [INSERT_EXPECTED_RESPONSE]
+   Expected response: `{"status": "healthy"}`
 
 3. **Check Lambda functions**
    ```bash
-   aws lambda list-functions --query "Functions[?contains(FunctionName, '[INSERT_FUNCTION_PREFIX]')]"
+   aws lambda list-functions --query "Functions[?contains(FunctionName, 'ada-clara')]"
+   ```
+   
+   You should see 5 Lambda functions:
+   - `ada-clara-chat-processor-[env]`
+   - `ada-clara-admin-analytics-[env]`
+   - `ada-clara-escalation-handler-[env]`
+   - `ada-clara-rag-processor-[env]`
+   - `ada-clara-web-scraper-[env]`
+
+4. **Verify DynamoDB tables**
+   ```bash
+   aws dynamodb list-tables --query "TableNames[?contains(@, 'ada-clara')]"
    ```
 
 ### Verify Frontend Deployment
 
 1. **Access the application**
    
-   Navigate to: `[INSERT_FRONTEND_URL]`
+   Navigate to the Amplify URL provided after deployment, or check:
+   ```bash
+   aws amplify list-apps --query "apps[?name=='AdaClara']"
+   ```
 
 2. **Test basic functionality**
-   - [ ] [INSERT_TEST_CASE_1]
-   - [ ] [INSERT_TEST_CASE_2]
-   - [ ] [INSERT_TEST_CASE_3]
+   - [ ] Chat interface loads correctly
+   - [ ] Can send a message and receive a response
+   - [ ] Language switching works
+   - [ ] Admin dashboard is accessible (requires login)
 
 ---
 
@@ -229,19 +259,34 @@ Before you deploy, you must have the following:
 
 ### Common Issues
 
-#### Issue: [INSERT_COMMON_ISSUE_1]
-**Symptoms**: [INSERT_SYMPTOMS]
+#### Issue: CDK Bootstrap Required
+**Symptoms**: Error message: "This stack uses assets, so the toolkit stack must be deployed to the environment"
 
 **Solution**:
 ```bash
-[INSERT_SOLUTION_COMMANDS]
+cd backend
+cdk bootstrap aws://$(aws sts get-caller-identity --query Account --output text)/$(aws configure get region)
 ```
 
-#### Issue: [INSERT_COMMON_ISSUE_2]
-**Symptoms**: [INSERT_SYMPTOMS]
+#### Issue: Region Not Configured
+**Symptoms**: Error: "AWS region must be set via CDK_DEFAULT_REGION or AWS_REGION environment variable"
 
 **Solution**:
-[INSERT_SOLUTION_STEPS]
+```bash
+export AWS_REGION=us-west-2
+# Or configure via AWS CLI
+aws configure set region us-west-2
+```
+
+#### Issue: DynamoDB Table Already Exists
+**Symptoms**: Error about table already existing in another stack
+
+**Solution**:
+The deployment uses a `tableVersion` context variable to create new tables. If you encounter conflicts:
+```bash
+cdk deploy --context tableVersion=v3
+```
+This will create tables with a `v3` suffix to avoid conflicts.
 
 #### Issue: CDK Bootstrap Error
 **Symptoms**: Error message about CDK not being bootstrapped
@@ -265,12 +310,33 @@ cdk bootstrap aws://[ACCOUNT_ID]/[REGION]
 
 To remove all deployed resources:
 
-```bash
-cd backend
-cdk destroy
-```
+1. **Delete the CloudFormation stack**
+   ```bash
+   cd backend
+   cdk destroy AdaClaraUnifiedStack
+   ```
+   
+   When prompted, type `y` to confirm.
 
-> **Warning**: This will delete all resources created by this stack. Make sure to backup any important data before proceeding.
+2. **Delete the Amplify app** (if created separately)
+   ```bash
+   aws amplify delete-app --app-id [AMPLIFY_APP_ID]
+   ```
+
+3. **Manually delete S3 buckets** (if they contain data)
+   ```bash
+   aws s3 rb s3://[BUCKET_NAME] --force
+   ```
+
+> **Warning**: This will delete all resources created by this stack, including:
+> - All DynamoDB tables and data
+> - All Lambda functions
+> - API Gateway endpoints
+> - Cognito user pools
+> - S3 buckets and content
+> - Bedrock Knowledge Base
+> 
+> Make sure to backup any important data before proceeding.
 
 ---
 

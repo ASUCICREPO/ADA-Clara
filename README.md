@@ -1,6 +1,6 @@
-# [INSERT_PROJECT_NAME]
+# ADA Clara
 
-[INSERT_PROJECT_DESCRIPTION - 2-3 sentences describing what the project does, who it's for, and the key problem it solves]
+ADA Clara is an AI-powered diabetes chatbot assistant that provides accurate, evidence-based information about diabetes using trusted American Diabetes Association (ADA) resources. Built with AWS Bedrock and Retrieval Augmented Generation (RAG), the platform enables users to ask questions about diabetes in multiple languages and receive reliable answers sourced from diabetes.org. The system includes an admin dashboard for monitoring conversations, tracking analytics, and managing escalations, making it ideal for healthcare organizations and support teams.
 
 ---
 
@@ -29,9 +29,9 @@
 
 ## High Level Architecture
 
-[INSERT_ARCHITECTURE_OVERVIEW - Brief paragraph explaining the architecture, how components interact, and the overall system design]
+ADA Clara implements a serverless, event-driven architecture built on AWS. The system uses Amazon Bedrock with Claude 3 Sonnet for AI-powered responses, combined with a RAG (Retrieval Augmented Generation) system that queries a knowledge base populated from diabetes.org content. User interactions flow through API Gateway to Lambda functions that process chat messages, detect language using Amazon Comprehend, and retrieve relevant information from vector embeddings stored in S3. The architecture includes automated web scraping to keep the knowledge base up-to-date, comprehensive analytics tracking, and an admin dashboard for monitoring and management.
 
-![Architecture Diagram](./docs/media/architecture.png)
+![Architecture Diagram](./docs/media/ada-clara-architecture.png)
 
 > **[PLACEHOLDER]** Please create and provide an architecture diagram showing:
 > - All major components/services
@@ -50,9 +50,9 @@ For a detailed explanation of the architecture, see the [Architecture Deep Dive]
 For complete deployment instructions, see the [Deployment Guide](./docs/deploymentGuide.md).
 
 **Quick Start:**
-1. [INSERT_QUICK_START_STEP_1]
-2. [INSERT_QUICK_START_STEP_2]
-3. [INSERT_QUICK_START_STEP_3]
+1. Configure AWS CLI with your credentials and set the deployment region
+2. Run the deployment script: `./deploy.sh` from the project root
+3. The script will deploy both backend and frontend infrastructure automatically
 
 ---
 
@@ -80,12 +80,24 @@ For developers looking to extend or modify this project, see the [Modification G
 ├── backend/
 │   ├── bin/
 │   │   └── backend.ts
-│   ├── lambda/
-│   │   └── [INSERT_LAMBDA_FUNCTIONS]
+│   ├── src/
+│   │   ├── handlers/          # Lambda function handlers
+│   │   │   ├── chat-processor/
+│   │   │   ├── admin-analytics/
+│   │   │   ├── escalation-handler/
+│   │   │   ├── rag-processor/
+│   │   │   └── web-scraper/
+│   │   ├── business/           # Business logic services
+│   │   │   ├── chat/
+│   │   │   └── analytics/
+│   │   ├── services/           # Infrastructure services
+│   │   │   ├── bedrock.service.ts
+│   │   │   ├── dynamodb-service.ts
+│   │   │   ├── comprehend.service.ts
+│   │   │   └── question-processing.service.ts
+│   │   └── types/              # TypeScript type definitions
 │   ├── lib/
-│   │   └── backend-stack.ts
-│   ├── agent/
-│   │   └── [INSERT_AGENT_FILES]
+│   │   └── ada-clara-unified-stack.ts
 │   ├── cdk.json
 │   ├── package.json
 │   └── tsconfig.json
@@ -113,9 +125,11 @@ For developers looking to extend or modify this project, see the [Modification G
 
 1. **backend/** - Contains all backend infrastructure and serverless functions
    - `bin/` - CDK app entry point
-   - `lambda/` - AWS Lambda function handlers
-   - `lib/` - CDK stack definitions
-   - `agent/` - [INSERT_AGENT_DESCRIPTION]
+   - `src/handlers/` - AWS Lambda function handlers (chat processor, admin analytics, escalation handler, RAG processor, web scraper)
+   - `src/business/` - Core business logic (chat service, analytics service)
+   - `src/services/` - Infrastructure services (Bedrock, DynamoDB, Comprehend, question processing)
+   - `src/types/` - TypeScript type definitions and data models
+   - `lib/` - CDK stack definitions (unified stack for all AWS resources)
 
 2. **frontend/** - Next.js frontend application
    - `app/` - Next.js App Router pages and layouts
@@ -128,13 +142,9 @@ For developers looking to extend or modify this project, see the [Modification G
 
 ## Credits
 
-This application was developed by:
+This application was developed by the ASU Cloud Innovation Center team.
 
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_1]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_2]</a>
-- <a href="[INSERT_LINKEDIN_URL]" target="_blank">[INSERT_CONTRIBUTOR_NAME_3]</a>
-
-[INSERT_ADDITIONAL_ACKNOWLEDGMENTS - Teams, supporters, or organizations to acknowledge]
+Thanks to the ASU Cloud Innovation Center Technical and Project Management teams for their guidance and support.
 
 ---
 

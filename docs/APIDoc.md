@@ -1,172 +1,438 @@
-# [INSERT_PROJECT_NAME] APIs
+# ADA Clara APIs
 
-This document provides comprehensive API documentation for [INSERT_PROJECT_NAME].
+This document provides comprehensive API documentation for ADA Clara.
 
 ---
 
 ## Overview
 
-[INSERT_API_OVERVIEW - Brief description of what the APIs do and their purpose]
+The ADA Clara API provides endpoints for chat interactions, admin analytics, escalation management, and knowledge base queries. The API is built on AWS API Gateway with Lambda backend functions, supporting CORS for web applications and Cognito authentication for admin endpoints.
 
 ---
 
 ## Base URL
 
 ```
-https://[INSERT_API_ID].execute-api.[INSERT_REGION].amazonaws.com/[INSERT_STAGE]/
+https://[API_ID].execute-api.[REGION].amazonaws.com/prod/
 ```
-
-> **[PLACEHOLDER]** Replace with your actual API Gateway endpoint after deployment
 
 **Example:**
 ```
-https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/
+https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod/
 ```
+
+> **Note**: Replace `[API_ID]` and `[REGION]` with your actual API Gateway endpoint after deployment. The stage is always `prod`.
 
 ---
 
 ## Authentication
 
-[INSERT_AUTHENTICATION_METHOD - Describe how API requests should be authenticated]
+Public endpoints (chat, health) do not require authentication. Admin endpoints require Cognito authentication via API Gateway authorizer.
 
 ### Headers Required
 | Header | Description | Required |
 |--------|-------------|----------|
-| `[INSERT_HEADER_1]` | [INSERT_DESCRIPTION] | Yes/No |
-| `[INSERT_HEADER_2]` | [INSERT_DESCRIPTION] | Yes/No |
-| `Content-Type` | `application/json` | Yes |
+| `Authorization` | Cognito JWT token for admin endpoints | Yes (admin only) |
+| `Content-Type` | `application/json` | Yes (POST requests) |
+| `Origin` | Origin domain for CORS | Yes (browser requests) |
 
 ---
 
-## 1) [INSERT_API_GROUP_1_NAME - e.g., "Chat Endpoints"]
+## 1) Chat Endpoints
 
-[INSERT_GROUP_DESCRIPTION - Brief description of this group of endpoints]
+Endpoints for user chat interactions, message processing, and conversation management.
 
 ---
 
-#### POST /[INSERT_ENDPOINT_1] — [INSERT_BRIEF_DESCRIPTION]
+#### POST /chat — Send Chat Message
 
-- **Purpose**: [INSERT_DETAILED_PURPOSE]
+- **Purpose**: Process a user's chat message and return an AI-generated response with source citations.
+
+- **Authentication**: Not required
 
 - **Request body**:
 ```json
 {
-  "[INSERT_FIELD_1]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]",
-  "[INSERT_FIELD_2]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]",
-  "[INSERT_FIELD_3]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]"
+  "message": "string - The user's question or message",
+  "sessionId": "string (optional) - Existing session ID, or new session will be created",
+  "language": "string (optional) - Language code (en, es, etc.), auto-detected if not provided"
 }
 ```
 
 - **Example request**:
 ```json
 {
-  "[INSERT_FIELD_1]": "[INSERT_EXAMPLE_VALUE]",
-  "[INSERT_FIELD_2]": "[INSERT_EXAMPLE_VALUE]"
+  "message": "What are the symptoms of type 2 diabetes?",
+  "sessionId": "session-1234567890-abc"
 }
 ```
 
 - **Response**:
 ```json
 {
-  "[INSERT_RESPONSE_FIELD_1]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]",
-  "[INSERT_RESPONSE_FIELD_2]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]"
+  "message": "string - AI-generated response text",
+  "sources": [
+    {
+      "url": "string - Source URL from diabetes.org",
+      "title": "string - Source page title",
+      "excerpt": "string - Relevant excerpt from source"
+    }
+  ],
+  "sessionId": "string - Session ID for this conversation",
+  "escalated": "boolean - Whether the conversation was escalated"
 }
 ```
 
 - **Example response**:
 ```json
 {
-  "[INSERT_RESPONSE_FIELD_1]": "[INSERT_EXAMPLE_VALUE]",
-  "[INSERT_RESPONSE_FIELD_2]": "[INSERT_EXAMPLE_VALUE]"
+  "message": "Type 2 diabetes symptoms include increased thirst, frequent urination, fatigue, and blurred vision...",
+  "sources": [
+    {
+      "url": "https://diabetes.org/about-diabetes/type-2",
+      "title": "Type 2 Diabetes",
+      "excerpt": "Common symptoms of type 2 diabetes include..."
+    }
+  ],
+  "sessionId": "session-1234567890-abc",
+  "escalated": false
 }
 ```
 
 - **Status codes**:
-  - `200 OK` - [INSERT_SUCCESS_DESCRIPTION]
-  - `400 Bad Request` - [INSERT_ERROR_DESCRIPTION]
-  - `500 Internal Server Error` - [INSERT_ERROR_DESCRIPTION]
+  - `200 OK` - Message processed successfully
+  - `400 Bad Request` - Invalid request body or missing required fields
+  - `500 Internal Server Error` - Server error processing the message
 
 ---
 
-#### GET /[INSERT_ENDPOINT_2] — [INSERT_BRIEF_DESCRIPTION]
+#### GET /chat/history — Get Chat History
 
-- **Purpose**: [INSERT_DETAILED_PURPOSE]
+- **Purpose**: Retrieve chat history for a specific session.
+
+- **Authentication**: Not required
 
 - **Query parameters**:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `[INSERT_PARAM_1]` | [INSERT_TYPE] | Yes/No | [INSERT_DESCRIPTION] |
-| `[INSERT_PARAM_2]` | [INSERT_TYPE] | Yes/No | [INSERT_DESCRIPTION] |
+| `sessionId` | string | Yes | The session ID to retrieve history for |
 
 - **Example request**:
 ```
-GET /[INSERT_ENDPOINT]?[INSERT_PARAM_1]=[INSERT_VALUE]&[INSERT_PARAM_2]=[INSERT_VALUE]
+GET /chat/history?sessionId=session-1234567890-abc
 ```
 
 - **Response**:
 ```json
 {
-  "[INSERT_RESPONSE_FIELD]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]"
+  "sessionId": "string",
+  "messages": [
+    {
+      "messageId": "string",
+      "content": "string",
+      "sender": "user" | "bot",
+      "timestamp": "string (ISO 8601)",
+      "language": "string"
+    }
+  ]
 }
 ```
 
 ---
 
-## 2) [INSERT_API_GROUP_2_NAME - e.g., "Document Endpoints"]
+#### GET /chat/sessions — List Chat Sessions
 
-[INSERT_GROUP_DESCRIPTION]
+- **Purpose**: Retrieve a list of chat sessions (admin use).
+
+- **Authentication**: Not required (but may be restricted in production)
+
+- **Query parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | number | No | Maximum number of sessions to return (default: 50) |
+
+- **Response**:
+```json
+{
+  "sessions": [
+    {
+      "sessionId": "string",
+      "startTime": "string (ISO 8601)",
+      "language": "string",
+      "messageCount": "number",
+      "lastActivity": "string (ISO 8601)"
+    }
+  ]
+}
+```
 
 ---
 
-#### POST /[INSERT_ENDPOINT_3] — [INSERT_BRIEF_DESCRIPTION]
+#### GET /health — Health Check
 
-- **Purpose**: [INSERT_DETAILED_PURPOSE]
+- **Purpose**: Check API health and service status.
+
+- **Authentication**: Not required
+
+- **Response**:
+```json
+{
+  "message": "ADA Clara API is working!",
+  "timestamp": "string (ISO 8601)",
+  "status": "healthy" | "unhealthy",
+  "services": {
+    "dynamodb": "healthy" | "unhealthy",
+    "bedrock": "healthy" | "unhealthy"
+  }
+}
+```
+
+---
+
+## 2) Escalation Endpoints
+
+Endpoints for managing escalation requests when users need to speak with a healthcare professional.
+
+---
+
+#### POST /escalation/request — Submit Escalation Request
+
+- **Purpose**: Submit an escalation request form to contact a healthcare professional.
+
+- **Authentication**: Not required
 
 - **Request body**:
 ```json
 {
-  "[INSERT_FIELD]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]"
+  "name": "string - User's name",
+  "email": "string - User's email address",
+  "phone": "string (optional) - User's phone number",
+  "question": "string - The question or concern",
+  "sessionId": "string (optional) - Associated chat session ID",
+  "escalationType": "submit" | "talk_to_person"
+}
+```
+
+- **Example request**:
+```json
+{
+  "name": "John Doe",
+  "email": "john@example.com",
+  "phone": "+1234567890",
+  "question": "I need help managing my blood sugar levels",
+  "sessionId": "session-1234567890-abc",
+  "escalationType": "submit"
 }
 ```
 
 - **Response**:
 ```json
 {
-  "[INSERT_RESPONSE_FIELD]": "[INSERT_TYPE] - [INSERT_DESCRIPTION]"
+  "message": "Escalation request submitted successfully",
+  "requestId": "string - Unique request ID",
+  "timestamp": "string (ISO 8601)"
 }
 ```
 
+- **Status codes**:
+  - `200 OK` - Request submitted successfully
+  - `400 Bad Request` - Invalid request body
+  - `500 Internal Server Error` - Server error
+
 ---
 
-#### DELETE /[INSERT_ENDPOINT_4] — [INSERT_BRIEF_DESCRIPTION]
+#### GET /escalation/requests — Get Escalation Requests
 
-- **Purpose**: [INSERT_DETAILED_PURPOSE]
+- **Purpose**: Retrieve escalation requests (admin use).
 
-- **Path parameters**:
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `[INSERT_PARAM]` | [INSERT_TYPE] | [INSERT_DESCRIPTION] |
+- **Authentication**: Cognito required
+
+- **Query parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `limit` | number | No | Maximum number of requests to return (default: 50) |
+| `status` | string | No | Filter by status (pending, resolved, etc.) |
 
 - **Response**:
 ```json
 {
-  "message": "string - Success/error message"
+  "requests": [
+    {
+      "requestId": "string",
+      "name": "string",
+      "email": "string",
+      "question": "string",
+      "timestamp": "string (ISO 8601)",
+      "status": "string"
+    }
+  ]
 }
 ```
 
 ---
 
-## 3) [INSERT_API_GROUP_3_NAME - e.g., "Admin Endpoints"]
+## 3) Admin Endpoints
 
-[INSERT_GROUP_DESCRIPTION]
+Endpoints for admin dashboard analytics and metrics. All admin endpoints require Cognito authentication.
 
 ---
 
-#### [INSERT_HTTP_METHOD] /[INSERT_ENDPOINT] — [INSERT_BRIEF_DESCRIPTION]
+#### GET /admin/dashboard — Get Dashboard Data
 
-- **Purpose**: [INSERT_DETAILED_PURPOSE]
+- **Purpose**: Retrieve comprehensive dashboard data including all metrics, charts, and analytics.
 
-- **Request/Response**: [INSERT_DETAILS]
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "metrics": {
+    "totalConversations": "number",
+    "totalMessages": "number",
+    "escalationRate": "number (percentage)",
+    "outOfScopeRate": "number (percentage)"
+  },
+  "conversationsChart": {
+    "labels": ["string - Date labels"],
+    "data": ["number - Conversation counts"]
+  },
+  "languageSplit": {
+    "en": "number (percentage)",
+    "es": "number (percentage)"
+  },
+  "frequentlyAskedQuestions": [
+    {
+      "question": "string",
+      "count": "number",
+      "category": "string"
+    }
+  ],
+  "unansweredQuestions": [
+    {
+      "question": "string",
+      "unansweredRate": "number (percentage)",
+      "category": "string"
+    }
+  ]
+}
+```
+
+---
+
+#### GET /admin/metrics — Get Metrics Only
+
+- **Purpose**: Retrieve only the key metrics (conversations, messages, escalation rate, out-of-scope rate).
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "totalConversations": "number",
+  "totalMessages": "number",
+  "escalationRate": "number (percentage)",
+  "outOfScopeRate": "number (percentage)"
+}
+```
+
+---
+
+#### GET /admin/conversations/chart — Get Conversations Chart Data
+
+- **Purpose**: Retrieve time-series data for conversations chart.
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "labels": ["string - Date labels"],
+  "data": ["number - Conversation counts"]
+}
+```
+
+---
+
+#### GET /admin/language-split — Get Language Distribution
+
+- **Purpose**: Retrieve language distribution statistics.
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "en": "number (percentage)",
+  "es": "number (percentage)",
+  "other": "number (percentage)"
+}
+```
+
+---
+
+#### GET /admin/frequently-asked-questions — Get Frequently Asked Questions
+
+- **Purpose**: Retrieve top 6 most frequently asked questions.
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "questions": [
+    {
+      "question": "string",
+      "count": "number",
+      "category": "string"
+    }
+  ]
+}
+```
+
+---
+
+#### GET /admin/unanswered-questions — Get Unanswered Questions
+
+- **Purpose**: Retrieve top 6 unanswered questions (questions with high escalation rate).
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "questions": [
+    {
+      "question": "string",
+      "unansweredRate": "number (percentage)",
+      "category": "string"
+    }
+  ]
+}
+```
+
+---
+
+#### GET /admin/escalation-requests — Get Escalation Requests
+
+- **Purpose**: Retrieve escalation requests for admin review.
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "requests": [
+    {
+      "requestId": "string",
+      "name": "string",
+      "email": "string",
+      "question": "string",
+      "timestamp": "string (ISO 8601)",
+      "status": "string"
+    }
+  ]
+}
+```
 
 ---
 
@@ -177,9 +443,9 @@ All API responses follow this general structure:
 ### Success Response
 ```json
 {
-  "statusCode": 200,
-  "body": {
-    "[INSERT_DATA_FIELD]": "[INSERT_DATA]"
+  "message": "string - Response message",
+  "data": {
+    // Response data fields
   }
 }
 ```
@@ -187,11 +453,8 @@ All API responses follow this general structure:
 ### Error Response
 ```json
 {
-  "statusCode": "[INSERT_ERROR_CODE]",
-  "error": {
-    "message": "[INSERT_ERROR_MESSAGE]",
-    "code": "[INSERT_ERROR_CODE_STRING]"
-  }
+  "error": "string - Error type",
+  "message": "string - Detailed error message"
 }
 ```
 
@@ -201,22 +464,25 @@ All API responses follow this general structure:
 
 | Code | Name | Description |
 |------|------|-------------|
-| `400` | Bad Request | [INSERT_DESCRIPTION] |
-| `401` | Unauthorized | [INSERT_DESCRIPTION] |
-| `403` | Forbidden | [INSERT_DESCRIPTION] |
-| `404` | Not Found | [INSERT_DESCRIPTION] |
-| `429` | Too Many Requests | [INSERT_DESCRIPTION] |
-| `500` | Internal Server Error | [INSERT_DESCRIPTION] |
+| `400` | Bad Request | Invalid request body, missing required fields, or invalid parameter values |
+| `401` | Unauthorized | Missing or invalid authentication token (for admin endpoints) |
+| `403` | Forbidden | Valid token but insufficient permissions |
+| `404` | Not Found | Endpoint not found or resource does not exist |
+| `429` | Too Many Requests | Rate limit exceeded (1000 requests/second default) |
+| `500` | Internal Server Error | Server error processing the request |
+| `503` | Service Unavailable | One or more backend services are unavailable |
 
 ---
 
 ## Rate Limiting
 
-[INSERT_RATE_LIMITING_DETAILS - Describe any rate limits on the API]
+API Gateway enforces rate limiting to prevent abuse:
 
-- **Requests per second**: [INSERT_LIMIT]
-- **Requests per day**: [INSERT_LIMIT]
-- **Burst limit**: [INSERT_LIMIT]
+- **Requests per second**: 1000 (throttling rate limit)
+- **Burst limit**: 2000 requests
+- **Per-endpoint limits**: Applied uniformly across all endpoints
+
+If rate limits are exceeded, the API returns a `429 Too Many Requests` status code.
 
 ---
 
@@ -224,48 +490,80 @@ All API responses follow this general structure:
 
 ### JavaScript/TypeScript
 ```typescript
-// [INSERT_EXAMPLE_CODE]
-const response = await fetch('[INSERT_API_URL]/[INSERT_ENDPOINT]', {
+// Send a chat message
+const response = await fetch('https://[API_ID].execute-api.[REGION].amazonaws.com/prod/chat', {
   method: 'POST',
   headers: {
-    'Content-Type': 'application/json',
-    '[INSERT_AUTH_HEADER]': '[INSERT_AUTH_VALUE]'
+    'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    [INSERT_REQUEST_BODY]
+    message: 'What are the symptoms of type 2 diabetes?',
+    sessionId: 'session-1234567890-abc'
   })
 });
 
 const data = await response.json();
+console.log(data.message); // AI response
+console.log(data.sources); // Source citations
+
+// Get admin metrics (requires authentication)
+const adminResponse = await fetch('https://[API_ID].execute-api.[REGION].amazonaws.com/prod/admin/metrics', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${cognitoToken}`,
+    'Content-Type': 'application/json'
+  }
+});
+
+const metrics = await adminResponse.json();
 ```
 
 ### Python
 ```python
-# [INSERT_EXAMPLE_CODE]
 import requests
 
+# Send a chat message
 response = requests.post(
-    '[INSERT_API_URL]/[INSERT_ENDPOINT]',
+    'https://[API_ID].execute-api.[REGION].amazonaws.com/prod/chat',
     headers={
-        'Content-Type': 'application/json',
-        '[INSERT_AUTH_HEADER]': '[INSERT_AUTH_VALUE]'
+        'Content-Type': 'application/json'
     },
     json={
-        '[INSERT_FIELD]': '[INSERT_VALUE]'
+        'message': 'What are the symptoms of type 2 diabetes?',
+        'sessionId': 'session-1234567890-abc'
     }
 )
 
 data = response.json()
+print(data['message'])  # AI response
+print(data['sources'])   # Source citations
+
+# Get admin metrics (requires authentication)
+admin_response = requests.get(
+    'https://[API_ID].execute-api.[REGION].amazonaws.com/prod/admin/metrics',
+    headers={
+        'Authorization': f'Bearer {cognito_token}',
+        'Content-Type': 'application/json'
+    }
+)
+
+metrics = admin_response.json()
 ```
 
 ### cURL
 ```bash
-curl -X POST '[INSERT_API_URL]/[INSERT_ENDPOINT]' \
+# Send a chat message
+curl -X POST 'https://[API_ID].execute-api.[REGION].amazonaws.com/prod/chat' \
   -H 'Content-Type: application/json' \
-  -H '[INSERT_AUTH_HEADER]: [INSERT_AUTH_VALUE]' \
   -d '{
-    "[INSERT_FIELD]": "[INSERT_VALUE]"
+    "message": "What are the symptoms of type 2 diabetes?",
+    "sessionId": "session-1234567890-abc"
   }'
+
+# Get admin metrics (requires authentication)
+curl -X GET 'https://[API_ID].execute-api.[REGION].amazonaws.com/prod/admin/metrics' \
+  -H 'Authorization: Bearer [COGNITO_TOKEN]' \
+  -H 'Content-Type: application/json'
 ```
 
 ---
