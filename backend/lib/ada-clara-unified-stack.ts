@@ -73,8 +73,8 @@ export class AdaClaraUnifiedStack extends Stack {
     const environment = this.node.tryGetContext('environment') || 'dev';
     // Add version suffix to table names to avoid conflicts with existing tables
     // Change this version number if you need to create new tables (e.g., after deleting old ones)
-    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
-    const stackSuffix = environment === 'production' ? '' : `-${environment}-${tableVersion}`;
+    const tableVersion = this.node.tryGetContext('tableVersion') || '';
+    const stackSuffix = environment === 'production' ? '' : `-${environment}${tableVersion ? `-${tableVersion}` : ''}`;
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
@@ -370,13 +370,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Web Scraper Lambda
     const webScraperLogGroup = new logs.LogGroup(this, 'WebScraperLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-web-scraper-v2-${region}${stackSuffix}`,
+      logGroupName: `/aws/lambda/ada-clara-web-scraper${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
-      functionName: `ada-clara-web-scraper-${region}${stackSuffix}`,
+      functionName: `ada-clara-web-scraper${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'index.handler',
       code: lambda.Code.fromAsset('dist/web-scraper'),
@@ -496,13 +496,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
     const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-rag-processor-v2-${region}${stackSuffix}`,
+      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
-      functionName: `ada-clara-rag-processor-v2-${region}${stackSuffix}`,
+      functionName: `ada-clara-rag-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'src/handlers/rag-processor/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -542,7 +542,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
-      functionName: `ada-clara-simple-chat-processor${stackSuffix}`,
+      functionName: `ada-clara-chat-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/chat-processor/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -563,7 +563,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
-      functionName: `ada-clara-escalation-handler-v3${stackSuffix}`,
+      functionName: `ada-clara-escalation-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/escalation-handler/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -576,7 +576,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
-      functionName: `ada-clara-admin-analytics-v3${stackSuffix}`,
+      functionName: `ada-clara-admin-analytics${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/admin-analytics/index.handler',
       code: lambda.Code.fromAsset('dist'),
