@@ -72,8 +72,8 @@ export class AdaClaraUnifiedStack extends Stack {
     }
     const environment = this.node.tryGetContext('environment') || 'dev';
     // Add version suffix to table names to avoid conflicts with existing tables
-    // Change this version number if you need to create new tables (e.g., after deleting old ones)
-    const tableVersion = this.node.tryGetContext('tableVersion') || '';
+    // Use 'v2' to create new tables and avoid conflicts with AdaClaraEnhancedDynamoDB-dev stack
+    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
     const stackSuffix = environment === 'production' ? '' : `-${environment}${tableVersion ? `-${tableVersion}` : ''}`;
 
     // Get Amplify App ID from context (passed by deployment script)
@@ -86,6 +86,7 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
 
     // ========== DYNAMODB TABLES ==========
+    // Using tableVersion 'v2' to create new tables and avoid conflicts with existing tables in AdaClaraEnhancedDynamoDB-dev stack
     this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
       tableName: `ada-clara-chat-sessions${stackSuffix}`,
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
