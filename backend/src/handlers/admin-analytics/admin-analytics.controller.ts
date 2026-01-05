@@ -70,6 +70,9 @@ export class AdminAnalyticsController {
       case '/admin/unanswered-questions':
         return await this.getUnansweredQuestions();
       
+      case '/admin/question-analytics':
+        return await this.getQuestionAnalytics();
+      
       case '/admin/health':
       case '/admin':
         return await this.getHealthCheck();
@@ -84,6 +87,7 @@ export class AdminAnalyticsController {
             'GET /admin/language-split',
             'GET /admin/frequently-asked-questions',
             'GET /admin/unanswered-questions',
+            'GET /admin/question-analytics',
             'GET /admin/health'
           ]
         });
@@ -155,10 +159,31 @@ export class AdminAnalyticsController {
   }
 
   /**
-   * Get frequently asked questions
+   * Get frequently asked questions (enhanced with QuestionProcessingService)
    */
   private async getFrequentlyAskedQuestions(): Promise<APIGatewayProxyResult> {
     try {
+      // Use the enhanced question processing service if available
+      const dynamoService = this.analyticsService.getDynamoService();
+      if (dynamoService) {
+        const { QuestionProcessingService } = require('../../services/question-processing.service');
+        const questionService = new QuestionProcessingService(dynamoService);
+        
+        // Get enhanced FAQ data (limit to 6 to match frontend expectations)
+        const enhancedQuestions = await questionService.getFrequentlyAskedQuestions(6);
+        
+        if (enhancedQuestions.length > 0) {
+          // Transform to match frontend expectations
+          const questions = enhancedQuestions.map((q: any) => ({
+            question: q.question,
+            count: q.count
+          }));
+          
+          return this.createResponse(200, { questions });
+        }
+      }
+
+      // Fallback to original analytics service implementation
       const faqData = await this.analyticsService.getFrequentlyAskedQuestions();
       return this.createResponse(200, { questions: faqData });
     } catch (error) {
@@ -171,16 +196,79 @@ export class AdminAnalyticsController {
   }
 
   /**
-   * Get unanswered questions
+   * Get unanswered questions (enhanced with QuestionProcessingService)
    */
   private async getUnansweredQuestions(): Promise<APIGatewayProxyResult> {
     try {
+      // Use the enhanced question processing service if available
+      const dynamoService = this.analyticsService.getDynamoService();
+      if (dynamoService) {
+        const { QuestionProcessingService } = require('../../services/question-processing.service');
+        const questionService = new QuestionProcessingService(dynamoService);
+        
+        // Get enhanced unanswered questions data (limit to 6 to match frontend expectations)
+        const enhancedQuestions = await questionService.getUnansweredQuestions(6);
+        
+        if (enhancedQuestions.length > 0) {
+          // Transform to match frontend expectations
+          const questions = enhancedQuestions.map((q: any) => ({
+            question: q.question,
+            count: q.count
+          }));
+          
+          return this.createResponse(200, { questions });
+        }
+      }
+
+      // Fallback to original analytics service implementation
       const unansweredData = await this.analyticsService.getUnansweredQuestions();
       return this.createResponse(200, { questions: unansweredData });
     } catch (error) {
       console.error('Error fetching unanswered questions:', error);
       return this.createResponse(500, {
         error: 'Failed to fetch unanswered questions',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }
+
+  /**
+   * Get enhanced question analytics
+   */
+  private async getQuestionAnalytics(): Promise<APIGatewayProxyResult> {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30); // Last 30 days
+      const endDate = new Date();
+      
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = endDate.toISOString().split('T')[0];
+      
+      // Get analytics from the enhanced question processing service
+      const dynamoService = this.analyticsService.getDynamoService();
+      if (dynamoService) {
+        const { QuestionProcessingService } = require('../../services/question-processing.service');
+        const questionService = new QuestionProcessingService(dynamoService);
+        
+        const analytics = await questionService.getQuestionAnalytics(startDateStr, endDateStr);
+        
+        return this.createResponse(200, {
+          analytics,
+          dateRange: {
+            start: startDateStr,
+            end: endDateStr
+          },
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        return this.createResponse(500, {
+          error: 'Analytics service not properly initialized'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching question analytics:', error);
+      return this.createResponse(500, {
+        error: 'Failed to fetch question analytics',
         message: error instanceof Error ? error.message : 'Unknown error'
       });
     }

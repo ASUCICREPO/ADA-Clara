@@ -328,7 +328,7 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         fi
         
         if [ "$should_skip" = false ]; then
-          echo -e "${RED}[ERROR]${NC} $line"
+        echo -e "${RED}[ERROR]${NC} $line"
         fi
       fi
       
@@ -402,3 +402,106 @@ echo ""
 echo "Frontend URL: https://main.$AMPLIFY_URL"
 echo ""
 
+# --- Interactive Web Scraper Prompt ---
+echo ""
+print_status "Knowledge Base Population"
+echo ""
+echo "Would you like to populate the knowledge base by scraping diabetes.org content?"
+echo "This will:"
+echo "   - Discover and scrape up to 50 pages from diabetes.org"
+echo "   - Process content with AI enhancement"
+echo "   - Generate embeddings and store in S3 Vectors"
+echo "   - Take approximately 10-15 minutes to complete"
+echo ""
+read -p "Populate knowledge base now? (y/n): " -n 1 -r
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+  print_status "Waiting for Lambda function to be ready..."
+  sleep 10
+
+  # Get the web scraper function name from CloudFormation
+  WEB_SCRAPER_FUNCTION=$(AWS_PAGER="" aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --query "Stacks[0].Outputs[?OutputKey=='WebScraperFunctionName'].OutputValue" \
+    --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+  # If not found in outputs, construct the function name based on the pattern used in the stack
+  if [ -z "$WEB_SCRAPER_FUNCTION" ] || [ "$WEB_SCRAPER_FUNCTION" = "None" ]; then
+    # Use the same naming pattern as in the CDK stack
+    ENVIRONMENT=$(echo "$STACK_NAME" | grep -o '\-dev\-v[0-9]*' || echo "")
+    WEB_SCRAPER_FUNCTION="ada-clara-web-scraper-${AWS_REGION}${ENVIRONMENT}"
+    print_status "Using constructed function name: $WEB_SCRAPER_FUNCTION"
+  else
+    print_status "Found web scraper function: $WEB_SCRAPER_FUNCTION"
+  fi
+
+  # Trigger initial scraping
+  print_status "Triggering initial diabetes.org domain scraping..."
+
+  SCRAPER_PAYLOAD='{
+    "action": "discover-scrape",
+    "domain": "diabetes.org",
+    "maxUrls": 50,
+    "enableContentEnhancement": true,
+    "enableIntelligentChunking": true,
+    "enableStructuredExtraction": true,
+    "chunkingStrategy": "hybrid",
+    "forceRefresh": true
+  }'
+
+  # Invoke the web scraper Lambda function
+  SCRAPER_RESULT=$(AWS_PAGER="" aws lambda invoke \
+    --function-name "$WEB_SCRAPER_FUNCTION" \
+    --payload "$SCRAPER_PAYLOAD" \
+    --region "$AWS_REGION" \
+    /tmp/scraper-response.json 2>&1)
+
+  if [ $? -eq 0 ]; then
+    # Check if the invocation was successful
+    STATUS_CODE=$(echo "$SCRAPER_RESULT" | jq -r '.StatusCode' 2>/dev/null || echo "200")
+    
+    if [ "$STATUS_CODE" = "200" ]; then
+      print_success "Initial scraping triggered successfully!"
+      
+      # Try to extract some basic info from the response
+      if [ -f "/tmp/scraper-response.json" ]; then
+        RESPONSE_BODY=$(cat /tmp/scraper-response.json | jq -r '.body' 2>/dev/null || echo "")
+        if [ -n "$RESPONSE_BODY" ] && [ "$RESPONSE_BODY" != "null" ]; then
+          PARSED_BODY=$(echo "$RESPONSE_BODY" | jq -r '.result.summary' 2>/dev/null || echo "")
+          if [ -n "$PARSED_BODY" ] && [ "$PARSED_BODY" != "null" ]; then
+            print_status "Scraping summary: $PARSED_BODY"
+          fi
+        fi
+      fi
+      
+      print_status "The web scraper is now populating the knowledge base with diabetes.org content."
+      print_status "This process runs in the background and may take several minutes to complete."
+      echo ""
+      print_status "You can monitor progress in CloudWatch logs:"
+      print_status "  Log Group: /aws/lambda/$WEB_SCRAPER_FUNCTION"
+    else
+      print_warning "Web scraper invocation returned status code: $STATUS_CODE"
+      print_warning "Initial scraping may not have started successfully."
+      print_warning "You can manually trigger scraping later using:"
+      print_warning "  backend/scripts/trigger-initial-scraping.sh"
+    fi
+  else
+    print_warning "Failed to trigger initial scraping: $SCRAPER_RESULT"
+    print_warning "You can manually trigger scraping later via the API or admin interface."
+    print_warning "Or use the manual trigger script:"
+    print_warning "  backend/scripts/trigger-initial-scraping.sh"
+  fi
+
+  # Clean up temporary file
+  rm -f /tmp/scraper-response.json
+else
+  print_status "Skipping knowledge base population."
+  echo ""
+  print_status "You can trigger knowledge base population later by:"
+  print_status "  1. Running: backend/scripts/trigger-initial-scraping.sh"
+  print_status "  2. Or manually invoking the web scraper Lambda function"
+fi
+
+echo ""
+print_success "Deployment complete!"

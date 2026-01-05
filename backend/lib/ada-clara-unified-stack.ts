@@ -10,6 +10,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import { Bucket, Index } from 'cdk-s3-vectors';
 import { CfnKnowledgeBase, CfnDataSource } from 'aws-cdk-lib/aws-bedrock';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
 /**
  * Unified Stack for ADA Clara
@@ -34,12 +36,12 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly userPoolDomain: cognito.UserPoolDomain;
   public readonly identityPool: cognito.CfnIdentityPool;
 
-  // API Gateway
-  public readonly api: apigateway.RestApi;
+  // Lambda Functions
   public readonly chatProcessor: lambda.Function;
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
   public readonly ragProcessor: lambda.Function;
+  public readonly webScraperProcessor: lambda.Function;
 
   // S3 Vectors
   public readonly contentBucket: s3.Bucket;
@@ -48,6 +50,12 @@ export class AdaClaraUnifiedStack extends Stack {
 
   // Bedrock Knowledge Base
   public readonly knowledgeBase: CfnKnowledgeBase;
+
+  // EventBridge
+  public readonly webScraperScheduleRule: events.Rule;
+
+  // API Gateway
+  public readonly api: apigateway.RestApi;
 
   // Amplify App (created but deployment handled by buildspec)
   public readonly amplifyApp?: amplify.CfnApp;
@@ -65,8 +73,8 @@ export class AdaClaraUnifiedStack extends Stack {
     const environment = this.node.tryGetContext('environment') || 'dev';
     // Add version suffix to table names to avoid conflicts with existing tables
     // Change this version number if you need to create new tables (e.g., after deleting old ones)
-    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
-    const stackSuffix = environment === 'production' ? '' : `-${environment}-${tableVersion}`;
+    const tableVersion = this.node.tryGetContext('tableVersion') || '';
+    const stackSuffix = environment === 'production' ? '' : `-${environment}${tableVersion ? `-${tableVersion}` : ''}`;
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
@@ -348,7 +356,108 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        S3VectorsAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['s3vectors:*'],
+              resources: ['*'],
+            }),
+          ],
+        }),
       },
+    });
+
+    // Web Scraper Lambda
+    const webScraperLogGroup = new logs.LogGroup(this, 'WebScraperLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-web-scraper${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
+      functionName: `ada-clara-web-scraper${stackSuffix}`,
+      runtime: lambda.Runtime.NODEJS_20_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('dist/web-scraper'),
+      timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
+      memorySize: 2048, // Increased memory for AI processing
+      logGroup: webScraperLogGroup,
+      role: lambdaExecutionRole,
+      environment: {
+        // S3 Vectors configuration
+        CONTENT_BUCKET: this.contentBucket.bucketName,
+        VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
+        VECTOR_INDEX: this.vectorIndex.indexName,
+        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
+        
+        // DynamoDB configuration
+        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
+        
+        // Domain and scraping configuration
+        TARGET_DOMAIN: 'diabetes.org',
+        MAX_PAGES: '50', // Increased for comprehensive discovery
+        RATE_LIMIT_DELAY: '2000',
+        
+        // Path configuration
+        ALLOWED_PATHS: '/about-diabetes,/living-with-diabetes,/food-nutrition,/tools-and-resources,/community,/professionals',
+        BLOCKED_PATHS: '/admin,/login,/api/internal,/private,/search,/cart,/checkout',
+        
+        // Enhanced processing configuration
+        ENABLE_CONTENT_ENHANCEMENT: 'true',
+        ENABLE_INTELLIGENT_CHUNKING: 'true',
+        ENABLE_STRUCTURED_EXTRACTION: 'true',
+        CHUNKING_STRATEGY: 'hybrid',
+        
+        // Change detection configuration
+        ENABLE_CHANGE_DETECTION: 'true',
+        SKIP_UNCHANGED_CONTENT: 'true',
+        FORCE_REFRESH: 'false',
+        
+        // Quality and performance settings
+        QUALITY_THRESHOLD: '0.7',
+        MAX_RETRIES: '3',
+        BATCH_SIZE: '3',
+      },
+    });
+
+    // Grant permissions to web scraper
+    this.contentBucket.grantReadWrite(this.webScraperProcessor);
+    this.contentTrackingTable.grantReadWriteData(this.webScraperProcessor);
+
+    // EventBridge Rule for weekly scraping (Sundays at 2 AM UTC)
+    this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {
+      ruleName: `ada-clara-web-scraper-schedule${stackSuffix}`,
+      description: 'Weekly scheduled web scraping for diabetes.org content',
+      schedule: events.Schedule.cron({
+        minute: '0',
+        hour: '2',
+        weekDay: 'SUN', // Sunday
+      }),
+      enabled: true,
+    });
+
+    // Add Lambda target to EventBridge rule
+    this.webScraperScheduleRule.addTarget(new targets.LambdaFunction(this.webScraperProcessor, {
+      event: events.RuleTargetInput.fromObject({
+        source: 'aws.events',
+        'detail-type': 'Scheduled Web Scraping',
+        detail: {
+          action: 'scheduled-discover-scrape',
+          domain: 'diabetes.org',
+          maxUrls: 50,
+          forceRefresh: false,
+          scheduledExecution: true,
+          executionId: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
+          timestamp: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
+        },
+      }),
+    }));
+
+    // Grant EventBridge permission to invoke Lambda
+    this.webScraperProcessor.addPermission('AllowEventBridgeInvoke', {
+      principal: new iam.ServicePrincipal('events.amazonaws.com'),
+      sourceArn: this.webScraperScheduleRule.ruleArn,
     });
 
     // Create API Gateway first (needed for RAG endpoint reference)
@@ -387,13 +496,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
     const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-rag-processor-v2-${region}${stackSuffix}`,
+      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
-      functionName: `ada-clara-rag-processor-v2-${region}${stackSuffix}`,
+      functionName: `ada-clara-rag-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
       handler: 'src/handlers/rag-processor/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -412,28 +521,8 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Grant S3 Vectors permissions to RAG processor
-    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        's3vectors:SearchVectors',
-        's3vectors:GetVector',
-        's3vectors:ListVectors',
-        's3vectors:GetVectorBucket',
-        's3vectors:GetIndex',
-        's3vectors:ListIndexes',
-      ],
-      resources: [
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/index/${this.vectorIndex.indexName}`,
-        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/*`,
-      ],
-    }));
-
     // Grant Bedrock permissions
-    // Note: Currently using existing KB (UUGQXLYUXG) that has data
-    // TODO: Update to use this.knowledgeBase.attrKnowledgeBaseId once new KB is populated
-    const knowledgeBaseId = 'UUGQXLYUXG'; // Existing KB with data
+    // Grant access to the Knowledge Base created by this stack
     this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
@@ -445,8 +534,7 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
         `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
-        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${knowledgeBaseId}`,
-        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`, // Also grant access to new KB for future use
+        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
 
@@ -454,7 +542,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
-      functionName: `ada-clara-simple-chat-processor${stackSuffix}`,
+      functionName: `ada-clara-chat-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/chat-processor/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -475,7 +563,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
-      functionName: `ada-clara-escalation-handler-v3${stackSuffix}`,
+      functionName: `ada-clara-escalation-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/escalation-handler/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -488,7 +576,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
-      functionName: `ada-clara-admin-analytics-v3${stackSuffix}`,
+      functionName: `ada-clara-admin-analytics${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
       handler: 'src/handlers/admin-analytics/index.handler',
       code: lambda.Code.fromAsset('dist'),
@@ -513,7 +601,7 @@ export class AdaClaraUnifiedStack extends Stack {
     this.escalationRequestsTable.grantReadWriteData(this.chatProcessor);
     this.questionsTable.grantReadWriteData(this.chatProcessor);
     this.analyticsTable.grantReadData(this.adminAnalytics);
-    this.conversationsTable.grantReadData(this.adminAnalytics);
+    // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
     this.questionsTable.grantReadData(this.adminAnalytics);
     this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
     this.chatSessionsTable.grantReadData(this.adminAnalytics);
@@ -569,6 +657,26 @@ export class AdaClaraUnifiedStack extends Stack {
     // RAG query endpoint
     const queryResource = this.api.root.addResource('query');
     queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
+
+    // Web Scraper endpoints (admin-only)
+    const scraperResource = this.api.root.addResource('scraper');
+    
+    // Manual scraping trigger
+    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Scraper status and health
+    const scraperStatusResource = scraperResource.addResource('status');
+    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Domain discovery endpoint
+    const scraperDiscoverResource = scraperResource.addResource('discover');
+    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+      authorizer: cognitoAuthorizer,
+    });
 
     // Update chat processor environment with RAG endpoint and function name (AFTER all API Gateway methods are created)
     // Construct API URL manually to avoid circular dependency
@@ -634,6 +742,24 @@ export class AdaClaraUnifiedStack extends Stack {
       value: region,
       description: 'AWS Region',
       exportName: `AdaClara-Region-${region}`,
+    });
+
+    new CfnOutput(this, 'WebScraperFunctionName', {
+      value: this.webScraperProcessor.functionName,
+      description: 'Web Scraper Lambda Function Name',
+      exportName: `AdaClara-WebScraperFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'VectorsBucketName', {
+      value: this.vectorsBucket.vectorBucketName,
+      description: 'S3 Vectors Bucket Name',
+      exportName: `AdaClara-VectorsBucket-${region}`,
+    });
+
+    new CfnOutput(this, 'KnowledgeBaseId', {
+      value: this.knowledgeBase.attrKnowledgeBaseId,
+      description: 'Bedrock Knowledge Base ID',
+      exportName: `AdaClara-KnowledgeBaseId-${region}`,
     });
   }
 }

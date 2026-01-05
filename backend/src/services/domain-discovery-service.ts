@@ -16,7 +16,7 @@ import {
 } from '../types/domain-discovery.types';
 
 export class DomainDiscoveryService {
-  private readonly USER_AGENT = 'ADA Clara Enhanced Scraper/1.0';
+  private readonly USER_AGENT = 'ADA Clara Web Scraper/1.0';
   private readonly DEFAULT_DELAY = 300;
   private readonly CONSERVATIVE_DELAY = 1000; // For larger operations
   

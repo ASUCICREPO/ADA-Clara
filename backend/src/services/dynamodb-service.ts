@@ -18,7 +18,7 @@ import {
   AuditLog,
   EscalationQueue,
   KnowledgeContent,
-  ConversationRecord,
+  ConversationData, // Simplified interface replacing ConversationRecord
   MessageRecord,
   QuestionRecord,
   DynamoDBKeyGenerator,
@@ -42,7 +42,7 @@ export class DynamoDBService {
   private readonly KNOWLEDGE_CONTENT_TABLE = process.env.KNOWLEDGE_CONTENT_TABLE || 'ada-clara-knowledge-content';
   
   // New tables for enhanced analytics
-  private readonly CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
+  // CONVERSATIONS_TABLE removed - using CHAT_SESSIONS_TABLE instead
   private readonly MESSAGES_TABLE = process.env.MESSAGES_TABLE || 'ada-clara-messages';
   private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
 
@@ -334,13 +334,15 @@ export class DynamoDBService {
       ttl: TTLCalculator.escalationTTL()
     };
 
+    const preparedItem = this.prepareDynamoDBItem({
+      PK: DynamoDBKeyGenerator.escalationPK(escalation.status),
+      SK: DynamoDBKeyGenerator.escalationSK(escalation.createdAt, escalation.sessionId),
+      ...escalationWithTTL
+    });
+
     const command = new PutCommand({
       TableName: this.ESCALATION_QUEUE_TABLE,
-      Item: {
-        PK: DynamoDBKeyGenerator.escalationPK(escalation.status),
-        SK: DynamoDBKeyGenerator.escalationSK(escalation.createdAt, escalation.sessionId),
-        ...escalationWithTTL
-      }
+      Item: preparedItem
     });
 
     await this.client.send(command);
@@ -455,130 +457,97 @@ export class DynamoDBService {
   }
 
   // ===== ENHANCED ANALYTICS TABLES =====
+  // CONVERSATIONS TABLE methods removed - using CHAT_SESSIONS_TABLE instead
 
-  // ===== CONVERSATIONS TABLE =====
+  // ===== MESSAGES TABLE =====
 
-  async createConversationRecord(conversation: ConversationRecord): Promise<void> {
-    const validation = DataValidator.validateConversationRecord(conversation);
-    if (!validation.isValid) {
-      throw new Error(`Invalid conversation data: ${validation.errors.join(', ')}`);
-    }
-
-    const preparedItem = this.prepareDynamoDBItem({
-      ...conversation,
-      conversationId: conversation.conversationId,
-      timestamp: conversation.timestamp
-    });
-
-    const command = new PutCommand({
-      TableName: this.CONVERSATIONS_TABLE,
-      Item: preparedItem
-    });
-
-    await this.client.send(command);
-  }
-
-  async getConversationRecord(conversationId: string, timestamp: string): Promise<ConversationRecord | null> {
-    const command = new GetCommand({
-      TableName: this.CONVERSATIONS_TABLE,
-      Key: {
-        conversationId: conversationId,
-        timestamp: timestamp
+  async getConversationsByDateRange(startDate: string, endDate: string, language?: 'en' | 'es'): Promise<ConversationData[]> {
+    // REPLACEMENT: Use chat sessions instead of conversations table
+    // This method now queries the CHAT_SESSIONS_TABLE instead of CONVERSATIONS_TABLE
+    // to eliminate redundant conversation tracking while maintaining analytics functionality
+    console.log(`[DynamoDB] Getting conversations by date range: ${startDate} to ${endDate}, language: ${language || 'all'}`);
+    
+    // Get all chat sessions and filter by date range
+    // Only get session metadata records, not individual messages
+    const allSessions = await this.scanItems(this.CHAT_SESSIONS_TABLE, {
+      filterExpression: 'begins_with(PK, :pk) AND SK = :sk',
+      expressionAttributeValues: {
+        ':pk': 'SESSION#',
+        ':sk': 'METADATA'
       }
     });
 
-    const result = await this.client.send(command);
-    if (!result.Item) return null;
+    console.log(`[DynamoDB] Found ${allSessions.length} total chat sessions`);
 
-    return result.Item as ConversationRecord;
-  }
-
-  async getConversationsByDateRange(startDate: string, endDate: string, language?: 'en' | 'es'): Promise<ConversationRecord[]> {
-    // Query each date in the range and combine results
-    // Since DateIndex is a GSI on the date field, we need to query each date separately
-    const allConversations: ConversationRecord[] = [];
+    // Filter by date range with comprehensive validation
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
-    // Iterate through each date in the range
-    for (let currentDate = new Date(start); currentDate <= end; currentDate.setDate(currentDate.getDate() + 1)) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      
-      try {
-        const command = new QueryCommand({
-          TableName: this.CONVERSATIONS_TABLE,
-          IndexName: 'DateIndex',
-          KeyConditionExpression: '#date = :date',
-          ExpressionAttributeNames: {
-            '#date': 'date'
-          },
-          ExpressionAttributeValues: {
-            ':date': dateStr
-          }
-        });
+    end.setHours(23, 59, 59, 999); // Include entire end date
 
-        const result = await this.client.send(command);
-        const dayConversations = (result.Items || []) as ConversationRecord[];
-        allConversations.push(...dayConversations);
-      } catch (error) {
-        console.error(`Error querying conversations for date ${dateStr}:`, error);
-        // Continue with next date if one fails
+    const validSessions = allSessions.filter(session => {
+      // Validate session has required fields
+      if (!session.sessionId) {
+        console.log(`[DynamoDB] Skipping session - no sessionId: ${session.PK}`);
+        return false;
       }
-    }
-
-    // Filter by language if specified
-    let conversations = allConversations;
-    if (language) {
-      conversations = conversations.filter(conv => conv.language === language);
-    }
-
-    return conversations;
-  }
-
-  async getConversationsByUser(userId: string, limit?: number): Promise<ConversationRecord[]> {
-    const command = new QueryCommand({
-      TableName: this.CONVERSATIONS_TABLE,
-      IndexName: 'UserIndex',
-      KeyConditionExpression: 'userId = :userId',
-      ExpressionAttributeValues: {
-        ':userId': userId
-      },
-      ScanIndexForward: false, // Most recent first
-      Limit: limit
+      
+      if (!session.startTime) {
+        console.log(`[DynamoDB] Skipping session ${session.sessionId} - no startTime`);
+        return false;
+      }
+      
+      // Validate startTime is a valid date
+      const sessionDate = new Date(session.startTime);
+      if (isNaN(sessionDate.getTime())) {
+        console.log(`[DynamoDB] Skipping session ${session.sessionId} - invalid startTime: ${session.startTime}`);
+        return false;
+      }
+      
+      // Check date range
+      const inDateRange = sessionDate >= start && sessionDate <= end;
+      if (!inDateRange) {
+        return false; // Don't log every out-of-range session to reduce noise
+      }
+      
+      // Check language filter
+      const matchesLanguage = !language || session.language === language;
+      if (!matchesLanguage) {
+        return false;
+      }
+      
+      return true;
     });
 
-    const result = await this.client.send(command);
-    return (result.Items || []) as ConversationRecord[];
+    console.log(`[DynamoDB] Filtered to ${validSessions.length} valid sessions in date range`);
+
+    // Convert UserSession format to ConversationRecord format for compatibility
+    return validSessions.map(session => {
+      // Ensure we have valid dates
+      const startTime = session.startTime;
+      const endTime = session.endTime || null;
+      const date = new Date(startTime).toISOString().split('T')[0];
+      
+      return {
+        conversationId: session.sessionId,
+        userId: session.userId || `user-${session.sessionId}`,
+        sessionId: session.sessionId,
+        startTime: startTime,
+        endTime: endTime,
+        timestamp: startTime,
+        date: date,
+        language: session.language || 'en',
+        messageCount: session.messageCount || 0,
+        outcome: session.escalated ? 'escalated' : 'resolved',
+        escalationReason: session.escalationReason || undefined,
+        escalationTimestamp: session.escalationTimestamp || undefined,
+        userInfo: session.userInfo || undefined
+      } as ConversationData;
+    });
   }
 
-  async updateConversationRecord(conversationId: string, timestamp: string, updates: Partial<ConversationRecord>): Promise<void> {
-    const preparedUpdates = this.prepareDynamoDBItem(updates);
-    
-    const updateExpression: string[] = [];
-    const expressionAttributeNames: Record<string, string> = {};
-    const expressionAttributeValues: Record<string, any> = {};
+  // getConversationsByUser method removed - using chat sessions instead
 
-    Object.entries(preparedUpdates).forEach(([key, value], index) => {
-      const attrName = `#attr${index}`;
-      const attrValue = `:val${index}`;
-      updateExpression.push(`${attrName} = ${attrValue}`);
-      expressionAttributeNames[attrName] = key;
-      expressionAttributeValues[attrValue] = value;
-    });
-
-    const command = new UpdateCommand({
-      TableName: this.CONVERSATIONS_TABLE,
-      Key: {
-        conversationId: conversationId,
-        timestamp: timestamp
-      },
-      UpdateExpression: `SET ${updateExpression.join(', ')}`,
-      ExpressionAttributeNames: expressionAttributeNames,
-      ExpressionAttributeValues: expressionAttributeValues
-    });
-
-    await this.client.send(command);
-  }
+  // updateConversationRecord method removed - using chat sessions instead
 
   // ===== MESSAGES TABLE =====
 
@@ -813,10 +782,10 @@ export class DynamoDBService {
       if (conv.language === 'en') totalEn++;
       else totalEs++;
       
-      totalConfidenceScore += conv.averageConfidenceScore;
+      totalConfidenceScore += 0; // Confidence scores no longer tracked at conversation level
       
-      // Consider conversation unanswered if average confidence is below threshold (0.7)
-      if (conv.averageConfidenceScore < 0.7) {
+      // Consider conversation unanswered if it was escalated
+      if (conv.outcome === 'escalated') {
         unansweredCount++;
       }
     });
@@ -831,7 +800,7 @@ export class DynamoDBService {
       totalConversations: conversations.length,
       conversationsByDate: conversationsByDateArray,
       languageDistribution: { en: totalEn, es: totalEs },
-      averageConfidenceScore: conversations.length > 0 ? totalConfidenceScore / conversations.length : 0,
+      averageConfidenceScore: 0, // Confidence scores no longer tracked at conversation level
       unansweredPercentage: conversations.length > 0 ? (unansweredCount / conversations.length) * 100 : 0
     };
   }

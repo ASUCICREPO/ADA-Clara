@@ -1,9 +1,10 @@
 import { DynamoDBService } from '../../services/dynamodb-service';
+import { QuestionProcessingService } from '../../services/question-processing.service';
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { 
   AnalyticsData, 
-  ConversationRecord, 
+  ConversationData, // Simplified interface replacing ConversationRecord
   MessageRecord, 
   QuestionRecord,
   ConversationAnalytics,
@@ -84,12 +85,13 @@ export interface DashboardData {
  */
 export class AnalyticsService {
   private dynamoService: DynamoDBService | null = null;
+  private questionProcessingService?: QuestionProcessingService;
   private dynamoClient: DynamoDBDocumentClient;
   private unansweredQuestionsTable: string;
 
   // Table names for simple dashboard interface
   private readonly ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
-  private readonly CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
+  // CONVERSATIONS_TABLE removed - using CHAT_SESSIONS_TABLE instead
   private readonly QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
   private readonly UNANSWERED_QUESTIONS_TABLE = process.env.UNANSWERED_QUESTIONS_TABLE || 'ada-clara-unanswered-questions';
 
@@ -97,6 +99,8 @@ export class AnalyticsService {
     // Support both constructor patterns for backward compatibility
     if (dynamoService) {
       this.dynamoService = dynamoService;
+      // Initialize enhanced question processing service
+      this.questionProcessingService = new QuestionProcessingService(dynamoService);
     }
     
     // Lazy initialization to avoid circular dependency issues
@@ -123,48 +127,20 @@ export class AnalyticsService {
 
       console.log(`[AnalyticsService] Calculating metrics for date range: ${startDateStr} to ${endDateStr}`);
 
-      // Get total conversations from chat sessions table
-      // Chat sessions are stored with PK: SESSION#{sessionId}, SK: METADATA
-      const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
-      const allSessions = await this.getDynamoService().scanItems(CHAT_SESSIONS_TABLE, {
-        filterExpression: 'begins_with(PK, :pk)',
-        expressionAttributeValues: {
-          ':pk': 'SESSION#'
-        }
-      });
-
-      console.log(`[AnalyticsService] Total sessions scanned: ${allSessions.length}`);
-
-      // Filter sessions by date range (last 30 days)
-      // Include sessions where startTime is within the date range
-      // Use >= for startDate and <= for endDate, but add 1 day to endDate to include today's sessions
-      const endDateInclusive = new Date(endDate);
-      endDateInclusive.setHours(23, 59, 59, 999); // Include the entire end date
-
-      const recentSessions = allSessions.filter(session => {
-        if (!session.startTime) {
-          console.log(`[AnalyticsService] Session ${session.PK || session.sessionId} has no startTime`);
-          return false;
-        }
-        const sessionDate = new Date(session.startTime);
-        const isInRange = sessionDate >= startDate && sessionDate <= endDateInclusive;
-        
-        if (!isInRange) {
-          console.log(`[AnalyticsService] Session ${session.PK || session.sessionId} excluded: startTime=${session.startTime}, sessionDate=${sessionDate.toISOString()}, startDate=${startDate.toISOString()}, endDate=${endDateInclusive.toISOString()}`);
-        }
-        
-        return isInRange;
-      });
-
-      const totalConversations = recentSessions.length;
-      console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range (out of ${allSessions.length} total sessions)`);
+      // Get total conversations using our centralized method
+      // This replaces the direct session scanning to avoid duplication
+      const recentStartDateStr = startDate.toISOString().split('T')[0];
+      const recentEndDateStr = endDate.toISOString().split('T')[0];
       
-      // Log sample session data for debugging
-      if (allSessions.length > 0) {
-        const sampleSession = allSessions[0];
-        console.log(`[AnalyticsService] Sample session: PK=${sampleSession.PK}, sessionId=${sampleSession.sessionId}, startTime=${sampleSession.startTime}, lastActivity=${sampleSession.lastActivity}`);
-      }
-
+      const recentConversations = await this.getDynamoService().getConversationsByDateRange(recentStartDateStr, recentEndDateStr);
+      const totalConversations = recentConversations.length;
+      
+      console.log(`[AnalyticsService] Found ${totalConversations} conversations in date range via getConversationsByDateRange`);
+      
+      // Create a set of session IDs from recent conversations for matching
+      const recentSessionIds = new Set(recentConversations.map(c => c.sessionId).filter(Boolean));
+      console.log(`[AnalyticsService] Recent session IDs: ${Array.from(recentSessionIds).length} sessions`);
+      
       // Get all escalations from the escalation requests table
       // There are two types:
       // 1. Form escalations: have `source` field (form_submit or talk_to_person)
@@ -174,19 +150,10 @@ export class AnalyticsService {
       
       console.log(`[AnalyticsService] Total escalations in table: ${allEscalations.length}`);
       
-      // Create a set of session IDs from recent conversations for matching
-      // Sessions are stored with PK: SESSION#{sessionId}, so extract sessionId from PK or use sessionId field
-      const recentSessionIds = new Set(recentSessions.map(s => {
-        // If PK exists and starts with SESSION#, extract sessionId from it
-        if (s.PK && s.PK.startsWith('SESSION#')) {
-          return s.PK.replace('SESSION#', '');
-        }
-        // Otherwise use sessionId field directly
-        return s.sessionId;
-      }).filter(Boolean));
-      console.log(`[AnalyticsService] Recent session IDs: ${Array.from(recentSessionIds).length} sessions`);
-      
       // Filter escalations by date range
+      const endDateInclusive = new Date(endDate);
+      endDateInclusive.setHours(23, 59, 59, 999);
+      
       const recentEscalations = allEscalations.filter(esc => {
         if (!esc.timestamp) return false;
         const escDate = new Date(esc.timestamp);
@@ -236,21 +203,11 @@ export class AnalyticsService {
 
       // Calculate trends (compare with previous 30 days)
       const previousStartDate = new Date(startDate.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const previousSessions = allSessions.filter(session => {
-        if (!session.startTime) return false;
-        const sessionDate = new Date(session.startTime);
-        return sessionDate >= previousStartDate && sessionDate < startDate;
-      });
-
-      const previousConversations = previousSessions.length;
-      const previousSessionIds = new Set(previousSessions.map(s => {
-        // If PK exists and starts with SESSION#, extract sessionId from it
-        if (s.PK && s.PK.startsWith('SESSION#')) {
-          return s.PK.replace('SESSION#', '');
-        }
-        // Otherwise use sessionId field directly
-        return s.sessionId;
-      }).filter(Boolean));
+      const previousStartDateStr = previousStartDate.toISOString().split('T')[0];
+      const previousEndDateStr = startDate.toISOString().split('T')[0];
+      
+      const previousConversations = await this.getDynamoService().getConversationsByDateRange(previousStartDateStr, previousEndDateStr);
+      const previousSessionIds = new Set(previousConversations.map(c => c.sessionId).filter(Boolean));
 
       // Count previous escalated conversations (unique sessions)
       const previousEscalatedSessionIds = new Set<string>();
@@ -268,8 +225,8 @@ export class AnalyticsService {
       });
       const previousEscalatedCount = previousEscalatedSessionIds.size;
 
-      const conversationTrend = this.calculateTrend(totalConversations, previousConversations);
-      const previousEscalationRate = previousConversations > 0 ? Math.round((previousEscalatedCount / previousConversations) * 100) : 0;
+      const conversationTrend = this.calculateTrend(totalConversations, previousConversations.length);
+      const previousEscalationRate = previousConversations.length > 0 ? Math.round((previousEscalatedCount / previousConversations.length) * 100) : 0;
       const escalationTrend = this.calculateTrend(escalationRate, previousEscalationRate);
       
       // Count previous out-of-scope from unanswered questions
@@ -289,7 +246,7 @@ export class AnalyticsService {
         }
       }
       
-      const previousOutOfScopeRate = previousConversations > 0 ? Math.round((previousUnansweredCount / previousConversations) * 100) : 0;
+      const previousOutOfScopeRate = previousConversations.length > 0 ? Math.round((previousUnansweredCount / previousConversations.length) * 100) : 0;
       const outOfScopeTrend = this.calculateTrend(outOfScopeRate, previousOutOfScopeRate);
 
       console.log(`[AnalyticsService] Metrics calculated: conversations=${totalConversations}, escalationRate=${escalationRate}%, outOfScopeRate=${outOfScopeRate}%`);
@@ -389,19 +346,27 @@ export class AnalyticsService {
   }
 
   /**
-   * Get frequently asked questions (real data implementation)
+   * Get frequently asked questions (enhanced with QuestionProcessingService)
    */
   async getFrequentlyAskedQuestions(): Promise<Question[]> {
     try {
-      const today = new Date();
-      const startDate = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000); // Last 30 days
+      // Use the enhanced question processing service if available
+      if (this.questionProcessingService) {
+        const enhancedQuestions = await this.questionProcessingService.getFrequentlyAskedQuestions(6); // Top 6 questions
+        
+        if (enhancedQuestions.length > 0) {
+          return enhancedQuestions.map(q => ({
+            question: q.question,
+            count: q.count
+          }));
+        }
+      }
+
+      // Fallback to original implementation with enhanced categories
+      const categories = ['diabetes-general', 'type-1', 'type-2', 'medication', 'diet', 'exercise', 'complications', 'blood-sugar', 'symptoms', 'management'];
       
-      // Get questions from the last 30 days
       const questions: Question[] = [];
       const questionCounts = new Map<string, number>();
-      
-      // Query questions by different categories to get a comprehensive list
-      const categories = ['diabetes-general', 'type-1', 'type-2', 'medication', 'diet', 'exercise', 'complications'];
       
       for (const category of categories) {
         try {
@@ -443,10 +408,23 @@ export class AnalyticsService {
   }
 
   /**
-   * Get top unanswered questions (real data implementation)
+   * Get top unanswered questions (enhanced with QuestionProcessingService)
    */
   async getUnansweredQuestions(): Promise<Question[]> {
     try {
+      // Use the enhanced question processing service if available
+      if (this.questionProcessingService) {
+        const enhancedQuestions = await this.questionProcessingService.getUnansweredQuestions(6); // Top 6 questions
+        
+        if (enhancedQuestions.length > 0) {
+          return enhancedQuestions.map(q => ({
+            question: q.question,
+            count: q.count // This is the unanswered count
+          }));
+        }
+      }
+
+      // Fallback to original implementation
       const today = new Date();
       const questions: Question[] = [];
       
@@ -460,7 +438,7 @@ export class AnalyticsService {
           const dayQuestions = await this.getDynamoService().getUnansweredQuestionsByDate(dateStr, 20);
           questions.push(...dayQuestions.map(q => ({
             question: q.originalQuestion,
-            count: q.count
+            count: q.unansweredCount // Use unansweredCount instead of count
           })));
         } catch (error) {
           // Continue if no questions for this date
@@ -915,9 +893,9 @@ export class AnalyticsService {
   // (Include full implementation from comprehensive service for production use)
 
   /**
-   * Get DynamoDB service instance (lazy initialization)
+   * Get DynamoDB service instance (lazy initialization) - Public for enhanced integrations
    */
-  private getDynamoService(): DynamoDBService {
+  public getDynamoService(): DynamoDBService {
     if (!this.dynamoService) {
       this.dynamoService = new DynamoDBService();
     }

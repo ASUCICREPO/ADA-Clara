@@ -5,8 +5,8 @@ cdk-out-*
 # Build artifacts
 dist/
 
-# Enhanced scraper logic (preserved separately)
-enhanced-scraper-logic/
+# Web scraper logic (preserved separately)
+web-scraper-logic/
 
 # Test files (temporary)
 test-*.js

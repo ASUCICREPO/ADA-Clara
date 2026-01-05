@@ -148,8 +148,13 @@ export class S3VectorsService {
    */
   async healthCheck(): Promise<boolean> {
     try {
+      // Ensure client is initialized
+      if (!this.S3VectorsClient) {
+        await this.initializeClient();
+      }
       return !!this.S3VectorsClient;
     } catch (error) {
+      console.warn('S3VectorsService health check failed:', error);
       return false;
     }
   }

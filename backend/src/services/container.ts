@@ -4,8 +4,7 @@ import { ComprehendService } from '../services/comprehend.service';
 import { S3Service } from '../services/s3-service';
 import { S3VectorsService } from '../services/s3-vectors.service';
 import { ScrapingService } from '../services/scraping.service';
-import { WebScrapingService } from '../business/web-scraper/web-scraping.service';
-import { EnhancedWebScraperService } from '../business/enhanced-web-scraper/enhanced-web-scraper.service';
+import { WebScraperService } from '../business/web-scraper/web-scraper.service';
 import { RAGService, RAGConfig } from '../business/rag/rag.service';
 
 export interface ServiceConfig {
@@ -42,8 +41,7 @@ export class ServiceContainer {
   public readonly scrapingService: ScrapingService;
   
   // Business services
-  public readonly webScrapingService: WebScrapingService;
-  public readonly enhancedWebScraperService: EnhancedWebScraperService;
+  public readonly webScraperService: WebScraperService;
   
   // RAG service factory method (created on demand)
   private ragServiceInstance?: RAGService;
@@ -77,22 +75,7 @@ export class ServiceContainer {
     });
     
     // Initialize business services with dependencies
-    this.webScrapingService = new WebScrapingService(
-      this.s3Service,
-      this.dynamoService,
-      this.scrapingService,
-      {
-        contentBucket: config.contentBucket || process.env.CONTENT_BUCKET || '',
-        contentTrackingTable: config.contentTrackingTable || process.env.CONTENT_TRACKING_TABLE || 'ada-clara-content-tracking',
-        targetDomain: config.targetDomain || process.env.TARGET_DOMAIN || 'diabetes.org',
-        maxPages: config.maxPages || parseInt(process.env.MAX_PAGES || '10'),
-        rateLimitDelay: config.rateLimitDelay || parseInt(process.env.RATE_LIMIT_DELAY || '2000'),
-        allowedPaths: config.allowedPaths || ['/about-diabetes', '/living-with-diabetes', '/tools-and-resources', '/community', '/professionals'],
-        blockedPaths: config.blockedPaths || ['/admin', '/login', '/api/internal', '/private']
-      }
-    );
-
-    this.enhancedWebScraperService = new EnhancedWebScraperService(
+    this.webScraperService = new WebScraperService(
       this.s3Service,
       this.bedrockService,
       this.s3VectorsService,
@@ -118,7 +101,6 @@ export class ServiceContainer {
         // Change detection configuration
         enableChangeDetection: true,
         skipUnchangedContent: true,
-        maxContentAgeHours: 24,
         forceRefresh: false,
         
         // Quality and performance settings
@@ -172,7 +154,6 @@ export class ServiceContainer {
       s3Vectors: boolean;
       scraping: boolean;
       webScraper: boolean;
-      enhancedWebScraper: boolean;
       rag?: boolean;
     };
   }> {
@@ -184,7 +165,6 @@ export class ServiceContainer {
       s3VectorsHealth,
       scrapingHealth,
       webScraperHealth,
-      enhancedWebScraperHealth,
       ragHealth
     ] = await Promise.allSettled([
       this.dynamoService.healthCheck(),
@@ -193,8 +173,7 @@ export class ServiceContainer {
       this.s3Service.healthCheck(),
       this.s3VectorsService.healthCheck(),
       this.scrapingService.healthCheck(),
-      Promise.resolve(true), // WebScrapingService doesn't have async health check
-      this.enhancedWebScraperService.healthCheck(),
+      this.webScraperService.healthCheck(),
       this.ragServiceInstance?.healthCheck() || Promise.resolve(true) // RAG service if available
     ]);
 
@@ -206,7 +185,6 @@ export class ServiceContainer {
       s3Vectors: s3VectorsHealth.status === 'fulfilled' && s3VectorsHealth.value,
       scraping: scrapingHealth.status === 'fulfilled' && scrapingHealth.value,
       webScraper: webScraperHealth.status === 'fulfilled' && webScraperHealth.value,
-      enhancedWebScraper: enhancedWebScraperHealth.status === 'fulfilled' && enhancedWebScraperHealth.value,
       ...(this.ragServiceInstance && { rag: ragHealth.status === 'fulfilled' && ragHealth.value })
     };
 
