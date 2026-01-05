@@ -19,8 +19,8 @@ ADA Clara is an AI-powered chatbot assistant that provides accurate, evidence-ba
 ADA Clara is designed to help users get reliable diabetes information quickly and easily. Users can ask questions in multiple languages, receive answers with source citations, and access an escalation form when they need to speak with a healthcare professional.
 
 ### Key Features
-- **AI-Powered Responses**: Get accurate answers using Amazon Bedrock and Claude 3 Sonnet
-- **Multi-Language Support**: Ask questions in English, Spanish, and other languages with automatic detection
+- **AI-Powered Responses**: Get accurate answers using Amazon Bedrock and Claude Sonnet 3
+- **Multi-Language Support**: Select your preferred language (English or Spanish) using the language switcher
 - **Source Citations**: Every answer includes links to the source content from diabetes.org
 - **Escalation Support**: Easy access to submit a form to speak with a healthcare professional
 - **Admin Dashboard**: Analytics and insights for administrators (requires login)
@@ -50,7 +50,7 @@ Type your question about diabetes in the text input field at the bottom of the p
 
 Press Enter or click the Send button to submit your question.
 
-**Note**: The system automatically detects the language of your question, so you can ask in English, Spanish, or other supported languages.
+**Note**: Use the language switcher in the header to select your preferred language (English or Spanish) before asking questions.
 
 ---
 

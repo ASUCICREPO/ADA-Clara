@@ -38,8 +38,8 @@ This application combines AI-powered conversational AI with intelligent knowledg
 
 ### Key Features
 
-- **AI-Powered Chatbot** powered by AWS Bedrock with Claude 3 Sonnet
-- **RAG System** using Amazon Bedrock Knowledge Base with vector embeddings
+- **AI-Powered Chatbot** powered by AWS Bedrock with Claude Sonnet 3
+- **RAG System** using Amazon Bedrock Knowledge Base with Titan Text Embedding V2 for vector embeddings
 - **Multi-Language Support** with language selection and interface localization
 - **Automated Knowledge Base** with web scraping from diabetes.org
 - **Admin Dashboard** with real-time analytics and conversation insights

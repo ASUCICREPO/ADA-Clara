@@ -15,7 +15,7 @@ This document provides a detailed explanation of the ADA Clara architecture.
 The following describes the step-by-step flow of how the system processes requests:
 
 ### 1. User Interaction
-Users access the ADA Clara chatbot through a Next.js web interface hosted on AWS Amplify. The interface allows users to type questions about diabetes in multiple languages, with automatic language detection.
+Users access the ADA Clara chatbot through the Amplify UI (Next.js web interface hosted on AWS Amplify). The interface allows users to type questions about diabetes in multiple languages via the language switcher.
 
 ### 2. Request Processing
 User messages are sent via HTTPS to API Gateway, which routes POST requests to the `/chat` endpoint. API Gateway handles CORS, authentication (for admin endpoints), and request throttling before forwarding to the appropriate Lambda function.
@@ -25,33 +25,66 @@ The `chatProcessor` Lambda function receives the request and performs several op
 - Processes the user's message and determines the language from the request
 - Creates or retrieves the chat session from DynamoDB
 - Stores the user message in the messages table
-- Determines if the question requires escalation based on content analysis
+- Forwards the request to the `ragProcessor` Lambda for response generation
 
 ### 4. RAG Query and Response Generation
-For non-escalated questions, the system:
-- Queries the Bedrock Knowledge Base using the RAG processor Lambda
+The `ragProcessor` Lambda handles the RAG (Retrieval Augmented Generation) process:
+- Sends RAG prompts to the Bedrock Knowledge Base
+- Bedrock Knowledge Base performs vector search on the S3 Vector Bucket
 - Retrieves relevant content from vector embeddings stored in S3
-- Uses Amazon Bedrock with Claude 3 Sonnet to generate contextual responses
-- Includes source citations from diabetes.org content
-- Evaluates response confidence and suggests escalation if confidence is low
+- Uses Amazon Bedrock with Claude Sonnet 3 to generate contextual responses
+- Returns the response with source citations from diabetes.org content
+- The `chatProcessor` evaluates response confidence and routes to escalation handler if confidence is low or user explicitly requests escalation
 
-### 5. Response Delivery
+### 5. Escalation Handling (if triggered)
+When low confidence is detected or user explicitly requests escalation:
+- The `chatProcessor` routes the request to the `escalationHandler` Lambda
+- Escalation Handler sends chat analytics data to DynamoDB Tables (Analytics, Escalations, Change Detection)
+- Escalation request is stored for admin review
+
+### 6. Response Delivery
 The generated response is:
 - Stored in DynamoDB (messages and conversations tables)
 - Processed for analytics (question categorization, frequency tracking)
 - Returned to the user through API Gateway
 - Displayed in the web interface with source citations
 
+## Admin Flow
+
+The following describes how administrators interact with the system:
+
+### 1. Admin Authentication
+- Admin users log into the system via Amazon Cognito
+- Cognito provides admin login access to both the Amplify UI and Admin Dashboard
+- Secure token-based authentication ensures only authorized users can access admin features
+
+### 2. Admin Dashboard Access
+- Admin users access the Admin Dashboard through the Amplify UI
+- The dashboard displays real-time analytics, metrics, and conversation insights
+- All admin endpoints are protected by Cognito authorization
+
+### 3. Analytics Retrieval
+- The Admin Dashboard makes requests to the `adminAnalytics` Lambda function
+- Admin Analytics queries DynamoDB Tables (Analytics, Escalations, Change Detection)
+- Returns comprehensive analytics data including:
+  - Conversation metrics and trends
+  - Escalation requests
+  - Frequently asked questions
+  - Unanswered questions
+  - Language distribution
+  - Content change detection status
+
 ---
 
 ## Cloud Services / Technology Stack
 
 ### Frontend
-- **Next.js**: React framework for the web application interface
+- **AWS Amplify UI**: Hosted Next.js web application
   - App Router for page routing
   - Server-side rendering and static generation
   - Client-side components for interactive chat interface
-  - Admin dashboard with protected routes using Cognito authentication
+  - Admin dashboard accessible via Cognito authentication
+  - Serves both regular users and admin users
 
 ### Backend Infrastructure
 - **AWS CDK**: Infrastructure as Code for deploying AWS resources
@@ -65,18 +98,17 @@ The generated response is:
   - Stage-based deployment (prod/dev)
 
 - **AWS Lambda**: Serverless compute for backend logic
-  - **chatProcessor**: Handles user chat messages, language detection, session management, and response generation
-  - **ragProcessor**: Processes RAG queries against the Bedrock Knowledge Base
+  - **chatProcessor**: Handles user chat messages, session management, and routes to RAG processor or escalation handler
+  - **ragProcessor**: Processes RAG queries, sends prompts to Bedrock Knowledge Base, and generates responses using Claude Sonnet 3
+  - **escalationHandler**: Manages escalation requests triggered by low confidence or explicit user requests, sends analytics to DynamoDB
   - **adminAnalytics**: Provides analytics data for the admin dashboard (metrics, charts, FAQs, unanswered questions)
-  - **escalationHandler**: Manages escalation requests and form submissions
-  - **webScraperProcessor**: Automatically scrapes and processes content from diabetes.org to populate the knowledge base
+  - **webScraperProcessor**: Automatically scrapes content from diabetes.org and processes it for knowledge base ingestion
 
 ### AI/ML Services
 - **Amazon Bedrock**: Foundation model service for AI capabilities
-  - Model: Claude 3 Sonnet (anthropic.claude-3-sonnet-20240229-v1:0) for text generation
-  - Amazon Titan Embeddings (amazon.titan-embed-text-v2:0) for vector embeddings
-  - Used for generating contextual responses based on retrieved knowledge base content
-  - Content enhancement for web-scraped content using Claude models
+  - **Claude Sonnet 3**: Used by RAG Processor for generating contextual responses based on retrieved knowledge base content
+  - **Titan Text Embedding V2**: Used for creating vector embeddings of scraped content from diabetes.org
+  - Both models work together in the RAG pipeline: embeddings for retrieval, Claude for generation
 
 - **Language Support**: Multi-language interface support
   - Users can select their preferred language via the language switcher
@@ -84,39 +116,63 @@ The generated response is:
   - Language preference is maintained throughout the session
 
 - **Amazon Bedrock Knowledge Base**: RAG system for retrieving relevant information
-  - Stores vector embeddings of diabetes.org content in S3
-  - Semantic search capabilities for finding relevant answers
-  - Source citation and relevance scoring
+  - Receives RAG prompts from the RAG Processor
+  - Performs vector search on the S3 Vector Bucket to find relevant content
+  - Returns relevant information with source citations for response generation
+  - Enables semantic search capabilities for finding accurate answers
 
 ### Data Storage
 - **Amazon S3**: Object storage for content and vector embeddings
-  - Content bucket: Stores raw HTML content scraped from diabetes.org
-  - Vectors bucket: Stores vector embeddings for semantic search (using cdk-s3-vectors)
-  - Vector index: Enables efficient similarity search for RAG queries
+  - **S3 Bucket (Scraped Content)**: Stores raw HTML content scraped from diabetes.org by the Web Scraper
+  - **S3 Vector Bucket**: Stores vector embeddings created by Titan Text Embedding V2 for semantic search
+  - Vector embeddings are created from scraped content and stored for efficient similarity search in RAG queries
 
 - **Amazon DynamoDB**: NoSQL database for application data
+  - **Analytics Table**: Stores aggregated analytics data for the admin dashboard
+  - **Escalations Table**: Tracks user escalation requests and form submissions (populated by Escalation Handler)
+  - **Change Detection Table**: Tracks web scraping progress and detects changes in diabetes.org content
   - **chat-sessions**: Stores chat session metadata and user information
   - **messages**: Stores individual chat messages with conversation tracking
   - **conversations**: Tracks conversation-level analytics and metrics
-  - **analytics**: Aggregated analytics data for dashboard
   - **questions**: Stores processed questions with categorization and frequency
-  - **escalation-requests**: Tracks user escalation requests and form submissions
-  - **content-tracking**: Tracks web scraping progress and content changes
 
 ### Additional Services
 - **Amazon Cognito**: User authentication and authorization
+  - Provides admin login authentication for both Amplify UI and Admin Dashboard
   - User pool for admin dashboard authentication
   - Identity pool for frontend authentication
   - Secure token-based access control
 
 - **AWS Amplify**: Frontend hosting and deployment
+  - Hosts the Amplify UI (Next.js application)
   - Automatic builds and deployments from Git
   - CDN distribution for global performance
   - Environment-based configuration
+  - Integrates with Cognito for admin authentication
 
 - **Amazon EventBridge**: Scheduled automation
-  - Weekly cron job (Sundays at 2 AM UTC) to trigger web scraper
+  - Weekly trigger (Sundays at 2 AM UTC) that activates the Web Scraper Lambda
   - Ensures knowledge base stays up-to-date with latest diabetes.org content
+  - Triggers the complete knowledge base ingestion pipeline
+
+### Knowledge Base Ingestion Flow
+
+The system includes an automated pipeline for keeping the knowledge base current:
+
+1. **EventBridge Weekly Trigger**: Schedules weekly execution of the web scraper
+2. **Web Scraper Lambda**: Scrapes content from diabetes.org website
+3. **S3 Bucket (Scraped Content)**: Stores the raw scraped HTML content
+4. **Bedrock (Titan Text Embedding V2)**: Processes scraped content to create vector embeddings
+5. **Bedrock Knowledge Base**: Ingests the embeddings and makes them searchable via vector search
+6. **Change Detection**: DynamoDB tables track content changes to optimize scraping and detect updates
+
+### Monitoring and Logging
+
+- **CloudWatch Logs**: All components within the system are connected to CloudWatch Logs for centralized logging and monitoring
+  - Lambda function execution logs
+  - API Gateway access logs
+  - Error tracking and debugging
+  - Performance monitoring
 
 ---
 
