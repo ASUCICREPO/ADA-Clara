@@ -9,12 +9,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@core/*": ["src/core/*"],
-      "@business/*": ["src/business/*"],
-      "@types/*": ["src/types/*"]
-    }
+    "baseUrl": "."
   },
   "ts-node": {
     "transpileOnly": true,
@@ -26,7 +21,6 @@
     }
   },
   "include": [
-    "src/**/*",
     "lib/**/*",
     "bin/**/*"
   ],
@@ -34,7 +28,9 @@
     "node_modules",
     "dist",
     "lambda",
+    "lambdas",
     "scripts",
-    "test"
+    "test",
+    "legacy"
   ]
 }

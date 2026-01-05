@@ -27,6 +27,7 @@ out/
 *.js
 !jest.config.js
 !frontend/**/*.js
+!backend/lambdas/*.js
 *.d.ts
 
 # TypeScript cache
@@ -89,6 +90,7 @@ docs/kiroDocs/
 # Legacy/archived code
 backend/lib/legacy/
 backend/lambda/legacy/
+backend/legacy/
 
 # Experimental/temporary scripts (keep only essential ones)
 backend/scripts/deploy-*.ts

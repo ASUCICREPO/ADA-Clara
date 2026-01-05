@@ -5,6 +5,9 @@ cdk-out-*
 # Build artifacts
 dist/
 
+# Legacy code (old complex architecture - moved after consolidation)
+legacy/
+
 # Web scraper logic (preserved separately)
 web-scraper-logic/
 

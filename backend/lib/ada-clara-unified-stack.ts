@@ -408,8 +408,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
       functionName: `ada-clara-web-scraper${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/web-scraper'),
+      handler: 'web-scraper.handler',
+      code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
       memorySize: 1024, // Reduced memory for simplified scraper
       logGroup: webScraperLogGroup,
@@ -510,8 +510,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
       functionName: `ada-clara-rag-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'src/handlers/rag-processor/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      handler: 'rag-processor.handler',
+      code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.minutes(5),
       memorySize: 1024,
       logGroup: ragLogGroup,
@@ -550,8 +550,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
       functionName: `ada-clara-chat-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/chat-processor/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      handler: 'chat-processor.handler',
+      code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
@@ -571,8 +571,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
       functionName: `ada-clara-escalation-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/escalation-handler/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      handler: 'escalation-handler.handler',
+      code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
@@ -584,8 +584,8 @@ export class AdaClaraUnifiedStack extends Stack {
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
       functionName: `ada-clara-admin-analytics${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/admin-analytics/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      handler: 'admin-analytics.handler',
+      code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
