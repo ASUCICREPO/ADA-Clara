@@ -28,7 +28,7 @@
     "node_modules",
     "dist",
     "lambda",
-    "lambdas",
+    "legacy/lambdaslambdas",
     "scripts",
     "test",
     "legacy"
