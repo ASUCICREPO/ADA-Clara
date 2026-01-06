@@ -2,7 +2,8 @@
 
 import { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 import ChatMessage from './ChatMessage';
-import MedicalDisclaimer from './MedicalDisclaimer';
+import TypingIndicator from './TypingIndicator';
+import WelcomeLanding from './WelcomeLanding';
 import TalkToPersonForm from './TalkToPersonForm';
 import { sendChatMessage } from '../../lib/api/chat.service';
 
@@ -32,19 +33,14 @@ function getOrCreateSessionId(): string {
 }
 
 const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
-  const messageIdCounter = useRef(1);
+  const messageIdCounter = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showTalkToPersonForm, setShowTalkToPersonForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState<string>(() => getOrCreateSessionId());
+  const [hasStartedChat, setHasStartedChat] = useState(false);
   
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      type: 'assistant',
-      content: "Hi, I'm Clara. I can help with questions about diabetes using trusted ADA resources. What would you like to know?",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   // Auto-scroll to bottom when messages change or loading state changes
   const scrollToBottom = () => {
@@ -52,11 +48,18 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isLoading]);
+    if (hasStartedChat) {
+      scrollToBottom();
+    }
+  }, [messages, isLoading, hasStartedChat]);
 
   const handleSend = async (inputValue: string) => {
     if (!inputValue.trim() || isLoading) return;
+
+    // Start chat mode if not already started
+    if (!hasStartedChat) {
+      setHasStartedChat(true);
+    }
 
     messageIdCounter.current += 1;
     const userMessage: Message = {
@@ -111,15 +114,24 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
     setShowTalkToPersonForm(false);
   };
 
+  const handleQuickAction = (question: string) => {
+    handleSend(question);
+  };
+
+  // Show welcome landing if chat hasn't started
+  if (!hasStartedChat) {
+    return (
+      <div className="flex-1 overflow-y-auto min-h-0 flex justify-center" style={{ paddingTop: '24px', paddingBottom: '40px' }}>
+        <WelcomeLanding onQuickAction={handleQuickAction} />
+      </div>
+    );
+  }
+
   return (
     <>
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto min-h-0 flex justify-center" style={{ paddingBottom: '40px' }}>
         <div className="w-full max-w-[900px] mx-auto" style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' }}>
-          {/* Medical Disclaimer at the beginning */}
-          <div style={{ marginBottom: '8px' }}>
-            <MedicalDisclaimer />
-          </div>
           {messages.map((message) => (
             <div key={message.id}>
               <ChatMessage
@@ -139,11 +151,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
               )}
             </div>
           ))}
-          {isLoading && (
-            <div className="flex justify-center">
-              <div className="text-[#64748b] text-sm">Clara is thinking...</div>
-            </div>
-          )}
+          {isLoading && <TypingIndicator />}
           {/* Scroll anchor - always at the bottom */}
           <div ref={messagesEndRef} style={{ height: '1px', flexShrink: 0 }}></div>
         </div>
@@ -162,4 +170,3 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
 ChatPanel.displayName = 'ChatPanel';
 
 export default ChatPanel;
-
