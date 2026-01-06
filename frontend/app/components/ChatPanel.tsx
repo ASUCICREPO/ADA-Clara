@@ -33,6 +33,7 @@ function getOrCreateSessionId(): string {
 
 const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   const messageIdCounter = useRef(1);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showTalkToPersonForm, setShowTalkToPersonForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState<string>(() => getOrCreateSessionId());
@@ -44,6 +45,15 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
       content: "Hi, I'm Clara. I can help with questions about diabetes using trusted ADA resources. What would you like to know?",
     },
   ]);
+
+  // Auto-scroll to bottom when messages change or loading state changes
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
 
   const handleSend = async (inputValue: string) => {
     if (!inputValue.trim() || isLoading) return;
@@ -134,8 +144,8 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
               <div className="text-[#64748b] text-sm">Clara is thinking...</div>
             </div>
           )}
-          {/* Spacer for bottom padding */}
-          <div style={{ height: '10px', flexShrink: 0 }}></div>
+          {/* Scroll anchor - always at the bottom */}
+          <div ref={messagesEndRef} style={{ height: '1px', flexShrink: 0 }}></div>
         </div>
       </div>
 
