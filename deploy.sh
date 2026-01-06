@@ -408,10 +408,10 @@ print_status "Knowledge Base Population"
 echo ""
 echo "Would you like to populate the knowledge base by scraping diabetes.org content?"
 echo "This will:"
-echo "   - Discover and scrape up to 50 pages from diabetes.org"
-echo "   - Process content with AI enhancement"
-echo "   - Generate embeddings and store in S3 Vectors"
-echo "   - Take approximately 10-15 minutes to complete"
+echo "   - Discover up to 1200 high-quality pages from diabetes.org using intelligent prioritization"
+echo "   - Process content with enhanced HTML-to-Markdown conversion and quality assessment"
+echo "   - Store content in S3 with proper structure for knowledge base ingestion"
+echo "   - Take approximately 15-20 minutes to complete"
 echo ""
 read -p "Populate knowledge base now? (y/n): " -n 1 -r
 echo ""
@@ -420,39 +420,37 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   print_status "Waiting for Lambda function to be ready..."
   sleep 10
 
-  # Get the web scraper function name from CloudFormation
-  WEB_SCRAPER_FUNCTION=$(AWS_PAGER="" aws cloudformation describe-stacks \
+  # Get the domain discovery function name from CloudFormation
+  DOMAIN_DISCOVERY_FUNCTION=$(AWS_PAGER="" aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
-    --query "Stacks[0].Outputs[?OutputKey=='WebScraperFunctionName'].OutputValue" \
+    --query "Stacks[0].Outputs[?OutputKey=='DomainDiscoveryFunctionName'].OutputValue" \
     --output text --region "$AWS_REGION" 2>/dev/null || echo "")
 
   # If not found in outputs, construct the function name based on the pattern used in the stack
-  if [ -z "$WEB_SCRAPER_FUNCTION" ] || [ "$WEB_SCRAPER_FUNCTION" = "None" ]; then
+  if [ -z "$DOMAIN_DISCOVERY_FUNCTION" ] || [ "$DOMAIN_DISCOVERY_FUNCTION" = "None" ]; then
     # Use the same naming pattern as in the CDK stack
     ENVIRONMENT=$(echo "$STACK_NAME" | grep -o '\-dev\-v[0-9]*' || echo "")
-    WEB_SCRAPER_FUNCTION="ada-clara-web-scraper-${AWS_REGION}${ENVIRONMENT}"
-    print_status "Using constructed function name: $WEB_SCRAPER_FUNCTION"
+    DOMAIN_DISCOVERY_FUNCTION="ada-clara-domain-discovery${ENVIRONMENT}"
+    print_status "Using constructed function name: $DOMAIN_DISCOVERY_FUNCTION"
   else
-    print_status "Found web scraper function: $WEB_SCRAPER_FUNCTION"
+    print_status "Found domain discovery function: $DOMAIN_DISCOVERY_FUNCTION"
   fi
 
-  # Trigger initial scraping
-  print_status "Triggering initial diabetes.org domain scraping..."
+  # Trigger initial domain discovery and scraping
+  print_status "Triggering comprehensive diabetes.org domain discovery..."
 
   SCRAPER_PAYLOAD='{
-    "action": "discover-scrape",
-    "domain": "diabetes.org",
-    "maxUrls": 50,
-    "enableContentEnhancement": true,
-    "enableIntelligentChunking": true,
-    "enableStructuredExtraction": true,
-    "chunkingStrategy": "hybrid",
+    "action": "discover-domain",
+    "comprehensive": true,
+    "sources": ["sitemap", "seed-urls"],
+    "maxUrls": 1200,
+    "priorityFilter": 50,
     "forceRefresh": true
   }'
 
-  # Invoke the web scraper Lambda function
+  # Invoke the domain discovery Lambda function
   SCRAPER_RESULT=$(AWS_PAGER="" aws lambda invoke \
-    --function-name "$WEB_SCRAPER_FUNCTION" \
+    --function-name "$DOMAIN_DISCOVERY_FUNCTION" \
     --payload "$SCRAPER_PAYLOAD" \
     --region "$AWS_REGION" \
     /tmp/scraper-response.json 2>&1)
@@ -475,22 +473,20 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         fi
       fi
       
-      print_status "The web scraper is now populating the knowledge base with diabetes.org content."
+      print_status "The domain discovery function is now populating the knowledge base with diabetes.org content."
       print_status "This process runs in the background and may take several minutes to complete."
       echo ""
       print_status "You can monitor progress in CloudWatch logs:"
-      print_status "  Log Group: /aws/lambda/$WEB_SCRAPER_FUNCTION"
+      print_status "  Domain Discovery: /aws/lambda/$DOMAIN_DISCOVERY_FUNCTION"
+      print_status "  Content Processor: Check SQS queue processing in CloudWatch"
     else
       print_warning "Web scraper invocation returned status code: $STATUS_CODE"
       print_warning "Initial scraping may not have started successfully."
-      print_warning "You can manually trigger scraping later using:"
-      print_warning "  backend/scripts/trigger-initial-scraping.sh"
+      print_warning "You can manually trigger scraping later using the domain discovery function."
     fi
   else
     print_warning "Failed to trigger initial scraping: $SCRAPER_RESULT"
     print_warning "You can manually trigger scraping later via the API or admin interface."
-    print_warning "Or use the manual trigger script:"
-    print_warning "  backend/scripts/trigger-initial-scraping.sh"
   fi
 
   # Clean up temporary file
@@ -498,9 +494,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
   print_status "Skipping knowledge base population."
   echo ""
-  print_status "You can trigger knowledge base population later by:"
-  print_status "  1. Running: backend/scripts/trigger-initial-scraping.sh"
-  print_status "  2. Or manually invoking the web scraper Lambda function"
+  print_status "You can trigger knowledge base population later by manually invoking the domain discovery Lambda function."
 fi
 
 echo ""

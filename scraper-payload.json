@@ -18,5 +18,7 @@
     "https://diabetes.org/food-nutrition/food-blood-sugar",
     "https://diabetes.org/food-nutrition/meal-planning",
     "https://diabetes.org/living-with-diabetes/pregnancy/gestational-diabetes"
-  ]
+  ],
+  "batchSize": 10,
+  "priority": "normal"
 }

@@ -1,0 +1,17 @@
+{
+  "name": "ada-clara-domain-discovery",
+  "version": "1.0.0",
+  "description": "Intelligent domain discovery for diabetes.org content",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.705.0",
+    "@aws-sdk/client-dynamodb": "^3.705.0",
+    "@aws-sdk/util-dynamodb": "^3.705.0",
+    "axios": "^1.7.9",
+    "cheerio": "^1.0.0",
+    "xml2js": "^0.6.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -7,6 +7,9 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Bucket, Index } from 'cdk-s3-vectors';
 import { CfnKnowledgeBase, CfnDataSource } from 'aws-cdk-lib/aws-bedrock';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
@@ -41,7 +44,11 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
   public readonly ragProcessor: lambda.Function;
-  public readonly webScraperProcessor: lambda.Function;
+  public readonly domainDiscoveryFunction: lambda.Function;
+  public readonly contentProcessorFunction: lambda.Function;
+
+  // SQS Queue for Web Scraper
+  public readonly scrapingQueue: sqs.Queue;
 
   // S3 Vectors
   public readonly contentBucket: s3.Bucket;
@@ -166,6 +173,7 @@ export class AdaClaraUnifiedStack extends Stack {
       partitionKey: { name: 'url', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'crawlTimestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -386,6 +394,21 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        SQSAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'sqs:SendMessage',
+                'sqs:ReceiveMessage',
+                'sqs:DeleteMessage',
+                'sqs:GetQueueAttributes',
+                'sqs:GetQueueUrl'
+              ],
+              resources: ['*'], // Will be scoped by queue grants
+            }),
+          ],
+        }),
         S3VectorsAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
@@ -414,61 +437,129 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Web Scraper Lambda
-    const webScraperLogGroup = new logs.LogGroup(this, 'WebScraperLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-web-scraper${stackSuffix}`,
+    // ========== ENHANCED WEB SCRAPER ARCHITECTURE ==========
+    // Two-lambda architecture with SQS decoupling for scalable content processing
+    
+    // Dead Letter Queue for failed scraping batches
+    const scrapingDLQ = new sqs.Queue(this, 'ScrapingDLQ', {
+      queueName: `ada-clara-scraping-dlq${stackSuffix}`,
+      retentionPeriod: Duration.days(14),
+    });
+
+    // Main scraping queue for URL batches
+    this.scrapingQueue = new sqs.Queue(this, 'ScrapingQueue', {
+      queueName: `ada-clara-scraping-queue${stackSuffix}`,
+      visibilityTimeout: Duration.minutes(15), // Match content processor timeout
+      retentionPeriod: Duration.days(14),
+      receiveMessageWaitTimeSeconds: 20, // Long polling for efficiency
+      deadLetterQueue: {
+        queue: scrapingDLQ,
+        maxReceiveCount: 3 // After 3 failed attempts, move to DLQ
+      }
+    });
+
+    // CloudWatch Alarm for DLQ messages
+    const dlqAlarm = new cloudwatch.Alarm(this, 'ScrapingDLQAlarm', {
+      alarmName: `ada-clara-scraping-dlq-alarm${stackSuffix}`,
+      alarmDescription: 'Alert when messages appear in scraping dead letter queue',
+      metric: scrapingDLQ.metric('ApproximateNumberOfMessages'),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    // Domain Discovery Lambda - Intelligent URL discovery and batch coordination
+    const domainDiscoveryLogGroup = new logs.LogGroup(this, 'DomainDiscoveryLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-domain-discovery${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
-      functionName: `ada-clara-web-scraper${stackSuffix}`,
+    this.domainDiscoveryFunction = new lambda.Function(this, 'DomainDiscoveryFunction', {
+      functionName: `ada-clara-domain-discovery${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/web-scraper'),
-      timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
-      memorySize: 1024, // Reduced memory for simplified scraper
-      logGroup: webScraperLogGroup,
+      code: lambda.Code.fromAsset('lambda/domain-discovery'),
+      timeout: Duration.minutes(15), // Increased for comprehensive discovery
+      memorySize: 1024, // Increased for XML parsing and URL processing
+      logGroup: domainDiscoveryLogGroup,
       role: lambdaExecutionRole,
       environment: {
-        // S3 configuration
-        CONTENT_BUCKET: this.contentBucket.bucketName,
-        
-        // Knowledge Base configuration
-        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        DATA_SOURCE_ID: this.dataSource.attrDataSourceId,
-        
-        // Domain and scraping configuration
+        SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
+        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
         TARGET_DOMAIN: 'diabetes.org',
-        RATE_LIMIT_DELAY: '2000',
-      },
+        MAX_URLS_PER_BATCH: '15', // Optimized batch size for cost efficiency
+        MAX_DISCOVERY_URLS: '1200' // Capture all high-quality URLs (priority 50+)
+      }
     });
 
-    // Grant permissions to web scraper
-    this.contentBucket.grantReadWrite(this.webScraperProcessor);
+    // Content Processor Lambda - Enhanced content processing with quality assessment
+    const contentProcessorLogGroup = new logs.LogGroup(this, 'ContentProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-content-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
-    // EventBridge Rule for weekly scraping (Sundays at 2 AM UTC)
+    this.contentProcessorFunction = new lambda.Function(this, 'ContentProcessorFunction', {
+      functionName: `ada-clara-content-processor${stackSuffix}`,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/content-processor'),
+      timeout: Duration.minutes(15),
+      memorySize: 1024,
+      logGroup: contentProcessorLogGroup,
+      role: lambdaExecutionRole,
+      environment: {
+        CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
+        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName, // Use stack's content tracking table
+        TARGET_DOMAIN: 'diabetes.org',
+        RATE_LIMIT_DELAY: '1000',
+        MIN_QUALITY_THRESHOLD: '50' // Minimum quality score (0-100)
+      }
+    });
+
+    // Grant SQS permissions
+    this.scrapingQueue.grantSendMessages(this.domainDiscoveryFunction);
+    this.scrapingQueue.grantConsumeMessages(this.contentProcessorFunction);
+
+    // Grant S3 permissions to content processor
+    this.contentBucket.grantReadWrite(this.contentProcessorFunction);
+
+    // Grant DynamoDB permissions for content tracking
+    this.contentTrackingTable.grantReadWriteData(this.domainDiscoveryFunction);
+    this.contentTrackingTable.grantReadWriteData(this.contentProcessorFunction);
+
+    // Configure Content Processor to be triggered by SQS messages
+    this.contentProcessorFunction.addEventSource(new SqsEventSource(this.scrapingQueue, {
+      batchSize: 1, // Process one message at a time (each message contains multiple URLs)
+      maxBatchingWindow: Duration.seconds(5),
+      reportBatchItemFailures: true // Enable partial batch failure reporting
+    }));
+
+    // EventBridge Rule for biweekly scraping (Every other Sunday at 2 AM UTC)
     this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {
       ruleName: `ada-clara-web-scraper-schedule${stackSuffix}`,
-      description: 'Weekly scheduled web scraping for diabetes.org content',
+      description: 'Biweekly scheduled web scraping for diabetes.org content',
       schedule: events.Schedule.cron({
         minute: '0',
         hour: '2',
         weekDay: 'SUN', // Sunday
+        day: '1,15', // 1st and 15th of each month (approximately biweekly)
       }),
       enabled: true,
     });
 
-    // Add Lambda target to EventBridge rule
-    this.webScraperScheduleRule.addTarget(new targets.LambdaFunction(this.webScraperProcessor, {
+    // Add Domain Discovery Lambda target to EventBridge rule
+    this.webScraperScheduleRule.addTarget(new targets.LambdaFunction(this.domainDiscoveryFunction, {
       event: events.RuleTargetInput.fromObject({
         source: 'aws.events',
         'detail-type': 'Scheduled Web Scraping',
         detail: {
-          action: 'scheduled-discover-scrape',
-          domain: 'diabetes.org',
-          maxUrls: 50,
-          forceRefresh: false,
+          action: 'discover-domain',
+          comprehensive: true,
+          sources: ['sitemap', 'seed-urls'],
+          maxUrls: 1200,
+          priorityFilter: 50,
           scheduledExecution: true,
           executionId: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
           timestamp: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
@@ -476,8 +567,8 @@ export class AdaClaraUnifiedStack extends Stack {
       }),
     }));
 
-    // Grant EventBridge permission to invoke Lambda
-    this.webScraperProcessor.addPermission('AllowEventBridgeInvoke', {
+    // Grant EventBridge permission to invoke Domain Discovery Lambda
+    this.domainDiscoveryFunction.addPermission('AllowEventBridgeInvoke', {
       principal: new iam.ServicePrincipal('events.amazonaws.com'),
       sourceArn: this.webScraperScheduleRule.ruleArn,
     });
@@ -680,23 +771,29 @@ export class AdaClaraUnifiedStack extends Stack {
     const queryResource = this.api.root.addResource('query');
     queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
 
-    // Web Scraper endpoints (admin-only)
+    // Enhanced Web Scraper endpoints (admin-only)
     const scraperResource = this.api.root.addResource('scraper');
     
-    // Manual scraping trigger
-    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    // Manual domain discovery trigger
+    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
       authorizer: cognitoAuthorizer,
     });
     
-    // Scraper status and health
+    // Content processor status and health
     const scraperStatusResource = scraperResource.addResource('status');
-    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
       authorizer: cognitoAuthorizer,
     });
     
     // Domain discovery endpoint
     const scraperDiscoverResource = scraperResource.addResource('discover');
-    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
+      authorizer: cognitoAuthorizer,
+    });
+
+    // Content processor health check
+    const processorResource = scraperResource.addResource('processor');
+    processorResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
       authorizer: cognitoAuthorizer,
     });
 
@@ -766,10 +863,22 @@ export class AdaClaraUnifiedStack extends Stack {
       exportName: `AdaClara-Region-${region}`,
     });
 
-    new CfnOutput(this, 'WebScraperFunctionName', {
-      value: this.webScraperProcessor.functionName,
-      description: 'Web Scraper Lambda Function Name',
-      exportName: `AdaClara-WebScraperFunction-${region}`,
+    new CfnOutput(this, 'DomainDiscoveryFunctionName', {
+      value: this.domainDiscoveryFunction.functionName,
+      description: 'Domain Discovery Lambda Function Name',
+      exportName: `AdaClara-DomainDiscoveryFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentProcessorFunctionName', {
+      value: this.contentProcessorFunction.functionName,
+      description: 'Content Processor Lambda Function Name',
+      exportName: `AdaClara-ContentProcessorFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'ScrapingQueueUrl', {
+      value: this.scrapingQueue.queueUrl,
+      description: 'SQS Queue URL for scraping batches',
+      exportName: `AdaClara-ScrapingQueueUrl-${region}`,
     });
 
     new CfnOutput(this, 'VectorsBucketName', {
