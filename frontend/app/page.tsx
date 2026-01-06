@@ -14,11 +14,18 @@ export default function Home() {
     setInputValue('');
   };
 
+  const handleLogoClick = () => {
+    if (chatPanelRef.current) {
+      chatPanelRef.current.resetChat();
+      setInputValue('');
+    }
+  };
+
   return (
     <div className="h-screen bg-white flex flex-col overflow-hidden">
       {/* Fixed Header */}
       <div className="fixed top-0 left-0 right-0 z-10">
-        <Header />
+        <Header onLogoClick={handleLogoClick} />
       </div>
       
       {/* Scrollable Main Content */}

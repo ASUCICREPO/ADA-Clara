@@ -16,6 +16,7 @@ interface Message {
 
 export interface ChatPanelHandle {
   handleSend: (inputValue: string) => void;
+  resetChat: () => void;
 }
 
 // Session management
@@ -101,8 +102,17 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
     }
   };
 
+  const resetChat = () => {
+    setMessages([]);
+    messageIdCounter.current = 0;
+    setHasStartedChat(false);
+    setIsLoading(false);
+    setShowTalkToPersonForm(false);
+  };
+
   useImperativeHandle(ref, () => ({
     handleSend,
+    resetChat,
   }));
 
   const handleTalkToPersonClick = () => {
