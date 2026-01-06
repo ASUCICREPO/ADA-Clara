@@ -281,7 +281,14 @@ export class AdaClaraUnifiedStack extends Stack {
       distanceMetric: 'cosine',
       dataType: 'float32',
       metadataConfiguration: {
-        nonFilterableMetadataKeys: ['AMAZON_BEDROCK_TEXT', 'AMAZON_BEDROCK_METADATA'] // Bedrock KB required keys
+        nonFilterableMetadataKeys: [
+          'AMAZON_BEDROCK_TEXT', 
+          'AMAZON_BEDROCK_METADATA', // Bedrock-generated metadata fields
+          'url',                     // Web scraper metadata fields
+          'title',
+          'scraped', 
+          'domain'
+        ]
       }
     });
 
@@ -414,7 +421,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
       functionName: `ada-clara-web-scraper${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'web-scraper.handler',
       code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
@@ -516,7 +523,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
       functionName: `ada-clara-rag-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'rag-processor.handler',
       code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.minutes(5),
@@ -556,7 +563,7 @@ export class AdaClaraUnifiedStack extends Stack {
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
       functionName: `ada-clara-chat-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'chat-processor.handler',
       code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),
@@ -577,7 +584,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
       functionName: `ada-clara-escalation-handler${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'escalation-handler.handler',
       code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),
@@ -590,7 +597,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
       functionName: `ada-clara-admin-analytics${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'admin-analytics.handler',
       code: lambda.Code.fromAsset('lambdas'),
       timeout: Duration.seconds(30),

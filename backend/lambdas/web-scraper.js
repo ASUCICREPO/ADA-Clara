@@ -79,6 +79,19 @@ exports.handler = async (event, context) => {
       };
     }
 
+    // Handle direct Lambda invocation (no httpMethod property)
+    if (!event.httpMethod) {
+      console.log('Direct Lambda invocation detected');
+      
+      // Check if this is a health check
+      if (event.action === 'health' || event.health) {
+        return await handleHealthCheck();
+      }
+      
+      // Default: treat as scrape request for direct invocation
+      return await handleScrapeRequest(event);
+    }
+
     // Handle HTTP API Gateway requests
     const method = event.httpMethod;
     const path = event.path;
@@ -142,12 +155,18 @@ async function handleScrapeRequest(event) {
   try {
     let urls = DEFAULT_URLS;
     
-    // Parse request body
-    if (event.body) {
+    // Handle direct Lambda invocation (URLs directly in event)
+    if (event.urls && Array.isArray(event.urls) && event.urls.length > 0) {
+      urls = event.urls;
+      console.log(`Direct invocation: Using ${urls.length} URLs from event`);
+    }
+    // Handle API Gateway request (URLs in body)
+    else if (event.body) {
       try {
         const body = JSON.parse(event.body);
         if (body.urls && Array.isArray(body.urls) && body.urls.length > 0) {
           urls = body.urls;
+          console.log(`API Gateway: Using ${urls.length} URLs from body`);
         }
       } catch (parseError) {
         return createResponse(400, {
@@ -155,14 +174,24 @@ async function handleScrapeRequest(event) {
           message: parseError.message
         });
       }
-    } else if (event.urls && Array.isArray(event.urls)) {
-      urls = event.urls;
     }
 
     console.log(`Processing ${urls.length} URLs`);
     
     const result = await scrapeUrls(urls);
     
+    // For direct invocation, return simple object
+    if (!event.httpMethod) {
+      return {
+        success: true,
+        message: 'Web scraping completed - Manual Knowledge Base sync required',
+        summary: result.summary,
+        results: result.results,
+        note: 'Please manually sync the Knowledge Base from the AWS console to update the chatbot knowledge'
+      };
+    }
+    
+    // For API Gateway, return HTTP response
     return createResponse(200, {
       message: 'Web scraping completed - Manual Knowledge Base sync required',
       summary: result.summary,
@@ -172,6 +201,17 @@ async function handleScrapeRequest(event) {
 
   } catch (error) {
     console.error('Scrape request error:', error);
+    
+    // For direct invocation, return simple error object
+    if (!event.httpMethod) {
+      return {
+        success: false,
+        error: 'Scraping failed',
+        message: error.message || 'Unknown error'
+      };
+    }
+    
+    // For API Gateway, return HTTP error response
     return createResponse(500, {
       error: 'Scraping failed',
       message: error.message || 'Unknown error'
@@ -373,12 +413,15 @@ function makeRequest(url, options = {}) {
         'User-Agent': 'ADA Clara Web Scraper/1.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate',
+        // Remove gzip encoding to avoid decompression issues
         'Connection': 'keep-alive'
       },
       timeout: timeout
     }, (response) => {
       let data = '';
+      
+      // Set encoding to handle text properly
+      response.setEncoding('utf8');
       
       response.on('data', (chunk) => {
         data += chunk;
