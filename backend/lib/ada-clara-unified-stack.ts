@@ -72,10 +72,8 @@ export class AdaClaraUnifiedStack extends Stack {
       throw new Error('AWS region must be set via CDK_DEFAULT_REGION or AWS_REGION environment variable');
     }
     const environment = this.node.tryGetContext('environment') || 'dev';
-    // Add version suffix to table names to avoid conflicts with existing tables
-    // Use 'v2' to create new tables and avoid conflicts with AdaClaraEnhancedDynamoDB-dev stack
-    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
-    const stackSuffix = environment === 'production' ? '' : `-${environment}${tableVersion ? `-${tableVersion}` : ''}`;
+    // No version suffix - use clean naming
+    const stackSuffix = environment === 'production' ? '' : `-${environment}`;
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
@@ -87,7 +85,6 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
 
     // ========== DYNAMODB TABLES ==========
-    // Using tableVersion 'v2' to create new tables and avoid conflicts with existing tables in AdaClaraEnhancedDynamoDB-dev stack
     this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
       tableName: `ada-clara-chat-sessions${stackSuffix}`,
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
@@ -279,7 +276,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.vectorIndex = new Index(this, 'VectorIndex', {
       vectorBucketName: this.vectorsBucket.vectorBucketName,
-      indexName: `ada-clara-index-v3${stackSuffix}`, // Updated index name for Bedrock KB compatibility
+      indexName: `ada-clara-index${stackSuffix}`, // Clean index name
       dimension: 1024, // Titan v2 embedding dimensions
       distanceMetric: 'cosine',
       dataType: 'float32',
