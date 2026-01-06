@@ -28,6 +28,7 @@ out/
 !jest.config.js
 !frontend/**/*.js
 !backend/lambdas/*.js
+!backend/lambda/*/index.js
 *.d.ts
 
 # TypeScript cache
