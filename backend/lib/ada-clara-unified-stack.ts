@@ -50,6 +50,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
   // Bedrock Knowledge Base
   public readonly knowledgeBase: CfnKnowledgeBase;
+  public readonly dataSource: CfnDataSource;
 
   // EventBridge
   public readonly webScraperScheduleRule: events.Rule;
@@ -71,10 +72,8 @@ export class AdaClaraUnifiedStack extends Stack {
       throw new Error('AWS region must be set via CDK_DEFAULT_REGION or AWS_REGION environment variable');
     }
     const environment = this.node.tryGetContext('environment') || 'dev';
-    // Add version suffix to table names to avoid conflicts with existing tables
-    // Use 'v2' to create new tables and avoid conflicts with AdaClaraEnhancedDynamoDB-dev stack
-    const tableVersion = this.node.tryGetContext('tableVersion') || 'v2';
-    const stackSuffix = environment === 'production' ? '' : `-${environment}${tableVersion ? `-${tableVersion}` : ''}`;
+    // No version suffix - use clean naming
+    const stackSuffix = environment === 'production' ? '' : `-${environment}`;
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
@@ -86,7 +85,6 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
 
     // ========== DYNAMODB TABLES ==========
-    // Using tableVersion 'v2' to create new tables and avoid conflicts with existing tables in AdaClaraEnhancedDynamoDB-dev stack
     this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
       tableName: `ada-clara-chat-sessions${stackSuffix}`,
       partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
@@ -278,10 +276,20 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.vectorIndex = new Index(this, 'VectorIndex', {
       vectorBucketName: this.vectorsBucket.vectorBucketName,
-      indexName: `ada-clara-index${stackSuffix}`,
+      indexName: `ada-clara-index${stackSuffix}`, // Clean index name
       dimension: 1024, // Titan v2 embedding dimensions
       distanceMetric: 'cosine',
       dataType: 'float32',
+      metadataConfiguration: {
+        nonFilterableMetadataKeys: [
+          'AMAZON_BEDROCK_TEXT', 
+          'AMAZON_BEDROCK_METADATA', // Bedrock-generated metadata fields
+          'url',                     // Web scraper metadata fields
+          'title',
+          'scraped', 
+          'domain'
+        ]
+      }
     });
 
     // ========== BEDROCK KNOWLEDGE BASE ==========
@@ -301,6 +309,16 @@ export class AdaClaraUnifiedStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: ['s3vectors:*'],
       resources: ['*'],
+    }));
+
+    // Grant Bedrock model invocation permissions for embeddings
+    kbRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:InvokeModel'],
+      resources: [
+        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
+        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v1:0`
+      ],
     }));
 
     this.knowledgeBase = new CfnKnowledgeBase(this, 'KnowledgeBase', {
@@ -323,8 +341,8 @@ export class AdaClaraUnifiedStack extends Stack {
       } as any, // Type assertion needed for CDK type compatibility
     });
 
-    // Create data source separately
-    new CfnDataSource(this, 'KnowledgeBaseDataSource', {
+    // Create data source separately with chunking configuration
+    this.dataSource = new CfnDataSource(this, 'KnowledgeBaseDataSource', {
       knowledgeBaseId: this.knowledgeBase.attrKnowledgeBaseId,
       name: `ada-clara-datasource${stackSuffix}`,
       dataSourceConfiguration: {
@@ -333,6 +351,17 @@ export class AdaClaraUnifiedStack extends Stack {
           bucketArn: this.contentBucket.bucketArn,
         },
       },
+      vectorIngestionConfiguration: {
+        chunkingConfiguration: {
+          chunkingStrategy: 'FIXED_SIZE',
+          fixedSizeChunkingConfiguration: {
+            maxTokens: 300,
+            overlapPercentage: 20,
+          },
+        },
+      },
+      // Add data deletion policy to prevent deletion issues
+      dataDeletionPolicy: 'RETAIN',
     });
 
     // ========== LAMBDA FUNCTIONS ==========
@@ -366,6 +395,22 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        BedrockAgentAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'bedrock:StartIngestionJob',
+                'bedrock:GetIngestionJob',
+                'bedrock:ListIngestionJobs'
+              ],
+              resources: [
+                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
+                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}/*`
+              ],
+            }),
+          ],
+        }),
       },
     });
 
@@ -378,53 +423,29 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
       functionName: `ada-clara-web-scraper${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('dist/web-scraper'),
+      code: lambda.Code.fromAsset('lambda/web-scraper'),
       timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
-      memorySize: 2048, // Increased memory for AI processing
+      memorySize: 1024, // Reduced memory for simplified scraper
       logGroup: webScraperLogGroup,
       role: lambdaExecutionRole,
       environment: {
-        // S3 Vectors configuration
+        // S3 configuration
         CONTENT_BUCKET: this.contentBucket.bucketName,
-        VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
-        VECTOR_INDEX: this.vectorIndex.indexName,
-        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
         
-        // DynamoDB configuration
-        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
+        // Knowledge Base configuration
+        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
+        DATA_SOURCE_ID: this.dataSource.attrDataSourceId,
         
         // Domain and scraping configuration
         TARGET_DOMAIN: 'diabetes.org',
-        MAX_PAGES: '50', // Increased for comprehensive discovery
         RATE_LIMIT_DELAY: '2000',
-        
-        // Path configuration
-        ALLOWED_PATHS: '/about-diabetes,/living-with-diabetes,/food-nutrition,/tools-and-resources,/community,/professionals',
-        BLOCKED_PATHS: '/admin,/login,/api/internal,/private,/search,/cart,/checkout',
-        
-        // Enhanced processing configuration
-        ENABLE_CONTENT_ENHANCEMENT: 'true',
-        ENABLE_INTELLIGENT_CHUNKING: 'true',
-        ENABLE_STRUCTURED_EXTRACTION: 'true',
-        CHUNKING_STRATEGY: 'hybrid',
-        
-        // Change detection configuration
-        ENABLE_CHANGE_DETECTION: 'true',
-        SKIP_UNCHANGED_CONTENT: 'true',
-        FORCE_REFRESH: 'false',
-        
-        // Quality and performance settings
-        QUALITY_THRESHOLD: '0.7',
-        MAX_RETRIES: '3',
-        BATCH_SIZE: '3',
       },
     });
 
     // Grant permissions to web scraper
     this.contentBucket.grantReadWrite(this.webScraperProcessor);
-    this.contentTrackingTable.grantReadWriteData(this.webScraperProcessor);
 
     // EventBridge Rule for weekly scraping (Sundays at 2 AM UTC)
     this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {
@@ -504,9 +525,9 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
       functionName: `ada-clara-rag-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: 'src/handlers/rag-processor/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/rag-processor'),
       timeout: Duration.minutes(5),
       memorySize: 1024,
       logGroup: ragLogGroup,
@@ -544,9 +565,9 @@ export class AdaClaraUnifiedStack extends Stack {
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
       functionName: `ada-clara-chat-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/chat-processor/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/chat-processor'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
@@ -565,9 +586,9 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
       functionName: `ada-clara-escalation-handler${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/escalation-handler/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/escalation-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
@@ -578,9 +599,9 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
       functionName: `ada-clara-admin-analytics${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_18_X,
-      handler: 'src/handlers/admin-analytics/index.handler',
-      code: lambda.Code.fromAsset('dist'),
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/admin-analytics'),
       timeout: Duration.seconds(30),
       memorySize: 512,
       role: lambdaExecutionRole,
