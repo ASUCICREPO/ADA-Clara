@@ -278,12 +278,12 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.vectorIndex = new Index(this, 'VectorIndex', {
       vectorBucketName: this.vectorsBucket.vectorBucketName,
-      indexName: `ada-clara-index-v2${stackSuffix}`, // New index name to force recreation
+      indexName: `ada-clara-index-v3${stackSuffix}`, // Updated index name for Bedrock KB compatibility
       dimension: 1024, // Titan v2 embedding dimensions
       distanceMetric: 'cosine',
       dataType: 'float32',
       metadataConfiguration: {
-        nonFilterableMetadataKeys: ['url', 'title', 'scraped'] // Store these as non-filterable to avoid size limits
+        nonFilterableMetadataKeys: ['AMAZON_BEDROCK_TEXT', 'AMAZON_BEDROCK_METADATA'] // Bedrock KB required keys
       }
     });
 
@@ -336,7 +336,7 @@ export class AdaClaraUnifiedStack extends Stack {
       } as any, // Type assertion needed for CDK type compatibility
     });
 
-    // Create data source separately
+    // Create data source separately with chunking configuration
     this.dataSource = new CfnDataSource(this, 'KnowledgeBaseDataSource', {
       knowledgeBaseId: this.knowledgeBase.attrKnowledgeBaseId,
       name: `ada-clara-datasource${stackSuffix}`,
@@ -344,6 +344,15 @@ export class AdaClaraUnifiedStack extends Stack {
         type: 'S3',
         s3Configuration: {
           bucketArn: this.contentBucket.bucketArn,
+        },
+      },
+      vectorIngestionConfiguration: {
+        chunkingConfiguration: {
+          chunkingStrategy: 'FIXED_SIZE',
+          fixedSizeChunkingConfiguration: {
+            maxTokens: 300,
+            overlapPercentage: 20,
+          },
         },
       },
     });
