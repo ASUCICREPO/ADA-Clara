@@ -3,10 +3,14 @@
 import { useState, useRef } from 'react';
 import Header from './components/Header';
 import ChatPanel, { ChatPanelHandle } from './components/ChatPanel';
+import { useLanguage } from './context/LanguageContext';
+import { translations } from './translations';
 
 export default function Home() {
   const [inputValue, setInputValue] = useState('');
   const chatPanelRef = useRef<ChatPanelHandle>(null);
+  const { language } = useLanguage();
+  const t = translations[language];
 
   const handleSend = () => {
     if (!inputValue.trim() || !chatPanelRef.current) return;
@@ -46,7 +50,7 @@ export default function Home() {
                 handleSend();
               }
             }}
-            placeholder="Ask a question about diabetes…"
+            placeholder={t.input.placeholder}
             className="flex-1 border border-[#cbd5e1] rounded-[10px] h-[48px] text-sm text-[#020617] placeholder:text-[#94a3b8] focus:outline-none focus:ring-2 focus:ring-[#a6192e]/20 bg-white"
             style={{ paddingLeft: '14px', paddingRight: '14px' }}
           />
@@ -73,7 +77,7 @@ export default function Home() {
                 fill="white"
               />
             </svg>
-            <span>Send</span>
+            <span>{t.input.send}</span>
           </button>
         </div>
       </footer>
