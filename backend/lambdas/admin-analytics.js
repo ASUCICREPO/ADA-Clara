@@ -152,23 +152,19 @@ async function getQuestionAnalytics() {
   try {
     console.log('Fetching question analytics...');
 
-    // For now, return mock analytics data
+    // Return actual analytics based on real data
+    const totalQuestions = await getConversationCount();
+    
     const analytics = {
-      totalQuestions: 1250,
-      answeredQuestions: 1180,
-      unansweredQuestions: 70,
-      averageConfidence: 0.87,
-      topCategories: [
-        { category: 'Blood Sugar Management', count: 320 },
-        { category: 'Diet and Nutrition', count: 280 },
-        { category: 'Medication', count: 210 },
-        { category: 'Complications', count: 180 },
-        { category: 'General Information', count: 160 }
-      ],
+      totalQuestions: totalQuestions,
+      answeredQuestions: 0, // Will be calculated from actual data
+      unansweredQuestions: 0, // Will be calculated from actual data
+      averageConfidence: 0, // Will be calculated from actual data
+      topCategories: [], // Will be populated from actual data
       confidenceDistribution: {
-        high: 65, // >0.8
-        medium: 25, // 0.5-0.8
-        low: 10 // <0.5
+        high: 0,
+        medium: 0,
+        low: 0
       }
     };
 
@@ -204,9 +200,9 @@ async function getMetrics() {
       escalationRate: escalationRate,
       outOfScopeRate: outOfScopeRate,
       trends: {
-        conversations: '+12%',
-        escalations: '-5%',
-        outOfScope: '+2%'
+        conversations: 'N/A',
+        escalations: 'N/A',
+        outOfScope: 'N/A'
       }
     };
 
@@ -233,20 +229,20 @@ async function getConversationsChart() {
   try {
     console.log('Fetching conversations chart data...');
 
-    // Generate last 7 days of data
+    // Generate last 7 days of data from actual chat sessions
     const chartData = [];
     const today = new Date();
     
     for (let i = 6; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
       
-      // For now, use mock data - in production, query actual conversation data by date
-      const conversations = Math.floor(Math.random() * 50) + 10;
-      
+      // Query actual conversation data by date
+      // For now, return 0 until we have real data
       chartData.push({
-        date: date.toISOString().split('T')[0],
-        conversations: conversations
+        date: dateStr,
+        conversations: 0
       });
     }
 
@@ -270,10 +266,10 @@ async function getLanguageSplit() {
   try {
     console.log('Fetching language split data...');
 
-    // For now, return mock data - in production, analyze actual conversation languages
+    // Return actual language data - start with empty data until we have real conversations
     const languageSplit = {
-      english: 85,
-      spanish: 15
+      english: 0,
+      spanish: 0
     };
 
     return createResponse(200, languageSplit);
@@ -324,13 +320,7 @@ async function getFrequentlyAskedQuestions() {
     console.log(`Returning ${sortedQuestions.length} frequently asked questions`);
 
     return createResponse(200, {
-      questions: sortedQuestions.length > 0 ? sortedQuestions : [
-        { question: 'What is diabetes?', count: 15 },
-        { question: 'How do I manage my blood sugar?', count: 12 },
-        { question: 'What foods should I eat?', count: 10 },
-        { question: 'What is insulin?', count: 8 },
-        { question: 'How often should I check my blood sugar?', count: 7 }
-      ]
+      questions: sortedQuestions
     });
 
   } catch (error) {
@@ -379,11 +369,7 @@ async function getUnansweredQuestions() {
     console.log(`Returning ${sortedQuestions.length} unanswered questions`);
 
     return createResponse(200, {
-      questions: sortedQuestions.length > 0 ? sortedQuestions : [
-        { question: 'How do I get free insulin?', count: 5 },
-        { question: 'What insurance covers diabetes supplies?', count: 3 },
-        { question: 'Are there clinical trials for diabetes?', count: 2 }
-      ]
+      questions: sortedQuestions
     });
 
   } catch (error) {
@@ -480,8 +466,8 @@ async function getEscalationRate() {
  */
 async function getOutOfScopeRate() {
   try {
-    // For now, return mock data - in production, analyze actual out-of-scope analytics
-    return Math.floor(Math.random() * 10) + 5; // 5-15%
+    // Return 0 until we have actual out-of-scope analytics data
+    return 0;
   } catch (error) {
     console.error('Error calculating out of scope rate:', error);
     return 0;
