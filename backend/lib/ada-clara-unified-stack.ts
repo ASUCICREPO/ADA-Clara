@@ -84,9 +84,14 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
-    const frontendUrl = amplifyAppId
+    let frontendUrl = amplifyAppId
       ? `https://main.${amplifyAppId}.amplifyapp.com`
       : '*';
+
+    // Normalize: remove trailing slash for CORS consistency
+    if (frontendUrl !== '*' && frontendUrl.endsWith('/')) {
+      frontendUrl = frontendUrl.slice(0, -1);
+    }
 
     console.log(`Deploying to region: ${region}, account: ${accountId}`);
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
@@ -174,8 +179,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // ========== COGNITO AUTH ==========
-    const domainPrefix = `ada-clara-${accountId}${stackSuffix}`;
-    
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: `ada-clara-users${stackSuffix}`,
       selfSignUpEnabled: true,
@@ -204,9 +207,11 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
+    // Let CDK auto-generate domain prefix to avoid update conflicts
+    // Domain will be: <stackname>-userpooldomain-<unique-id>.auth.<region>.amazoncognito.com
     this.userPoolDomain = new cognito.UserPoolDomain(this, 'UserPoolDomain', {
       userPool: this.userPool,
-      cognitoDomain: { domainPrefix },
+      // No cognitoDomain specified - CDK generates stable, unique domain prefix
     });
 
     this.identityPool = new cognito.CfnIdentityPool(this, 'IdentityPool', {
@@ -465,12 +470,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Domain Discovery Lambda - Intelligent URL discovery and batch coordination
-    const domainDiscoveryLogGroup = new logs.LogGroup(this, 'DomainDiscoveryLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-domain-discovery${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
     this.domainDiscoveryFunction = new lambda.Function(this, 'DomainDiscoveryFunction', {
       functionName: `ada-clara-domain-discovery${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -478,7 +477,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/domain-discovery'),
       timeout: Duration.minutes(15), // Increased for comprehensive discovery
       memorySize: 1024, // Increased for XML parsing and URL processing
-      logGroup: domainDiscoveryLogGroup,
+      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
       role: lambdaExecutionRole,
       environment: {
         SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
@@ -490,12 +489,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Content Processor Lambda - Enhanced content processing with quality assessment
-    const contentProcessorLogGroup = new logs.LogGroup(this, 'ContentProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-content-processor${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
     this.contentProcessorFunction = new lambda.Function(this, 'ContentProcessorFunction', {
       functionName: `ada-clara-content-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -503,7 +496,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/content-processor'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
-      logGroup: contentProcessorLogGroup,
+      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
       role: lambdaExecutionRole,
       environment: {
         CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
@@ -604,12 +597,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
-    const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
       functionName: `ada-clara-rag-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -617,7 +604,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/rag-processor'),
       timeout: Duration.minutes(5),
       memorySize: 1024,
-      logGroup: ragLogGroup,
+      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
       role: lambdaExecutionRole,
       environment: {
         VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
@@ -868,7 +855,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     new CfnOutput(this, 'CognitoDomain', {
-      value: `https://${domainPrefix}.auth.${region}.amazoncognito.com`,
+      value: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
       description: 'Cognito Domain URL',
       exportName: `AdaClara-CognitoDomain-${region}`,
     });
@@ -915,6 +902,12 @@ export class AdaClaraUnifiedStack extends Stack {
       value: this.knowledgeBase.attrKnowledgeBaseId,
       description: 'Bedrock Knowledge Base ID',
       exportName: `AdaClara-KnowledgeBaseId-${region}`,
+    });
+
+    new CfnOutput(this, 'DataSourceId', {
+      value: this.dataSource.attrDataSourceId,
+      description: 'Bedrock Knowledge Base Data Source ID',
+      exportName: `AdaClara-DataSourceId-${region}`,
     });
   }
 }

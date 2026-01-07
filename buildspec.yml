@@ -34,12 +34,18 @@ phases:
       - echo "CDK deployment complete."
       - echo "Extracting API Gateway URL and Cognito configuration..."
       - cd ..
-      - export API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      - export USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      - export USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
-      - export AWS_REGION=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query 'Stacks[0].Outputs[?OutputKey==`Region`].OutputValue' --output text --region $AWS_DEFAULT_REGION)
+      - export STACK_NAME=${STACK_NAME:-AdaClaraUnifiedStack}
+      - export AWS_REGION=${AWS_DEFAULT_REGION:-$CDK_DEFAULT_REGION}
+      - export API_GATEWAY_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`ApiGatewayUrl`].OutputValue' --output text --region $AWS_REGION)
+      - |
+        # Ensure trailing slash for Next.js static export compatibility
+        if [[ ! "$API_GATEWAY_URL" =~ /$ ]]; then
+          export API_GATEWAY_URL="${API_GATEWAY_URL}/"
+        fi
+      - export USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`UserPoolId`].OutputValue' --output text --region $AWS_REGION)
+      - export USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text --region $AWS_REGION)
+      - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_REGION)
+      - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_REGION)
       # AMPLIFY_APP_ID is passed from deploy.sh as environment variable (created before CDK deployment)
       - export FRONTEND_URL="https://main.${AMPLIFY_APP_ID}.amplifyapp.com"
       - echo "API Gateway URL=$API_GATEWAY_URL"
@@ -62,6 +68,12 @@ phases:
       - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_OUT=$FRONTEND_URL" >> .env.local
       - echo "Building Next.js application..."
       - npm run build
+      - |
+        # Validate Next.js build output
+        if [ ! -d "out" ] || [ -z "$(ls -A out)" ]; then
+          echo "[ERROR] Next.js build failed - no output directory or empty"
+          exit 1
+        fi
       - echo "Creating deployment package..."
       - cd out && zip -r build.zip .
 
@@ -73,38 +85,51 @@ phases:
       - |
         # Create deployment and capture both exit code and output
         if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
-          echo "✅ Amplify deployment created successfully"
+          echo "[SUCCESS] Amplify deployment created successfully"
         else
           DEPLOYMENT_ERROR=$(cat deployment_response.json)
           # Check if error is because deployment already exists (not a real failure)
           if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
-            echo "⚠️  Deployment already in progress, checking status..."
+            echo "[WARNING] Deployment already in progress, checking status..."
             # Try to get the active job ID
             ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
             if [ -n "$ACTIVE_JOB" ]; then
-              echo "✅ Found active deployment job: $ACTIVE_JOB"
+              echo "[SUCCESS] Found active deployment job: $ACTIVE_JOB"
               echo "Complete deployment finished successfully! (Using existing deployment)"
               exit 0
             fi
           fi
-          echo "❌ Failed to create Amplify deployment"
+          echo "[ERROR] Failed to create Amplify deployment"
           cat deployment_response.json
           exit 1
         fi
       - echo "Extracting upload URL and job ID..."
-      - export UPLOAD_URL=$(node -e "const data=require('./deployment_response.json'); console.log(data.zipUploadUrl)")
-      - export JOB_ID=$(node -e "const data=require('./deployment_response.json'); console.log(data.jobId)")
+      - |
+        # Use jq for safer JSON parsing
+        if command -v jq >/dev/null 2>&1; then
+          export UPLOAD_URL=$(jq -r '.zipUploadUrl // empty' deployment_response.json)
+          export JOB_ID=$(jq -r '.jobId // empty' deployment_response.json)
+        else
+          # Fallback to node if jq not available
+          export UPLOAD_URL=$(node -e "const data=require('./deployment_response.json'); console.log(data.zipUploadUrl)")
+          export JOB_ID=$(node -e "const data=require('./deployment_response.json'); console.log(data.jobId)")
+        fi
+        if [ -z "$UPLOAD_URL" ] || [ -z "$JOB_ID" ]; then
+          echo "[ERROR] Failed to extract deployment URLs from response"
+          cat deployment_response.json
+          exit 1
+        fi
       - echo "Uploading build.zip to Amplify..."
       - cd frontend/out
       - |
         # Upload with better error handling
         if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
-          echo "✅ Build.zip uploaded successfully"
+          echo "[SUCCESS] Build.zip uploaded successfully"
         else
-          echo "❌ Failed to upload build.zip to Amplify"
+          echo "[ERROR] Failed to upload build.zip to Amplify"
           exit 1
         fi
       - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "⚠️  Deployment start command completed (may already be running)"
+      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
       - echo "Complete deployment finished successfully!"
 

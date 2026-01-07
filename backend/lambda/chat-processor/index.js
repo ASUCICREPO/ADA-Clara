@@ -859,16 +859,19 @@ async function getChatSessions(limit = 10) {
  * Create standardized API response with CORS
  */
 function createResponse(statusCode, body, event) {
-  // Get origin from request headers
-  const origin = event?.headers?.origin || event?.headers?.Origin || '*';
-  
-  // Allowed origins
+  // Get origin from request headers (normalize by removing trailing slash)
+  let origin = event?.headers?.origin || event?.headers?.Origin || '*';
+  if (origin !== '*' && origin.endsWith('/')) {
+    origin = origin.slice(0, -1);
+  }
+
+  // Allowed origins (normalized - no trailing slashes)
   const allowedOrigins = [
-    ...(FRONTEND_URL ? [FRONTEND_URL] : []),
+    ...(FRONTEND_URL ? [FRONTEND_URL.replace(/\/$/, '')] : []),
     'http://localhost:3000',
     'https://localhost:3000'
   ].filter(Boolean);
-  
+
   // Determine CORS origin
   let corsOrigin;
   if (allowedOrigins.length === 0) {
