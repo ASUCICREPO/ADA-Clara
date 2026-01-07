@@ -9,6 +9,10 @@ export default function AdminHeader() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const router = useRouter();
 
+  const handleLogoClick = () => {
+    router.push('/');
+  };
+
   const handleLogoutClick = () => {
     setShowLogoutConfirm(true);
   };
@@ -33,7 +37,11 @@ export default function AdminHeader() {
       <div className="bg-[#a6192e] shadow-[0px_4px_6px_-1px_rgba(0,0,0,0.1),0px_2px_4px_-2px_rgba(0,0,0,0.1)] w-full flex-shrink-0" style={{ height: '70px' }}>
         <div className="max-w-[1440px] mx-auto h-full flex items-center" style={{ paddingLeft: '80px', paddingRight: '80px' }}>
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center flex-1 min-w-0" style={{ gap: '10px' }}>
+            <button 
+              onClick={handleLogoClick}
+              className="flex items-center flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity bg-transparent border-none p-0" 
+              style={{ gap: '10px' }}
+            >
               <div className="bg-white/10 rounded-[8px] w-10 h-10 flex items-center justify-center flex-shrink-0 p-1.5">
                 <img 
                   src="/logo.png" 
@@ -42,7 +50,7 @@ export default function AdminHeader() {
                 />
               </div>
               <h1 className="text-white text-2xl font-normal m-0 truncate">Clara – Admin Dashboard</h1>
-            </div>
+            </button>
           
             <div className="flex items-center flex-shrink-0" style={{ gap: '16px' }}>
               <select
