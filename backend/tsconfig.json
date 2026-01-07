@@ -23,7 +23,7 @@
   "include": [
     "lib/**/*",
     "bin/**/*"
-, "legacy/lib/ada-clara-scraper-stack.ts"  ],
+  ],
   "exclude": [
     "node_modules",
     "dist",

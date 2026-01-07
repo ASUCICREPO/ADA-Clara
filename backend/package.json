@@ -60,6 +60,7 @@
     "playwright-core": "^1.48.0"
   },
   "overrides": {
-    "whatwg-encoding": "npm:@exodus/bytes@^1.0.0"
+    "whatwg-encoding": "npm:@exodus/bytes@^1.0.0",
+    "glob": ">=10.0.0"
   }
 }
