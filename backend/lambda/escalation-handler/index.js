@@ -14,8 +14,8 @@ const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+// Environment variables - No fallbacks for table names (must be set by CDK)
+const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 
 /**
  * Main Lambda handler

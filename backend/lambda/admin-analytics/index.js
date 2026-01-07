@@ -17,11 +17,11 @@ const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
-const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
-const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
-const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+// Environment variables - No fallbacks for table names (must be set by CDK)
+const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
+const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
+const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
+const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 // Note: CONVERSATIONS_TABLE removed - analytics now uses CHAT_SESSIONS_TABLE instead
 
 /**
@@ -459,7 +459,7 @@ async function getFrequentlyAskedQuestions() {
     // Sort by count and take top 10
     const sortedQuestions = Array.from(questionCounts.entries())
       .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 10)
+      .slice(0, 6)
       .map(([normalizedQuestion, data]) => ({
         question: data.original, // Use original capitalization
         count: data.count
@@ -523,7 +523,7 @@ async function getUnansweredQuestions() {
     // Sort by count and take top 10
     const sortedQuestions = Array.from(questionCounts.entries())
       .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 10)
+      .slice(0, 6)
       .map(([normalizedQuestion, data]) => ({
         question: data.original, // Use original capitalization
         count: data.count,

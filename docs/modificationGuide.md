@@ -200,7 +200,7 @@ newResource.addMethod('GET', new apigateway.LambdaIntegration(this.newLambda));
 
 **Location**: `backend/src/services/bedrock.service.ts` and Lambda environment variables
 
-The default model is Claude 3 Sonnet (`anthropic.claude-3-sonnet-20240229-v1:0`). To change:
+The default model is Claude 3.7 Sonnet (`anthropic.claude-3-7-sonnet-20250219-v1:0`). To change:
 
 1. **For RAG generation**: Update `GENERATION_MODEL` environment variable in `ragProcessor` Lambda (in `ada-clara-unified-stack.ts`)
 2. **For content enhancement**: Update the model in `backend/src/services/content-enhancement.service.ts`

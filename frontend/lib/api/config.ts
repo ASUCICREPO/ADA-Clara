@@ -23,7 +23,7 @@ export interface ApiConfig {
  */
 export function getApiConfig(): ApiConfig {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-  const region = process.env.NEXT_PUBLIC_AWS_REGION || process.env.NEXT_PUBLIC_COGNITO_REGION || 'us-east-1';
+  const region = process.env.NEXT_PUBLIC_AWS_REGION || process.env.NEXT_PUBLIC_COGNITO_REGION || 'us-west-2';
   
   if (!apiBaseUrl) {
     const errorMessage = `
@@ -32,7 +32,7 @@ NEXT_PUBLIC_API_BASE_URL is not set.
 For local development:
 1. Copy frontend/.env.local.example to frontend/.env.local
 2. Fill in the values from your deployed stack:
-   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs" --region us-east-1
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs" --region us-west-2
 3. Or get values from AWS Console: CloudFormation → AdaClaraUnifiedStack → Outputs tab
 
 Required environment variables:

@@ -627,7 +627,7 @@ export class AdaClaraUnifiedStack extends Stack {
         CONTENT_BUCKET: this.contentBucket.bucketName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
+        GENERATION_MODEL: 'anthropic.claude-3-7-sonnet-20250219-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
       },
     });
@@ -644,7 +644,7 @@ export class AdaClaraUnifiedStack extends Stack {
       ],
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0`,
+        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0`,
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));

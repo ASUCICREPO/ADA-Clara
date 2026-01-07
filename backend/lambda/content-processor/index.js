@@ -22,9 +22,9 @@ const crypto = require('crypto');
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-west-2' });
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const CONTENT_BUCKET = process.env.CONTENT_BUCKET || '';
-const CONTENT_TRACKING_TABLE = process.env.CONTENT_TRACKING_TABLE || '';
+// Environment variables - No fallbacks for resource names (must be set by CDK)
+const CONTENT_BUCKET = process.env.CONTENT_BUCKET;
+const CONTENT_TRACKING_TABLE = process.env.CONTENT_TRACKING_TABLE;
 const TARGET_DOMAIN = process.env.TARGET_DOMAIN || 'diabetes.org';
 const RATE_LIMIT_DELAY = parseInt(process.env.RATE_LIMIT_DELAY || '1000');
 const MIN_QUALITY_THRESHOLD = parseInt(process.env.MIN_QUALITY_THRESHOLD || '50');

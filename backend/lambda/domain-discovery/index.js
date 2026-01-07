@@ -21,9 +21,9 @@ const { parseStringPromise } = require('xml2js');
 const sqsClient = new SQSClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const SCRAPING_QUEUE_URL = process.env.SCRAPING_QUEUE_URL || '';
-const CONTENT_TRACKING_TABLE = process.env.CONTENT_TRACKING_TABLE || '';
+// Environment variables - No fallbacks for resource names (must be set by CDK)
+const SCRAPING_QUEUE_URL = process.env.SCRAPING_QUEUE_URL;
+const CONTENT_TRACKING_TABLE = process.env.CONTENT_TRACKING_TABLE;
 const TARGET_DOMAIN = process.env.TARGET_DOMAIN || 'diabetes.org';
 const MAX_URLS_PER_BATCH = parseInt(process.env.MAX_URLS_PER_BATCH || '15'); // Optimized batch size
 const MAX_DISCOVERY_URLS = parseInt(process.env.MAX_DISCOVERY_URLS || '500');
