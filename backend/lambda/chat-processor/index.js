@@ -21,13 +21,13 @@ const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west
 const comprehend = new ComprehendClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const lambda = new LambdaClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
-const MESSAGES_TABLE = process.env.MESSAGES_TABLE || 'ada-clara-messages';
-const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
-const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
-const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
-const RAG_FUNCTION_NAME = process.env.RAG_FUNCTION_NAME || 'ada-clara-rag-processor';
+// Environment variables - No fallbacks for table names (must be set by CDK)
+const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
+const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
+const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
+const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
+const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
+const RAG_FUNCTION_NAME = process.env.RAG_FUNCTION_NAME;
 const RAG_ENDPOINT = process.env.RAG_ENDPOINT || '';
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
 

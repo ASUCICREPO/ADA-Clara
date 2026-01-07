@@ -14,8 +14,8 @@ const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-be
 const bedrockAgent = new BedrockAgentRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const bedrockRuntime = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
-// Environment variables
-const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID || '';
+// Environment variables - No fallbacks for resource names (must be set by CDK)
+const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
 const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0';
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.75');
 
