@@ -626,7 +626,7 @@ export class AdaClaraUnifiedStack extends Stack {
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
         GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
-        CONFIDENCE_THRESHOLD: '0.95',
+        CONFIDENCE_THRESHOLD: '0.75',
       },
     });
 

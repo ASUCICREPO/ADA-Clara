@@ -15,7 +15,7 @@ const bedrockAgent = new BedrockAgentRuntimeClient({ region: process.env.AWS_REG
 // Environment variables
 const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID || '';
 const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-3-sonnet-20240229-v1:0';
-const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.95');
+const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.75');
 
 /**
  * Main Lambda handler
@@ -138,18 +138,23 @@ async function processQuery(event) {
     // Extract response data
     const answer = response.output?.text || 'I apologize, but I could not generate a response to your question.';
     
-    // Extract sources from citations
+    // Extract sources from citations with Bedrock relevance scores
     const sources = [];
     if (response.citations && response.citations.length > 0) {
       for (const citation of response.citations) {
         if (citation.retrievedReferences) {
           for (const ref of citation.retrievedReferences) {
             if (ref.content?.text && ref.location?.s3Location?.uri) {
+              // Extract Bedrock's ML-based relevance score (0-1)
+              const relevanceScore = ref.metadata?.score || 0;
+
               sources.push({
                 url: ref.location.s3Location.uri,
                 title: extractTitleFromUri(ref.location.s3Location.uri),
-                excerpt: ref.content.text.substring(0, 200) + '...',
-                relevanceScore: ref.metadata?.score || 0.8
+                excerpt: ref.content.text.length > 200
+                  ? ref.content.text.substring(0, 200) + '...'
+                  : ref.content.text,
+                relevanceScore: relevanceScore
               });
             }
           }
@@ -157,13 +162,37 @@ async function processQuery(event) {
       }
     }
 
-    // Calculate confidence based on number of sources and content quality
-    let confidence = 0.5; // Base confidence
-    if (sources.length > 0) {
-      confidence = Math.min(0.95, 0.6 + (sources.length * 0.1)); // Increase confidence with more sources
+    // Calculate confidence using Bedrock's relevance scores
+    let totalRelevanceScore = 0;
+    let validSourceCount = 0;
+    let topScore = 0;
+
+    for (const source of sources) {
+      if (source.relevanceScore > 0) {
+        totalRelevanceScore += source.relevanceScore;
+        validSourceCount++;
+        topScore = Math.max(topScore, source.relevanceScore);
+      }
     }
-    if (answer.length > 100) {
-      confidence += 0.1; // Boost for longer, more detailed answers
+
+    // Use top score as confidence (best source determines quality)
+    // Fall back to average if no valid scores
+    const avgConfidence = validSourceCount > 0
+      ? totalRelevanceScore / validSourceCount
+      : 0;
+    const confidence = topScore > 0 ? topScore : avgConfidence;
+
+    // Sort sources by relevance (best first)
+    sources.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    // Log detailed confidence analysis
+    console.log(`=== CONFIDENCE ANALYSIS ===`);
+    console.log(`Top Score: ${topScore.toFixed(3)}, Avg Score: ${avgConfidence.toFixed(3)}, Sources: ${validSourceCount}`);
+    console.log(`Final Confidence: ${confidence.toFixed(3)} (threshold: ${CONFIDENCE_THRESHOLD})`);
+    if (validSourceCount > 0) {
+      sources.slice(0, 3).forEach((s, i) => {
+        console.log(`  Source ${i + 1}: ${s.relevanceScore.toFixed(3)} - ${s.title}`);
+      });
     }
 
     const ragResponse = {
@@ -173,11 +202,15 @@ async function processQuery(event) {
       language: language,
       sessionId: sessionId,
       processingTime: processingTime,
-      meetsAccuracyRequirement: confidence > CONFIDENCE_THRESHOLD,
+      meetsAccuracyRequirement: confidence >= confidenceThreshold && validSourceCount >= 1,
       metadata: {
         knowledgeBaseId: KNOWLEDGE_BASE_ID,
         generationModel: GENERATION_MODEL,
-        numberOfSources: sources.length,
+        numberOfSources: validSourceCount,
+        totalSourcesRetrieved: sources.length,
+        topRelevanceScore: topScore,
+        avgRelevanceScore: avgConfidence,
+        confidenceThreshold: confidenceThreshold,
         queryLength: query.length
       }
     };

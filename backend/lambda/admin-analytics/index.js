@@ -178,11 +178,12 @@ async function getQuestionAnalytics() {
       ? confidenceScores.reduce((sum, score) => sum + score, 0) / confidenceScores.length 
       : 0;
 
-    // Calculate confidence distribution (aligned with chat processor 95% escalation threshold)
+    // Calculate confidence distribution (aligned with chat processor 0.75 escalation threshold)
+    // Confidence scores are Bedrock KB relevance scores (cosine similarity)
     const confidenceDistribution = {
-      high: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.95).length,    // High: 95%+ (not escalated)
-      medium: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.8 && item.confidence < 0.95).length, // Medium: 80-94%
-      low: items.filter(item => typeof item.confidence === 'number' && item.confidence < 0.8).length        // Low: <80%
+      high: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.80).length,    // High: 80%+ (excellent match)
+      medium: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.75 && item.confidence < 0.80).length, // Medium: 75-79% (good match)
+      low: items.filter(item => typeof item.confidence === 'number' && item.confidence < 0.75).length        // Low: <75% (escalated)
     };
 
     // Get top categories with better display names

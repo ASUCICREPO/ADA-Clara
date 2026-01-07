@@ -473,7 +473,7 @@ async function generateResponse(message, language) {
         query: message,
         language: language,
         maxResults: 5,
-        confidenceThreshold: 0.95
+        confidenceThreshold: 0.75
       })
     };
     
@@ -542,17 +542,18 @@ async function storeBotMessage(sessionId, content, language, confidence, sources
  * Check if escalation should be suggested
  */
 function shouldEscalate(confidence, message) {
-  // Escalate if confidence is below 95% threshold
-  if (confidence < 0.95) {
+  // Escalate if confidence is below threshold (based on Bedrock KB relevance scores)
+  // 0.75 = good semantic match between query and retrieved content
+  if (confidence < 0.75) {
     return true;
   }
-  
+
   // Escalate if user explicitly asks for human help
   const escalationKeywords = [
     'talk to person', 'speak to human', 'human help', 'representative',
     'hablar con persona', 'hablar con humano', 'ayuda humana', 'representante'
   ];
-  
+
   const lowerMessage = message.toLowerCase();
   return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
 }
