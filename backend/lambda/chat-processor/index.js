@@ -688,17 +688,35 @@ async function categorizeQuestion(question, language = 'en') {
       'non-diabetes-related'
     ];
 
-    const prompt = language === 'es' 
-      ? `Analiza esta pregunta sobre diabetes y clasifícala en una de estas categorías: ${categories.join(', ')}.
+    const prompt = language === 'es'
+      ? `Clasifica esta pregunta en UNA de estas categorías:
+${categories.join(', ')}
+
+IMPORTANTE: Si la pregunta NO está relacionada con diabetes en absoluto, usa "non-diabetes-related".
+
+Ejemplos:
+- "¿Qué es la diabetes?" → general-information
+- "¿Qué debo comer?" → diet-nutrition
+- "¿Cómo está el clima?" → non-diabetes-related
+- "¿Quién ganó el partido?" → non-diabetes-related
 
 Pregunta: "${question}"
 
-Responde solo con el nombre de la categoría más apropiada.`
-      : `Analyze this diabetes-related question and classify it into one of these categories: ${categories.join(', ')}.
+Responde SOLO con el nombre de la categoría.`
+      : `Classify this question into ONE of these categories:
+${categories.join(', ')}
+
+IMPORTANT: If the question is NOT related to diabetes at all, use "non-diabetes-related".
+
+Examples:
+- "What is diabetes?" → general-information
+- "What foods should I eat?" → diet-nutrition
+- "What's the weather like?" → non-diabetes-related
+- "Who won the game?" → non-diabetes-related
 
 Question: "${question}"
 
-Respond with only the most appropriate category name.`;
+Respond with ONLY the category name.`;
 
     // Use Bedrock to categorize
     const bedrockCommand = new InvokeModelCommand({
@@ -706,6 +724,7 @@ Respond with only the most appropriate category name.`;
       body: JSON.stringify({
         anthropic_version: 'bedrock-2023-05-31',
         max_tokens: 50,
+        temperature: 0, // Deterministic classification
         messages: [{
           role: 'user',
           content: prompt
@@ -798,13 +817,42 @@ function classifyByKeywords(question, language = 'en') {
     }
   }
 
-  // Check if it's diabetes-related at all
-  const diabetesKeywords = [
-    'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina', 
-    'glucose', 'glucosa', 'blood sugar', 'azúcar sangre'
+  // Check for obvious non-diabetes topics first
+  const offTopicKeywords = [
+    'weather', 'clima', 'sports', 'deportes', 'game', 'partido',
+    'movie', 'película', 'music', 'música', 'politics', 'política',
+    'stock', 'acción', 'crypto', 'bitcoin', 'recipe', 'receta',
+    'car', 'coche', 'travel', 'viaje', 'hotel', 'restaurant'
   ];
-  
-  const isDiabetesRelated = diabetesKeywords.some(keyword => 
+
+  const isOffTopic = offTopicKeywords.some(keyword =>
+    lowerQuestion.includes(keyword)
+  );
+
+  if (isOffTopic) {
+    // Double-check it's not actually about diabetes (e.g., "weather affecting blood sugar")
+    const diabetesKeywords = [
+      'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina',
+      'glucose', 'glucosa', 'blood sugar', 'azúcar'
+    ];
+
+    const mentionsDiabetes = diabetesKeywords.some(keyword =>
+      lowerQuestion.includes(keyword)
+    );
+
+    if (!mentionsDiabetes) {
+      return 'non-diabetes-related';
+    }
+  }
+
+  // Check if it's diabetes-related
+  const diabetesKeywords = [
+    'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina',
+    'glucose', 'glucosa', 'blood sugar', 'azúcar sangre', 'a1c',
+    'hemoglobin', 'hemoglobina', 'pancreas', 'páncreas'
+  ];
+
+  const isDiabetesRelated = diabetesKeywords.some(keyword =>
     lowerQuestion.includes(keyword)
   );
 

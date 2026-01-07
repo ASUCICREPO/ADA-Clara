@@ -401,9 +401,16 @@ async function getLanguageSplit() {
 
     console.log('Language distribution:', languageCounts);
 
+    // Calculate percentages
+    const total = items.length;
+    const englishPercent = total > 0 ? Math.round((languageCounts.english / total) * 100) : 0;
+    const spanishPercent = total > 0 ? Math.round((languageCounts.spanish / total) * 100) : 0;
+
+    console.log(`Language percentages: English ${englishPercent}%, Spanish ${spanishPercent}%`);
+
     return createResponse(200, {
-      english: languageCounts.english,
-      spanish: languageCounts.spanish
+      english: englishPercent,
+      spanish: spanishPercent
     });
 
   } catch (error) {
@@ -641,14 +648,15 @@ async function getEscalationRate() {
 
 /**
  * Helper: Get out of scope rate from questions table
- * Calculates percentage of questions categorized as non-diabetes-related
+ * Calculates percentage of questions that couldn't be adequately answered by the chatbot
+ * This includes both escalated questions (low confidence) and off-topic questions
  */
 async function getOutOfScopeRate() {
   try {
     // Get all questions to calculate out-of-scope rate
     const scanResult = await dynamodb.send(new ScanCommand({
       TableName: QUESTIONS_TABLE,
-      ProjectionExpression: 'category',
+      ProjectionExpression: 'escalated',
       Limit: 1000
     }));
 
@@ -657,14 +665,15 @@ async function getOutOfScopeRate() {
 
     if (totalQuestions === 0) return 0;
 
-    // Count questions categorized as non-diabetes-related
+    // Count questions that were escalated (couldn't be adequately answered)
+    // This includes both low-confidence questions and off-topic questions
     const outOfScopeQuestions = items.filter(item =>
-      item.category === 'non-diabetes-related'
+      item.escalated === true
     ).length;
 
     const rate = Math.round((outOfScopeQuestions / totalQuestions) * 100);
 
-    console.log(`Out of scope rate: ${outOfScopeQuestions}/${totalQuestions} = ${rate}%`);
+    console.log(`Out of scope rate (unanswered by chatbot): ${outOfScopeQuestions}/${totalQuestions} = ${rate}%`);
     return Math.min(rate, 100); // Cap at 100%
   } catch (error) {
     console.error('Error calculating out of scope rate:', error);
