@@ -7,10 +7,12 @@
  * - GET /query/health - Health check
  */
 
-const { BedrockAgentRuntimeClient, RetrieveAndGenerateCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
+const { BedrockAgentRuntimeClient, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
+const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 
 // Initialize AWS clients
 const bedrockAgent = new BedrockAgentRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const bedrockRuntime = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
 const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID || '';
@@ -112,57 +114,46 @@ async function processQuery(event) {
 
     const startTime = Date.now();
 
-    // Call Bedrock Knowledge Base
-    const command = new RetrieveAndGenerateCommand({
-      input: {
+    // STEP 1: Retrieve relevant documents with scores from Knowledge Base
+    console.log('Step 1: Retrieving documents from Knowledge Base...');
+    const retrieveCommand = new RetrieveCommand({
+      knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      retrievalQuery: {
         text: query
       },
-      retrieveAndGenerateConfiguration: {
-        type: 'KNOWLEDGE_BASE',
-        knowledgeBaseConfiguration: {
-          knowledgeBaseId: KNOWLEDGE_BASE_ID,
-          modelArn: `arn:aws:bedrock:${process.env.AWS_REGION || 'us-west-2'}::foundation-model/${GENERATION_MODEL}`,
-          retrievalConfiguration: {
-            vectorSearchConfiguration: {
-              numberOfResults: maxResults
-              // Note: HYBRID search not supported for S3 Vectors, using default SEMANTIC search
-            }
-          }
+      retrievalConfiguration: {
+        vectorSearchConfiguration: {
+          numberOfResults: maxResults
+          // Note: HYBRID search not supported for S3 Vectors, using default SEMANTIC search
         }
       }
     });
 
-    const response = await bedrockAgent.send(command);
-    const processingTime = Date.now() - startTime;
+    const retrieveResponse = await bedrockAgent.send(retrieveCommand);
+    console.log(`Retrieved ${retrieveResponse.retrievalResults?.length || 0} documents`);
 
-    // Extract response data
-    const answer = response.output?.text || 'I apologize, but I could not generate a response to your question.';
-    
-    // Extract sources from citations with Bedrock relevance scores
+    // STEP 2: Extract sources with relevance scores
     const sources = [];
-    if (response.citations && response.citations.length > 0) {
-      for (const citation of response.citations) {
-        if (citation.retrievedReferences) {
-          for (const ref of citation.retrievedReferences) {
-            if (ref.content?.text && ref.location?.s3Location?.uri) {
-              // Extract Bedrock's ML-based relevance score (0-1)
-              const relevanceScore = ref.metadata?.score || 0;
+    const retrievalResults = retrieveResponse.retrievalResults || [];
 
-              sources.push({
-                url: ref.location.s3Location.uri,
-                title: extractTitleFromUri(ref.location.s3Location.uri),
-                excerpt: ref.content.text.length > 200
-                  ? ref.content.text.substring(0, 200) + '...'
-                  : ref.content.text,
-                relevanceScore: relevanceScore
-              });
-            }
-          }
-        }
+    for (const result of retrievalResults) {
+      if (result.content?.text && result.location?.s3Location?.uri) {
+        // Bedrock Retrieve API returns score at root level of each result
+        const relevanceScore = result.score || 0;
+
+        sources.push({
+          url: result.location.s3Location.uri,
+          title: extractTitleFromUri(result.location.s3Location.uri),
+          excerpt: result.content.text.length > 200
+            ? result.content.text.substring(0, 200) + '...'
+            : result.content.text,
+          relevanceScore: relevanceScore,
+          fullContent: result.content.text // Keep full content for context
+        });
       }
     }
 
-    // Calculate confidence using Bedrock's relevance scores
+    // STEP 3: Calculate confidence using Bedrock's relevance scores
     let totalRelevanceScore = 0;
     let validSourceCount = 0;
     let topScore = 0;
@@ -188,12 +179,78 @@ async function processQuery(event) {
     // Log detailed confidence analysis
     console.log(`=== CONFIDENCE ANALYSIS ===`);
     console.log(`Top Score: ${topScore.toFixed(3)}, Avg Score: ${avgConfidence.toFixed(3)}, Sources: ${validSourceCount}`);
-    console.log(`Final Confidence: ${confidence.toFixed(3)} (threshold: ${CONFIDENCE_THRESHOLD})`);
+    console.log(`Final Confidence: ${confidence.toFixed(3)} (threshold: ${confidenceThreshold})`);
     if (validSourceCount > 0) {
       sources.slice(0, 3).forEach((s, i) => {
         console.log(`  Source ${i + 1}: ${s.relevanceScore.toFixed(3)} - ${s.title}`);
       });
     }
+
+    // STEP 4: Filter sources by minimum relevance score (0.5 threshold for quality)
+    const MIN_RELEVANCE_SCORE = 0.5;
+    const filteredSources = sources.filter(s => s.relevanceScore >= MIN_RELEVANCE_SCORE);
+    console.log(`Filtered to ${filteredSources.length} sources above ${MIN_RELEVANCE_SCORE} relevance`);
+
+    // STEP 5: Generate response using Claude with filtered context
+    let answer;
+    if (filteredSources.length === 0) {
+      // No high-quality sources found
+      console.log('No sources meet minimum relevance threshold - returning fallback response');
+      answer = language === 'es'
+        ? 'Lo siento, no encontré información confiable para responder a tu pregunta. Por favor, reformula tu pregunta o contacta a un profesional de la salud.'
+        : 'I apologize, but I could not find reliable information to answer your question. Please rephrase your question or consult with a healthcare professional.';
+    } else {
+      console.log('Step 2: Generating response with Claude...');
+
+      // Build context from filtered sources
+      const context = filteredSources.map((source, idx) =>
+        `Source ${idx + 1} (Relevance: ${source.relevanceScore.toFixed(2)}):\n${source.fullContent}`
+      ).join('\n\n---\n\n');
+
+      const prompt = language === 'es'
+        ? `Eres un asistente médico especializado en diabetes. Responde la siguiente pregunta usando SOLO la información proporcionada. Si la información no es suficiente, indícalo claramente.
+
+Contexto de fuentes verificadas:
+${context}
+
+Pregunta: ${query}
+
+Proporciona una respuesta precisa, clara y basada únicamente en las fuentes proporcionadas. Cita las fuentes cuando sea apropiado.`
+        : `You are a medical assistant specialized in diabetes. Answer the following question using ONLY the provided information. If the information is insufficient, clearly state that.
+
+Context from verified sources:
+${context}
+
+Question: ${query}
+
+Provide an accurate, clear response based solely on the provided sources. Cite sources when appropriate.`;
+
+      const invokeCommand = new InvokeModelCommand({
+        modelId: GENERATION_MODEL,
+        contentType: 'application/json',
+        accept: 'application/json',
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 1024,
+          temperature: 0.3, // Low temperature for factual responses
+          messages: [{
+            role: 'user',
+            content: prompt
+          }]
+        })
+      });
+
+      const generateResponse = await bedrockRuntime.send(invokeCommand);
+      const responseBody = JSON.parse(new TextDecoder().decode(generateResponse.body));
+      answer = responseBody.content[0].text || 'I apologize, but I could not generate a response to your question.';
+
+      console.log(`Generated response: ${answer.substring(0, 100)}...`);
+    }
+
+    const processingTime = Date.now() - startTime;
+
+    // Remove fullContent from sources before returning (was only needed for generation)
+    sources.forEach(source => delete source.fullContent);
 
     const ragResponse = {
       response: answer,
@@ -254,21 +311,15 @@ async function healthCheck() {
   try {
     console.log('Performing RAG health check...');
 
-    // Test Knowledge Base access with a simple query
-    const testCommand = new RetrieveAndGenerateCommand({
-      input: {
+    // Test Knowledge Base access with a simple retrieve query
+    const testCommand = new RetrieveCommand({
+      knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      retrievalQuery: {
         text: 'What is diabetes?'
       },
-      retrieveAndGenerateConfiguration: {
-        type: 'KNOWLEDGE_BASE',
-        knowledgeBaseConfiguration: {
-          knowledgeBaseId: KNOWLEDGE_BASE_ID,
-          modelArn: `arn:aws:bedrock:${process.env.AWS_REGION || 'us-west-2'}::foundation-model/${GENERATION_MODEL}`,
-          retrievalConfiguration: {
-            vectorSearchConfiguration: {
-              numberOfResults: 1
-            }
-          }
+      retrievalConfiguration: {
+        vectorSearchConfiguration: {
+          numberOfResults: 1
         }
       }
     });

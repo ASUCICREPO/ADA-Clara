@@ -437,6 +437,15 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        LambdaInvokeAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['lambda:InvokeFunction'],
+              resources: [`arn:aws:lambda:${region}:${accountId}:function:ada-clara-*`],
+            }),
+          ],
+        }),
       },
     });
 
