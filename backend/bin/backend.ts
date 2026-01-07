@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 import { AdaClaraUnifiedStack } from '../lib/ada-clara-unified-stack';
-import { AdaClaraScraperStack } from '../legacy/lib/ada-clara-scraper-stack';
 
 const app = new cdk.App();
 
@@ -32,10 +31,4 @@ const amplifyAppId = app.node.tryGetContext('amplifyAppId');
 new AdaClaraUnifiedStack(app, 'AdaClaraUnifiedStack', {
   env,
   description: 'ADA Clara Unified Stack - Complete backend and frontend infrastructure',
-});
-
-// Create separate scraper stack for development and testing
-new AdaClaraScraperStack(app, 'AdaClaraScraperStack', {
-  env,
-  description: 'ADA Clara Scraper Stack - Enhanced web scraping with SQS and change detection',
 });

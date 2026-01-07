@@ -452,7 +452,7 @@ export class AdaClaraUnifiedStack extends Stack {
       queueName: `ada-clara-scraping-queue${stackSuffix}`,
       visibilityTimeout: Duration.minutes(15), // Match content processor timeout
       retentionPeriod: Duration.days(14),
-      receiveMessageWaitTimeSeconds: 20, // Long polling for efficiency
+      receiveMessageWaitTime: Duration.seconds(20), // Long polling for efficiency
       deadLetterQueue: {
         queue: scrapingDLQ,
         maxReceiveCount: 3 // After 3 failed attempts, move to DLQ
