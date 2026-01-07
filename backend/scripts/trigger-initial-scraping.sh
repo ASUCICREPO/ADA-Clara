@@ -248,3 +248,4 @@ echo -e "${BLUE}[INFO]${NC} Monitor the CloudWatch logs above to track progress.
 rm -f response.json
 
 echo -e "${BLUE}[INFO]${NC} Script completed."
+
