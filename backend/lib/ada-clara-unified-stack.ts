@@ -7,6 +7,9 @@ import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { Bucket, Index } from 'cdk-s3-vectors';
 import { CfnKnowledgeBase, CfnDataSource } from 'aws-cdk-lib/aws-bedrock';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
@@ -23,10 +26,9 @@ export class AdaClaraUnifiedStack extends Stack {
   // DynamoDB Tables
   public readonly chatSessionsTable: dynamodb.Table;
   public readonly analyticsTable: dynamodb.Table;
-  public readonly conversationsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
   public readonly questionsTable: dynamodb.Table;
-  public readonly unansweredQuestionsTable: dynamodb.Table;
+
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
 
@@ -41,7 +43,11 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
   public readonly ragProcessor: lambda.Function;
-  public readonly webScraperProcessor: lambda.Function;
+  public readonly domainDiscoveryFunction: lambda.Function;
+  public readonly contentProcessorFunction: lambda.Function;
+
+  // SQS Queue for Web Scraper
+  public readonly scrapingQueue: sqs.Queue;
 
   // S3 Vectors
   public readonly contentBucket: s3.Bucket;
@@ -77,9 +83,14 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Get Amplify App ID from context (passed by deployment script)
     const amplifyAppId = this.node.tryGetContext('amplifyAppId');
-    const frontendUrl = amplifyAppId
+    let frontendUrl = amplifyAppId
       ? `https://main.${amplifyAppId}.amplifyapp.com`
       : '*';
+
+    // Normalize: remove trailing slash for CORS consistency
+    if (frontendUrl !== '*' && frontendUrl.endsWith('/')) {
+      frontendUrl = frontendUrl.slice(0, -1);
+    }
 
     console.log(`Deploying to region: ${region}, account: ${accountId}`);
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
@@ -103,21 +114,6 @@ export class AdaClaraUnifiedStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.conversationsTable = new dynamodb.Table(this, 'ConversationsTable', {
-      tableName: `ada-clara-conversations${stackSuffix}`,
-      partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    // Add DateIndex GSI for querying conversations by date
-    this.conversationsTable.addGlobalSecondaryIndex({
-      indexName: 'DateIndex',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-    });
-
     this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
       tableName: `ada-clara-messages${stackSuffix}`,
       partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
@@ -131,6 +127,7 @@ export class AdaClaraUnifiedStack extends Stack {
       tableName: `ada-clara-questions${stackSuffix}`,
       partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -146,12 +143,7 @@ export class AdaClaraUnifiedStack extends Stack {
       partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
     });
 
-    this.unansweredQuestionsTable = new dynamodb.Table(this, 'UnansweredQuestionsTable', {
-      tableName: `ada-clara-unanswered-questions${stackSuffix}`,
-      partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+
 
     this.escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
       tableName: `ada-clara-escalation-requests${stackSuffix}`,
@@ -166,12 +158,11 @@ export class AdaClaraUnifiedStack extends Stack {
       partitionKey: { name: 'url', type: dynamodb.AttributeType.STRING },
       sortKey: { name: 'crawlTimestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
     // ========== COGNITO AUTH ==========
-    const domainPrefix = `ada-clara-${accountId}${stackSuffix}`;
-    
     this.userPool = new cognito.UserPool(this, 'UserPool', {
       userPoolName: `ada-clara-users${stackSuffix}`,
       selfSignUpEnabled: true,
@@ -200,9 +191,13 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
+    // Create Cognito domain with stable prefix (no stackSuffix to allow updates)
+    // Domain will be: ada-clara-auth.auth.<region>.amazoncognito.com
     this.userPoolDomain = new cognito.UserPoolDomain(this, 'UserPoolDomain', {
       userPool: this.userPool,
-      cognitoDomain: { domainPrefix },
+      cognitoDomain: {
+        domainPrefix: 'ada-clara-auth',
+      },
     });
 
     this.identityPool = new cognito.CfnIdentityPool(this, 'IdentityPool', {
@@ -386,6 +381,21 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        SQSAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: [
+                'sqs:SendMessage',
+                'sqs:ReceiveMessage',
+                'sqs:DeleteMessage',
+                'sqs:GetQueueAttributes',
+                'sqs:GetQueueUrl'
+              ],
+              resources: ['*'], // Will be scoped by queue grants
+            }),
+          ],
+        }),
         S3VectorsAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
@@ -411,64 +421,142 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
+        LambdaInvokeAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['lambda:InvokeFunction'],
+              resources: [`arn:aws:lambda:${region}:${accountId}:function:ada-clara-*`],
+            }),
+          ],
+        }),
       },
     });
 
-    // Web Scraper Lambda
-    const webScraperLogGroup = new logs.LogGroup(this, 'WebScraperLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-web-scraper${stackSuffix}`,
+    // ========== ENHANCED WEB SCRAPER ARCHITECTURE ==========
+    // Two-lambda architecture with SQS decoupling for scalable content processing
+    
+    // Dead Letter Queue for failed scraping batches
+    const scrapingDLQ = new sqs.Queue(this, 'ScrapingDLQ', {
+      queueName: `ada-clara-scraping-dlq${stackSuffix}`,
+      retentionPeriod: Duration.days(14),
+    });
+
+    // Main scraping queue for URL batches
+    this.scrapingQueue = new sqs.Queue(this, 'ScrapingQueue', {
+      queueName: `ada-clara-scraping-queue${stackSuffix}`,
+      visibilityTimeout: Duration.minutes(15), // Match content processor timeout
+      retentionPeriod: Duration.days(14),
+      receiveMessageWaitTime: Duration.seconds(20), // Long polling for efficiency
+      deadLetterQueue: {
+        queue: scrapingDLQ,
+        maxReceiveCount: 3 // After 3 failed attempts, move to DLQ
+      }
+    });
+
+    // CloudWatch Alarm for DLQ messages
+    const dlqAlarm = new cloudwatch.Alarm(this, 'ScrapingDLQAlarm', {
+      alarmName: `ada-clara-scraping-dlq-alarm${stackSuffix}`,
+      alarmDescription: 'Alert when messages appear in scraping dead letter queue',
+      metric: scrapingDLQ.metric('ApproximateNumberOfMessages'),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
+    });
+
+    // Domain Discovery Lambda - Intelligent URL discovery and batch coordination
+    // Create log group for domain discovery function
+    const domainDiscoveryLogGroup = new logs.LogGroup(this, 'DomainDiscoveryLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-domain-discovery${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.webScraperProcessor = new lambda.Function(this, 'WebScraperProcessor', {
-      functionName: `ada-clara-web-scraper${stackSuffix}`,
+    this.domainDiscoveryFunction = new lambda.Function(this, 'DomainDiscoveryFunction', {
+      functionName: `ada-clara-domain-discovery${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/web-scraper'),
-      timeout: Duration.minutes(15), // Extended timeout for comprehensive scraping
-      memorySize: 1024, // Reduced memory for simplified scraper
-      logGroup: webScraperLogGroup,
+      code: lambda.Code.fromAsset('lambda/domain-discovery'),
+      timeout: Duration.minutes(15), // Increased for comprehensive discovery
+      memorySize: 1024, // Increased for XML parsing and URL processing
+      logGroup: domainDiscoveryLogGroup,
       role: lambdaExecutionRole,
       environment: {
-        // S3 configuration
-        CONTENT_BUCKET: this.contentBucket.bucketName,
-        
-        // Knowledge Base configuration
-        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        DATA_SOURCE_ID: this.dataSource.attrDataSourceId,
-        
-        // Domain and scraping configuration
+        SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
+        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
         TARGET_DOMAIN: 'diabetes.org',
-        RATE_LIMIT_DELAY: '2000',
-      },
+        MAX_URLS_PER_BATCH: '15', // Optimized batch size for cost efficiency
+        MAX_DISCOVERY_URLS: '1200' // Capture all high-quality URLs (priority 50+)
+      }
     });
 
-    // Grant permissions to web scraper
-    this.contentBucket.grantReadWrite(this.webScraperProcessor);
+    // Content Processor Lambda - Enhanced content processing with quality assessment
+    // Create log group for content processor function
+    const contentProcessorLogGroup = new logs.LogGroup(this, 'ContentProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-content-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
 
-    // EventBridge Rule for weekly scraping (Sundays at 2 AM UTC)
+    this.contentProcessorFunction = new lambda.Function(this, 'ContentProcessorFunction', {
+      functionName: `ada-clara-content-processor${stackSuffix}`,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/content-processor'),
+      timeout: Duration.minutes(15),
+      memorySize: 1024,
+      logGroup: contentProcessorLogGroup,
+      role: lambdaExecutionRole,
+      environment: {
+        CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
+        CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName, // Use stack's content tracking table
+        TARGET_DOMAIN: 'diabetes.org',
+        RATE_LIMIT_DELAY: '1000',
+        MIN_QUALITY_THRESHOLD: '50' // Minimum quality score (0-100)
+      }
+    });
+
+    // Grant SQS permissions
+    this.scrapingQueue.grantSendMessages(this.domainDiscoveryFunction);
+    this.scrapingQueue.grantConsumeMessages(this.contentProcessorFunction);
+
+    // Grant S3 permissions to content processor
+    this.contentBucket.grantReadWrite(this.contentProcessorFunction);
+
+    // Grant DynamoDB permissions for content tracking
+    this.contentTrackingTable.grantReadWriteData(this.domainDiscoveryFunction);
+    this.contentTrackingTable.grantReadWriteData(this.contentProcessorFunction);
+
+    // Configure Content Processor to be triggered by SQS messages
+    this.contentProcessorFunction.addEventSource(new SqsEventSource(this.scrapingQueue, {
+      batchSize: 1, // Process one message at a time (each message contains multiple URLs)
+      maxBatchingWindow: Duration.seconds(5),
+      reportBatchItemFailures: true // Enable partial batch failure reporting
+    }));
+
+    // EventBridge Rule for weekly scraping (Every Sunday at 2 AM UTC)
     this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {
       ruleName: `ada-clara-web-scraper-schedule${stackSuffix}`,
       description: 'Weekly scheduled web scraping for diabetes.org content',
       schedule: events.Schedule.cron({
         minute: '0',
         hour: '2',
-        weekDay: 'SUN', // Sunday
+        weekDay: 'SUN', // Every Sunday at 2 AM UTC
       }),
       enabled: true,
     });
 
-    // Add Lambda target to EventBridge rule
-    this.webScraperScheduleRule.addTarget(new targets.LambdaFunction(this.webScraperProcessor, {
+    // Add Domain Discovery Lambda target to EventBridge rule
+    this.webScraperScheduleRule.addTarget(new targets.LambdaFunction(this.domainDiscoveryFunction, {
       event: events.RuleTargetInput.fromObject({
         source: 'aws.events',
         'detail-type': 'Scheduled Web Scraping',
         detail: {
-          action: 'scheduled-discover-scrape',
-          domain: 'diabetes.org',
-          maxUrls: 50,
-          forceRefresh: false,
+          action: 'discover-domain',
+          comprehensive: true,
+          sources: ['sitemap', 'seed-urls'],
+          maxUrls: 1200,
+          priorityFilter: 50,
           scheduledExecution: true,
           executionId: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
           timestamp: events.RuleTargetInput.fromText('${aws.events.event.ingestion-time}').toString(),
@@ -476,8 +564,8 @@ export class AdaClaraUnifiedStack extends Stack {
       }),
     }));
 
-    // Grant EventBridge permission to invoke Lambda
-    this.webScraperProcessor.addPermission('AllowEventBridgeInvoke', {
+    // Grant EventBridge permission to invoke Domain Discovery Lambda
+    this.domainDiscoveryFunction.addPermission('AllowEventBridgeInvoke', {
       principal: new iam.ServicePrincipal('events.amazonaws.com'),
       sourceArn: this.webScraperScheduleRule.ruleArn,
     });
@@ -517,7 +605,8 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
-    const ragLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
+    // Create log group for RAG processor function
+    const ragProcessorLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
       logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -530,7 +619,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/rag-processor'),
       timeout: Duration.minutes(5),
       memorySize: 1024,
-      logGroup: ragLogGroup,
+      logGroup: ragProcessorLogGroup,
       role: lambdaExecutionRole,
       environment: {
         VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
@@ -539,7 +628,7 @@ export class AdaClaraUnifiedStack extends Stack {
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
         GENERATION_MODEL: 'anthropic.claude-3-sonnet-20240229-v1:0',
-        CONFIDENCE_THRESHOLD: '0.95',
+        CONFIDENCE_THRESHOLD: '0.75',
       },
     });
 
@@ -562,6 +651,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.contentBucket.grantRead(this.ragProcessor);
 
+    // Create log group for chat processor
+    const chatProcessorLogGroup = new logs.LogGroup(this, 'ChatProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
       functionName: `ada-clara-chat-processor${stackSuffix}`,
@@ -570,6 +666,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/chat-processor'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: chatProcessorLogGroup,
       role: lambdaExecutionRole,
       environment: {
         SESSIONS_TABLE: this.chatSessionsTable.tableName,
@@ -577,11 +674,18 @@ export class AdaClaraUnifiedStack extends Stack {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL to Lambda for CORS
         // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
+        // Note: CONVERSATIONS_TABLE removed - not used by chat processor
       },
+    });
+
+    // Create log group for escalation handler
+    const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-escalation-handler${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
@@ -591,10 +695,18 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/escalation-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: escalationHandlerLogGroup,
       role: lambdaExecutionRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
       },
+    });
+
+    // Create log group for admin analytics
+    const adminAnalyticsLogGroup = new logs.LogGroup(this, 'AdminAnalyticsLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-admin-analytics${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
@@ -604,14 +716,14 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/admin-analytics'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: adminAnalyticsLogGroup,
       role: lambdaExecutionRole,
       environment: {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
-        CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
-        UNANSWERED_QUESTIONS_TABLE: this.unansweredQuestionsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        // Note: CONVERSATIONS_TABLE removed - analytics uses CHAT_SESSIONS_TABLE instead
       },
     });
 
@@ -625,7 +737,6 @@ export class AdaClaraUnifiedStack extends Stack {
     this.analyticsTable.grantReadData(this.adminAnalytics);
     // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
     this.questionsTable.grantReadData(this.adminAnalytics);
-    this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
     this.chatSessionsTable.grantReadData(this.adminAnalytics);
     this.escalationRequestsTable.grantReadData(this.adminAnalytics);
 
@@ -645,6 +756,36 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Admin endpoints (all require Cognito authentication)
     const adminResource = this.api.root.addResource('admin');
+    
+    // Admin dashboard endpoint (comprehensive data)
+    adminResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Admin health check
+    const adminHealthResource = adminResource.addResource('health');
+    adminHealthResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Admin dashboard data endpoint
+    const dashboardResource = adminResource.addResource('dashboard');
+    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Question analytics endpoint
+    const questionAnalyticsResource = adminResource.addResource('question-analytics');
+    questionAnalyticsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Category insights endpoint
+    const categoryInsightsResource = adminResource.addResource('category-insights');
+    categoryInsightsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
     const metricsResource = adminResource.addResource('metrics');
     metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
       authorizer: cognitoAuthorizer,
@@ -680,23 +821,29 @@ export class AdaClaraUnifiedStack extends Stack {
     const queryResource = this.api.root.addResource('query');
     queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
 
-    // Web Scraper endpoints (admin-only)
+    // Enhanced Web Scraper endpoints (admin-only)
     const scraperResource = this.api.root.addResource('scraper');
     
-    // Manual scraping trigger
-    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    // Manual domain discovery trigger
+    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
       authorizer: cognitoAuthorizer,
     });
     
-    // Scraper status and health
+    // Content processor status and health
     const scraperStatusResource = scraperResource.addResource('status');
-    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
       authorizer: cognitoAuthorizer,
     });
     
     // Domain discovery endpoint
     const scraperDiscoverResource = scraperResource.addResource('discover');
-    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.webScraperProcessor), {
+    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
+      authorizer: cognitoAuthorizer,
+    });
+
+    // Content processor health check
+    const processorResource = scraperResource.addResource('processor');
+    processorResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
       authorizer: cognitoAuthorizer,
     });
 
@@ -747,7 +894,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     new CfnOutput(this, 'CognitoDomain', {
-      value: `https://${domainPrefix}.auth.${region}.amazoncognito.com`,
+      value: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
       description: 'Cognito Domain URL',
       exportName: `AdaClara-CognitoDomain-${region}`,
     });
@@ -766,10 +913,22 @@ export class AdaClaraUnifiedStack extends Stack {
       exportName: `AdaClara-Region-${region}`,
     });
 
-    new CfnOutput(this, 'WebScraperFunctionName', {
-      value: this.webScraperProcessor.functionName,
-      description: 'Web Scraper Lambda Function Name',
-      exportName: `AdaClara-WebScraperFunction-${region}`,
+    new CfnOutput(this, 'DomainDiscoveryFunctionName', {
+      value: this.domainDiscoveryFunction.functionName,
+      description: 'Domain Discovery Lambda Function Name',
+      exportName: `AdaClara-DomainDiscoveryFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentProcessorFunctionName', {
+      value: this.contentProcessorFunction.functionName,
+      description: 'Content Processor Lambda Function Name',
+      exportName: `AdaClara-ContentProcessorFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'ScrapingQueueUrl', {
+      value: this.scrapingQueue.queueUrl,
+      description: 'SQS Queue URL for scraping batches',
+      exportName: `AdaClara-ScrapingQueueUrl-${region}`,
     });
 
     new CfnOutput(this, 'VectorsBucketName', {
@@ -782,6 +941,12 @@ export class AdaClaraUnifiedStack extends Stack {
       value: this.knowledgeBase.attrKnowledgeBaseId,
       description: 'Bedrock Knowledge Base ID',
       exportName: `AdaClara-KnowledgeBaseId-${region}`,
+    });
+
+    new CfnOutput(this, 'DataSourceId', {
+      value: this.dataSource.attrDataSourceId,
+      description: 'Bedrock Knowledge Base Data Source ID',
+      exportName: `AdaClara-DataSourceId-${region}`,
     });
   }
 }

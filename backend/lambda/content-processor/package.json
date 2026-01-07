@@ -1,0 +1,27 @@
+{
+  "name": "ada-clara-content-processor",
+  "version": "2.0.0",
+  "description": "Enhanced content processor for ADA Clara web scraping with SQS integration",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/util-dynamodb": "^3.0.0",
+    "cheerio": "^1.0.0-rc.12",
+    "axios": "^1.6.0"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "content-processing",
+    "web-scraping",
+    "sqs",
+    "dynamodb",
+    "s3"
+  ],
+  "author": "ADA Clara Team",
+  "license": "MIT"
+}

@@ -59,7 +59,7 @@ print_amplify() {
 }
 
 # --- Phase 1: Create IAM Service Role ---
-print_status "🔐 Phase 1: Creating IAM Service Role..."
+print_status "Phase 1: Creating IAM Service Role..."
 
 ROLE_NAME="${PROJECT_NAME}-service-role"
 print_status "Checking for IAM role: $ROLE_NAME"
@@ -129,7 +129,7 @@ else
 fi
 
 # --- Phase 2: Create Amplify App (Static Hosting) ---
-print_amplify "🌐 Phase 2: Creating Amplify Application for Static Hosting..."
+print_amplify "Phase 2: Creating Amplify Application for Static Hosting..."
 
 # Check if app already exists
 EXISTING_APP_ID=$(AWS_PAGER="" aws amplify list-apps --query "apps[?name=='$AMPLIFY_APP_NAME'].appId" --output text --region "$AWS_REGION" 2>/dev/null || echo "None")
@@ -181,7 +181,7 @@ else
 fi
 
 # --- Phase 3: Create Unified CodeBuild Project ---
-print_codebuild "🏗️ Phase 3: Creating Unified CodeBuild Project..."
+print_codebuild "Phase 3: Creating Unified CodeBuild Project..."
 
 # Build environment variables for unified deployment
 ENV_VARS_ARRAY='{
@@ -231,7 +231,7 @@ AWS_PAGER="" aws codebuild create-project \
 print_success "Unified CodeBuild project '$CODEBUILD_PROJECT_NAME' created."
 
 # --- Phase 4: Start Unified Build ---
-print_codebuild "🚀 Phase 4: Starting Unified Deployment (Backend + Frontend)..."
+print_codebuild "Phase 4: Starting Unified Deployment (Backend + Frontend)..."
 
 print_status "Starting deployment build for project '$CODEBUILD_PROJECT_NAME'..."
 BUILD_ID=$(AWS_PAGER="" aws codebuild start-build \
@@ -306,29 +306,20 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         continue
       fi
       
-      # Show errors (exclude command syntax, variable assignments, and conditional statements)
+      # Show errors with precise filtering
       if [[ "$line" =~ "ERROR" ]] || [[ "$line" =~ "Error" ]] || [[ "$line" =~ "Failed" ]]; then
-        # Skip lines that are command syntax, not actual errors:
-        # - Lines containing both "if" and "ERROR" or "Failed" (command syntax)
-        # - Lines containing both "echo" and "ERROR" or "Failed" (echo statements in code)
-        # - Lines containing "DEPLOYMENT_ERROR=" (variable assignment)
-        # - Lines containing "SyntaxError" and "deployment_response.json" (expected node errors)
-        # - Lines containing "grep" and "ERROR" (conditional checks)
         should_skip=false
-        if [[ "$line" =~ if ]] && ([[ "$line" =~ ERROR ]] || [[ "$line" =~ Failed ]]); then
-          should_skip=true
-        elif [[ "$line" =~ echo ]] && ([[ "$line" =~ ERROR ]] || [[ "$line" =~ Failed ]]); then
-          should_skip=true
-        elif [[ "$line" =~ DEPLOYMENT_ERROR.*= ]]; then
-          should_skip=true
-        elif [[ "$line" =~ SyntaxError ]] && [[ "$line" =~ deployment_response\.json ]]; then
-          should_skip=true
-        elif [[ "$line" =~ grep ]] && [[ "$line" =~ ERROR ]]; then
+
+        # Skip only if line looks like bash script source code (not execution output)
+        # Check for: variable assignments, command syntax with pipes/redirects, or 'if [['
+        if [[ "$line" =~ ^[[:space:]]*(if[[:space:]]+\[\[|echo[[:space:]]|grep[[:space:]]|\|[[:space:]]*grep) ]] || \
+           [[ "$line" =~ ^[[:space:]]*[A-Z_]+=.*ERROR ]] || \
+           [[ "$line" =~ SyntaxError.*deployment_response\.json ]]; then
           should_skip=true
         fi
-        
+
         if [ "$should_skip" = false ]; then
-        echo -e "${RED}[ERROR]${NC} $line"
+          echo -e "${RED}[ERROR]${NC} $line"
         fi
       fi
       
@@ -378,7 +369,7 @@ AMPLIFY_URL=$(AWS_PAGER="" aws amplify get-app \
     --region "$AWS_REGION")
 
 if [ -z "$AMPLIFY_URL" ] || [ "$AMPLIFY_URL" = "None" ]; then
-    AMPLIFY_URL="$AMPLIFY_APP_ID.amplifyapp.com"
+    AMPLIFY_URL="main.$AMPLIFY_APP_ID.amplifyapp.com"
 fi
 
 # --- Final Summary ---
@@ -408,51 +399,44 @@ print_status "Knowledge Base Population"
 echo ""
 echo "Would you like to populate the knowledge base by scraping diabetes.org content?"
 echo "This will:"
-echo "   - Discover and scrape up to 50 pages from diabetes.org"
-echo "   - Process content with AI enhancement"
-echo "   - Generate embeddings and store in S3 Vectors"
-echo "   - Take approximately 10-15 minutes to complete"
+echo "   - Discover up to 1200 high-quality pages from diabetes.org using intelligent prioritization"
+echo "   - Process content with enhanced HTML-to-Markdown conversion and quality assessment"
+echo "   - Store content in S3 with proper structure for knowledge base ingestion"
+echo "   - Take approximately 15-20 minutes to complete"
 echo ""
 read -p "Populate knowledge base now? (y/n): " -n 1 -r
 echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-  print_status "Waiting for Lambda function to be ready..."
+  print_status "Allowing AWS resources to stabilize..."
   sleep 10
 
-  # Get the web scraper function name from CloudFormation
-  WEB_SCRAPER_FUNCTION=$(AWS_PAGER="" aws cloudformation describe-stacks \
+  # Get the domain discovery function name from CloudFormation
+  DOMAIN_DISCOVERY_FUNCTION=$(AWS_PAGER="" aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
-    --query "Stacks[0].Outputs[?OutputKey=='WebScraperFunctionName'].OutputValue" \
+    --query "Stacks[0].Outputs[?OutputKey=='DomainDiscoveryFunctionName'].OutputValue" \
     --output text --region "$AWS_REGION" 2>/dev/null || echo "")
 
   # If not found in outputs, construct the function name based on the pattern used in the stack
-  if [ -z "$WEB_SCRAPER_FUNCTION" ] || [ "$WEB_SCRAPER_FUNCTION" = "None" ]; then
+  if [ -z "$DOMAIN_DISCOVERY_FUNCTION" ] || [ "$DOMAIN_DISCOVERY_FUNCTION" = "None" ]; then
     # Use the same naming pattern as in the CDK stack
     ENVIRONMENT=$(echo "$STACK_NAME" | grep -o '\-dev\-v[0-9]*' || echo "")
-    WEB_SCRAPER_FUNCTION="ada-clara-web-scraper-${AWS_REGION}${ENVIRONMENT}"
-    print_status "Using constructed function name: $WEB_SCRAPER_FUNCTION"
+    DOMAIN_DISCOVERY_FUNCTION="ada-clara-domain-discovery${ENVIRONMENT}"
+    print_status "Using constructed function name: $DOMAIN_DISCOVERY_FUNCTION"
   else
-    print_status "Found web scraper function: $WEB_SCRAPER_FUNCTION"
+    print_status "Found domain discovery function: $DOMAIN_DISCOVERY_FUNCTION"
   fi
 
-  # Trigger initial scraping
-  print_status "Triggering initial diabetes.org domain scraping..."
+  # Trigger initial domain discovery and scraping
+  print_status "Triggering comprehensive diabetes.org domain discovery..."
 
   SCRAPER_PAYLOAD='{
-    "action": "discover-scrape",
-    "domain": "diabetes.org",
-    "maxUrls": 50,
-    "enableContentEnhancement": true,
-    "enableIntelligentChunking": true,
-    "enableStructuredExtraction": true,
-    "chunkingStrategy": "hybrid",
-    "forceRefresh": true
+    "action": "discover-domain"
   }'
 
-  # Invoke the web scraper Lambda function
+  # Invoke the domain discovery Lambda function
   SCRAPER_RESULT=$(AWS_PAGER="" aws lambda invoke \
-    --function-name "$WEB_SCRAPER_FUNCTION" \
+    --function-name "$DOMAIN_DISCOVERY_FUNCTION" \
     --payload "$SCRAPER_PAYLOAD" \
     --region "$AWS_REGION" \
     /tmp/scraper-response.json 2>&1)
@@ -475,22 +459,144 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         fi
       fi
       
-      print_status "The web scraper is now populating the knowledge base with diabetes.org content."
-      print_status "This process runs in the background and may take several minutes to complete."
+      print_status "The domain discovery function is now scraping diabetes.org content to S3."
+      print_status "This process runs in the background and may take 15-20 minutes to complete."
       echo ""
-      print_status "You can monitor progress in CloudWatch logs:"
-      print_status "  Log Group: /aws/lambda/$WEB_SCRAPER_FUNCTION"
+      print_status "You can monitor scraping progress in CloudWatch logs:"
+      print_status "  Domain Discovery: /aws/lambda/$DOMAIN_DISCOVERY_FUNCTION"
+      print_status "  Content Processor: Check SQS queue processing in CloudWatch"
+      echo ""
+
+      # Get Knowledge Base and Data Source IDs from CloudFormation
+      print_status "Preparing to sync Knowledge Base after scraping completes..."
+      KNOWLEDGE_BASE_ID=$(AWS_PAGER="" aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='KnowledgeBaseId'].OutputValue" \
+        --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+      DATA_SOURCE_ID=$(AWS_PAGER="" aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='DataSourceId'].OutputValue" \
+        --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+      if [ -z "$KNOWLEDGE_BASE_ID" ] || [ "$KNOWLEDGE_BASE_ID" = "None" ] || \
+         [ -z "$DATA_SOURCE_ID" ] || [ "$DATA_SOURCE_ID" = "None" ]; then
+        print_warning "Could not find Knowledge Base or Data Source IDs from stack outputs"
+        print_warning "You will need to manually sync the Knowledge Base after scraping completes"
+        print_status "Manual sync: AWS Console -> Bedrock -> Knowledge Bases -> ada-clara-kb -> Sync"
+      else
+        print_status "Knowledge Base ID: $KNOWLEDGE_BASE_ID"
+        print_status "Data Source ID: $DATA_SOURCE_ID"
+        echo ""
+        print_status "Waiting for scraping to complete before syncing Knowledge Base..."
+        print_status "This may take 15-20 minutes. Checking every 60 seconds..."
+
+        # Wait for scraping to complete by checking SQS queue
+        SCRAPING_COMPLETE=false
+        WAIT_COUNT=0
+        MAX_WAIT=25  # 25 minutes max wait
+
+        while [ $WAIT_COUNT -lt $MAX_WAIT ] && [ "$SCRAPING_COMPLETE" = false ]; do
+          sleep 60
+          WAIT_COUNT=$((WAIT_COUNT + 1))
+
+          # Check if SQS queue is empty (scraping done)
+          QUEUE_URL=$(AWS_PAGER="" aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ScrapingQueueUrl'].OutputValue" \
+            --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+          if [ -n "$QUEUE_URL" ] && [ "$QUEUE_URL" != "None" ]; then
+            QUEUE_DEPTH=$(AWS_PAGER="" aws sqs get-queue-attributes \
+              --queue-url "$QUEUE_URL" \
+              --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible \
+              --query 'Attributes.{visible:ApproximateNumberOfMessages,inflight:ApproximateNumberOfMessagesNotVisible}' \
+              --output json --region "$AWS_REGION" 2>/dev/null || echo '{"visible":"0","inflight":"0"}')
+
+            VISIBLE=$(echo "$QUEUE_DEPTH" | jq -r '.visible' 2>/dev/null || echo "0")
+            INFLIGHT=$(echo "$QUEUE_DEPTH" | jq -r '.inflight' 2>/dev/null || echo "0")
+
+            if [ "$VISIBLE" = "0" ] && [ "$INFLIGHT" = "0" ]; then
+              print_success "Scraping completed! Queue is empty."
+              SCRAPING_COMPLETE=true
+            else
+              print_status "Scraping in progress... (${WAIT_COUNT} min elapsed, ~$((VISIBLE + INFLIGHT)) URLs remaining)"
+            fi
+          fi
+        done
+
+        if [ "$SCRAPING_COMPLETE" = true ]; then
+          # Start Knowledge Base ingestion job
+          print_status "Starting Knowledge Base sync to ingest scraped content..."
+
+          INGESTION_JOB_ID=$(AWS_PAGER="" aws bedrock-agent start-ingestion-job \
+            --knowledge-base-id "$KNOWLEDGE_BASE_ID" \
+            --data-source-id "$DATA_SOURCE_ID" \
+            --region "$AWS_REGION" \
+            --query 'ingestionJob.ingestionJobId' \
+            --output text 2>&1)
+
+          if [ $? -eq 0 ] && [ -n "$INGESTION_JOB_ID" ] && [ "$INGESTION_JOB_ID" != "None" ]; then
+            print_success "Knowledge Base sync started! Job ID: $INGESTION_JOB_ID"
+            print_status "Monitoring sync progress..."
+
+            # Poll ingestion job status
+            SYNC_COMPLETE=false
+            SYNC_WAIT=0
+            MAX_SYNC_WAIT=15  # 15 minutes max for sync
+
+            while [ $SYNC_WAIT -lt $MAX_SYNC_WAIT ] && [ "$SYNC_COMPLETE" = false ]; do
+              sleep 30
+              SYNC_WAIT=$((SYNC_WAIT + 1))
+
+              JOB_STATUS=$(AWS_PAGER="" aws bedrock-agent get-ingestion-job \
+                --knowledge-base-id "$KNOWLEDGE_BASE_ID" \
+                --data-source-id "$DATA_SOURCE_ID" \
+                --ingestion-job-id "$INGESTION_JOB_ID" \
+                --region "$AWS_REGION" \
+                --query 'ingestionJob.status' \
+                --output text 2>/dev/null || echo "UNKNOWN")
+
+              case "$JOB_STATUS" in
+                "COMPLETE")
+                  print_success "Knowledge Base sync completed successfully!"
+                  SYNC_COMPLETE=true
+                  ;;
+                "FAILED")
+                  print_warning "Knowledge Base sync failed. Check AWS Console for details."
+                  SYNC_COMPLETE=true
+                  ;;
+                "IN_PROGRESS"|"STARTING")
+                  print_status "Sync in progress... (${SYNC_WAIT}/2 min elapsed)"
+                  ;;
+                *)
+                  print_status "Sync status: $JOB_STATUS (${SYNC_WAIT}/2 min elapsed)"
+                  ;;
+              esac
+            done
+
+            if [ "$SYNC_COMPLETE" = false ]; then
+              print_warning "Sync is taking longer than expected. Continuing in background."
+              print_status "Check status: AWS Console -> Bedrock -> Knowledge Bases -> ada-clara-kb"
+            fi
+          else
+            print_warning "Failed to start Knowledge Base sync: $INGESTION_JOB_ID"
+            print_status "You can manually sync via: AWS Console -> Bedrock -> Knowledge Bases -> ada-clara-kb -> Sync"
+          fi
+        else
+          print_warning "Scraping did not complete within 25 minutes"
+          print_status "Scraping will continue in background. Sync Knowledge Base manually after completion."
+          print_status "Manual sync: AWS Console -> Bedrock -> Knowledge Bases -> ada-clara-kb -> Sync"
+        fi
+      fi
     else
       print_warning "Web scraper invocation returned status code: $STATUS_CODE"
       print_warning "Initial scraping may not have started successfully."
-      print_warning "You can manually trigger scraping later using:"
-      print_warning "  backend/scripts/trigger-initial-scraping.sh"
+      print_warning "You can manually trigger scraping later using the domain discovery function."
     fi
   else
     print_warning "Failed to trigger initial scraping: $SCRAPER_RESULT"
     print_warning "You can manually trigger scraping later via the API or admin interface."
-    print_warning "Or use the manual trigger script:"
-    print_warning "  backend/scripts/trigger-initial-scraping.sh"
   fi
 
   # Clean up temporary file
@@ -498,9 +604,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
   print_status "Skipping knowledge base population."
   echo ""
-  print_status "You can trigger knowledge base population later by:"
-  print_status "  1. Running: backend/scripts/trigger-initial-scraping.sh"
-  print_status "  2. Or manually invoking the web scraper Lambda function"
+  print_status "You can trigger knowledge base population later by manually invoking the domain discovery Lambda function."
 fi
 
 echo ""

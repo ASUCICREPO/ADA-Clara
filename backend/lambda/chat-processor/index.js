@@ -14,6 +14,7 @@ const { DynamoDBClient, PutItemCommand, GetItemCommand, ScanCommand, UpdateItemC
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const { ComprehendClient, DetectDominantLanguageCommand } = require('@aws-sdk/client-comprehend');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -145,7 +146,6 @@ async function handleChatMessage(event) {
     let finalResponse = ragResponse.response;
     if (escalationSuggested) {
       await createEscalation(session.sessionId, 'Low confidence or complex query');
-      await storeUnansweredQuestion(request.message, language, ragResponse.confidence);
       
       // Replace generic escalation message with more helpful one
       if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') || 
@@ -245,18 +245,26 @@ async function handleHealthCheck(event) {
     // Test RAG function
     try {
       if (RAG_FUNCTION_NAME) {
-        await lambda.send(new InvokeCommand({
+        const response = await lambda.send(new InvokeCommand({
           FunctionName: RAG_FUNCTION_NAME,
           Payload: JSON.stringify({
             httpMethod: 'GET',
             path: '/health'
           })
         }));
-        services.rag = true;
+
+        // Check if Lambda returned an error (FunctionError field)
+        if (response.FunctionError) {
+          console.error('RAG health check returned error:', response.FunctionError);
+          services.rag = false;
+        } else {
+          services.rag = true;
+        }
       } else {
         services.rag = 'not_configured';
       }
     } catch (error) {
+      console.error('RAG health check failed:', error.message);
       services.rag = false;
     }
     
@@ -473,7 +481,7 @@ async function generateResponse(message, language) {
         query: message,
         language: language,
         maxResults: 5,
-        confidenceThreshold: 0.95
+        confidenceThreshold: 0.75
       })
     };
     
@@ -542,17 +550,18 @@ async function storeBotMessage(sessionId, content, language, confidence, sources
  * Check if escalation should be suggested
  */
 function shouldEscalate(confidence, message) {
-  // Escalate if confidence is below 95% threshold
-  if (confidence < 0.95) {
+  // Escalate if confidence is below threshold (based on Bedrock KB relevance scores)
+  // 0.75 = good semantic match between query and retrieved content
+  if (confidence < 0.75) {
     return true;
   }
-  
+
   // Escalate if user explicitly asks for human help
   const escalationKeywords = [
     'talk to person', 'speak to human', 'human help', 'representative',
     'hablar con persona', 'hablar con humano', 'ayuda humana', 'representante'
   ];
-  
+
   const lowerMessage = message.toLowerCase();
   return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
 }
@@ -581,28 +590,7 @@ async function createEscalation(sessionId, reason) {
   return escalationRecord;
 }
 
-/**
- * Store unanswered question
- */
-async function storeUnansweredQuestion(question, language, confidence) {
-  const questionId = `q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
-  const questionRecord = {
-    questionId,
-    question,
-    language,
-    confidence,
-    timestamp: new Date().toISOString(),
-    status: 'unanswered'
-  };
-  
-  await dynamodb.send(new PutItemCommand({
-    TableName: QUESTIONS_TABLE,
-    Item: marshall(questionRecord, { removeUndefinedValues: true })
-  }));
-  
-  return questionRecord;
-}
+
 
 /**
  * Update session activity
@@ -647,21 +635,25 @@ async function recordAnalytics(category, action, data) {
 }
 
 /**
- * Process question for analytics
+ * Process question for analytics with AI-powered categorization
  */
 async function processQuestion(question, response, confidence, language, sessionId, escalated) {
   try {
+    // Get AI-powered category
+    const category = await categorizeQuestion(question, language);
+    
     const questionRecord = {
-      questionId: `q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      questionId: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       question,
       response,
       confidence,
       language,
       sessionId,
-      escalated,
+      escalated, // This will be true for low confidence or explicit escalation requests
+      category, // Now uses AI-powered categorization
       timestamp: new Date().toISOString(),
       date: new Date().toISOString().split('T')[0],
-      category: 'general' // Could be enhanced with categorization logic
+      ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 year TTL
     };
     
     await dynamodb.send(new PutItemCommand({
@@ -671,6 +663,200 @@ async function processQuestion(question, response, confidence, language, session
   } catch (error) {
     console.error('Failed to process question:', error);
   }
+}
+
+/**
+ * Categorize question using AI
+ */
+async function categorizeQuestion(question, language = 'en') {
+  try {
+    // Define diabetes-specific categories
+    const categories = [
+      'type-1-diabetes',
+      'type-2-diabetes', 
+      'gestational-diabetes',
+      'prediabetes',
+      'symptoms-diagnosis',
+      'blood-sugar-management',
+      'insulin-medication',
+      'diet-nutrition',
+      'exercise-lifestyle',
+      'complications',
+      'emergency-care',
+      'insurance-coverage',
+      'general-information',
+      'non-diabetes-related'
+    ];
+
+    const prompt = language === 'es'
+      ? `Clasifica esta pregunta en UNA de estas categorías:
+${categories.join(', ')}
+
+IMPORTANTE: Si la pregunta NO está relacionada con diabetes en absoluto, usa "non-diabetes-related".
+
+Ejemplos:
+- "¿Qué es la diabetes?" → general-information
+- "¿Qué debo comer?" → diet-nutrition
+- "¿Cómo está el clima?" → non-diabetes-related
+- "¿Quién ganó el partido?" → non-diabetes-related
+
+Pregunta: "${question}"
+
+Responde SOLO con el nombre de la categoría.`
+      : `Classify this question into ONE of these categories:
+${categories.join(', ')}
+
+IMPORTANT: If the question is NOT related to diabetes at all, use "non-diabetes-related".
+
+Examples:
+- "What is diabetes?" → general-information
+- "What foods should I eat?" → diet-nutrition
+- "What's the weather like?" → non-diabetes-related
+- "Who won the game?" → non-diabetes-related
+
+Question: "${question}"
+
+Respond with ONLY the category name.`;
+
+    // Use Bedrock to categorize
+    const bedrockCommand = new InvokeModelCommand({
+      modelId: 'anthropic.claude-3-haiku-20240307-v1:0', // Fast, cost-effective model for classification
+      body: JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 50,
+        temperature: 0, // Deterministic classification
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      })
+    });
+
+    const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
+    const response = await bedrockClient.send(bedrockCommand);
+    const result = JSON.parse(new TextDecoder().decode(response.body));
+    
+    const category = result.content[0].text.trim().toLowerCase();
+    
+    // Validate category is in our list
+    if (categories.includes(category)) {
+      return category;
+    } else {
+      // Fallback to keyword-based classification
+      return classifyByKeywords(question, language);
+    }
+    
+  } catch (error) {
+    console.error('AI categorization failed, falling back to keywords:', error);
+    return classifyByKeywords(question, language);
+  }
+}
+
+/**
+ * Fallback keyword-based categorization
+ */
+function classifyByKeywords(question, language = 'en') {
+  const lowerQuestion = question.toLowerCase();
+  
+  // Define keyword patterns for different categories
+  const keywordPatterns = {
+    'type-1-diabetes': [
+      'type 1', 'tipo 1', 't1d', 'insulin dependent', 'insulino dependiente',
+      'autoimmune', 'autoinmune', 'juvenile diabetes', 'diabetes juvenil'
+    ],
+    'type-2-diabetes': [
+      'type 2', 'tipo 2', 't2d', 'adult onset', 'diabetes adulto',
+      'insulin resistance', 'resistencia insulina', 'metformin', 'metformina'
+    ],
+    'gestational-diabetes': [
+      'gestational', 'gestacional', 'pregnancy', 'embarazo', 'pregnant', 'embarazada'
+    ],
+    'prediabetes': [
+      'prediabetes', 'prediabético', 'borderline', 'pre diabetes', 'pre diabetic'
+    ],
+    'blood-sugar-management': [
+      'blood sugar', 'azúcar sangre', 'glucose', 'glucosa', 'a1c', 'hemoglobina',
+      'monitor', 'monitorear', 'test', 'prueba', 'cgm', 'glucometer', 'glucómetro'
+    ],
+    'insulin-medication': [
+      'insulin', 'insulina', 'injection', 'inyección', 'pen', 'pluma',
+      'pump', 'bomba', 'medication', 'medicamento', 'drug', 'fármaco'
+    ],
+    'diet-nutrition': [
+      'diet', 'dieta', 'food', 'comida', 'carb', 'carbohidrato', 'nutrition', 'nutrición',
+      'meal', 'comida', 'eat', 'comer', 'sugar', 'azúcar', 'carbohydrate'
+    ],
+    'exercise-lifestyle': [
+      'exercise', 'ejercicio', 'workout', 'entrenamiento', 'physical activity', 'actividad física',
+      'lifestyle', 'estilo vida', 'weight', 'peso', 'fitness'
+    ],
+    'complications': [
+      'complication', 'complicación', 'neuropathy', 'neuropatía', 'retinopathy', 'retinopatía',
+      'kidney', 'riñón', 'heart', 'corazón', 'foot', 'pie', 'wound', 'herida'
+    ],
+    'symptoms-diagnosis': [
+      'symptom', 'síntoma', 'diagnos', 'diagnóstico', 'thirsty', 'sed',
+      'urinate', 'orinar', 'tired', 'cansado', 'blurred vision', 'visión borrosa'
+    ],
+    'emergency-care': [
+      'emergency', 'emergencia', 'hypoglycemia', 'hipoglucemia', 'low blood sugar',
+      'azúcar bajo', 'ketoacidosis', 'cetoacidosis', 'dka', 'urgent', 'urgente'
+    ],
+    'insurance-coverage': [
+      'insurance', 'seguro', 'coverage', 'cobertura', 'cost', 'costo',
+      'medicare', 'medicaid', 'afford', 'permitir', 'expensive', 'caro'
+    ]
+  };
+
+  // Check each category for keyword matches
+  for (const [category, keywords] of Object.entries(keywordPatterns)) {
+    for (const keyword of keywords) {
+      if (lowerQuestion.includes(keyword)) {
+        return category;
+      }
+    }
+  }
+
+  // Check for obvious non-diabetes topics first
+  const offTopicKeywords = [
+    'weather', 'clima', 'sports', 'deportes', 'game', 'partido',
+    'movie', 'película', 'music', 'música', 'politics', 'política',
+    'stock', 'acción', 'crypto', 'bitcoin', 'recipe', 'receta',
+    'car', 'coche', 'travel', 'viaje', 'hotel', 'restaurant'
+  ];
+
+  const isOffTopic = offTopicKeywords.some(keyword =>
+    lowerQuestion.includes(keyword)
+  );
+
+  if (isOffTopic) {
+    // Double-check it's not actually about diabetes (e.g., "weather affecting blood sugar")
+    const diabetesKeywords = [
+      'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina',
+      'glucose', 'glucosa', 'blood sugar', 'azúcar'
+    ];
+
+    const mentionsDiabetes = diabetesKeywords.some(keyword =>
+      lowerQuestion.includes(keyword)
+    );
+
+    if (!mentionsDiabetes) {
+      return 'non-diabetes-related';
+    }
+  }
+
+  // Check if it's diabetes-related
+  const diabetesKeywords = [
+    'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina',
+    'glucose', 'glucosa', 'blood sugar', 'azúcar sangre', 'a1c',
+    'hemoglobin', 'hemoglobina', 'pancreas', 'páncreas'
+  ];
+
+  const isDiabetesRelated = diabetesKeywords.some(keyword =>
+    lowerQuestion.includes(keyword)
+  );
+
+  return isDiabetesRelated ? 'general-information' : 'non-diabetes-related';
 }
 
 /**
@@ -729,16 +915,19 @@ async function getChatSessions(limit = 10) {
  * Create standardized API response with CORS
  */
 function createResponse(statusCode, body, event) {
-  // Get origin from request headers
-  const origin = event?.headers?.origin || event?.headers?.Origin || '*';
-  
-  // Allowed origins
+  // Get origin from request headers (normalize by removing trailing slash)
+  let origin = event?.headers?.origin || event?.headers?.Origin || '*';
+  if (origin !== '*' && origin.endsWith('/')) {
+    origin = origin.slice(0, -1);
+  }
+
+  // Allowed origins (normalized - no trailing slashes)
   const allowedOrigins = [
-    ...(FRONTEND_URL ? [FRONTEND_URL] : []),
+    ...(FRONTEND_URL ? [FRONTEND_URL.replace(/\/$/, '')] : []),
     'http://localhost:3000',
     'https://localhost:3000'
   ].filter(Boolean);
-  
+
   // Determine CORS origin
   let corsOrigin;
   if (allowedOrigins.length === 0) {
