@@ -81,6 +81,9 @@ async function handleGetRequest(path) {
     case '/admin/question-analytics':
       return await getQuestionAnalytics();
     
+    case '/admin/category-insights':
+      return await getCategoryInsights();
+    
     case '/admin/health':
     case '/admin':
       return await getHealthCheck();
@@ -96,6 +99,7 @@ async function handleGetRequest(path) {
           'GET /admin/frequently-asked-questions',
           'GET /admin/unanswered-questions',
           'GET /admin/question-analytics',
+          'GET /admin/category-insights',
           'GET /admin/health'
         ]
       });
@@ -119,7 +123,7 @@ async function getDashboardData() {
     ]);
 
     // Extract data from responses
-    const metrics = JSON.parse(metricsResponse.body).metrics;
+    const metrics = JSON.parse(metricsResponse.body); // Metrics are now returned directly
     const conversationsChart = JSON.parse(chartResponse.body);
     const languageSplit = JSON.parse(languageResponse.body);
     const frequentlyAskedQuestions = JSON.parse(faqResponse.body).questions;
@@ -181,8 +185,26 @@ async function getQuestionAnalytics() {
       low: items.filter(item => typeof item.confidence === 'number' && item.confidence < 0.8).length        // Low: <80%
     };
 
-    // Get top categories with null handling
+    // Get top categories with better display names
     const categoryCounts = {};
+    const categoryDisplayNames = {
+      'type-1-diabetes': 'Type 1 Diabetes',
+      'type-2-diabetes': 'Type 2 Diabetes',
+      'gestational-diabetes': 'Gestational Diabetes',
+      'prediabetes': 'Prediabetes',
+      'symptoms-diagnosis': 'Symptoms & Diagnosis',
+      'blood-sugar-management': 'Blood Sugar Management',
+      'insulin-medication': 'Insulin & Medication',
+      'diet-nutrition': 'Diet & Nutrition',
+      'exercise-lifestyle': 'Exercise & Lifestyle',
+      'complications': 'Complications',
+      'emergency-care': 'Emergency Care',
+      'insurance-coverage': 'Insurance & Coverage',
+      'general-information': 'General Information',
+      'non-diabetes-related': 'Non-Diabetes Related',
+      'general': 'Uncategorized' // Legacy fallback
+    };
+
     items.forEach(item => {
       const category = (item.category && typeof item.category === 'string') ? item.category : 'general';
       categoryCounts[category] = (categoryCounts[category] || 0) + 1;
@@ -190,8 +212,12 @@ async function getQuestionAnalytics() {
 
     const topCategories = Object.entries(categoryCounts)
       .sort(([,a], [,b]) => b - a)
-      .slice(0, 5)
-      .map(([category, count]) => ({ category, count }));
+      .slice(0, 10) // Show top 10 categories instead of 5
+      .map(([category, count]) => ({ 
+        category: categoryDisplayNames[category] || category, 
+        categoryKey: category,
+        count 
+      }));
 
     // Language breakdown
     const languageBreakdown = {};
@@ -259,8 +285,10 @@ async function getMetrics() {
     console.log('Dashboard metrics:', metrics);
 
     return createResponse(200, {
-      metrics,
-      lastUpdated: new Date().toISOString()
+      totalConversations: metrics.totalConversations,
+      escalationRate: metrics.escalationRate,
+      outOfScopeRate: metrics.outOfScopeRate,
+      trends: metrics.trends
     });
 
   } catch (error) {
@@ -374,9 +402,7 @@ async function getLanguageSplit() {
 
     return createResponse(200, {
       english: languageCounts.english,
-      spanish: languageCounts.spanish,
-      other: languageCounts.other,
-      total: languageCounts.english + languageCounts.spanish + languageCounts.other
+      spanish: languageCounts.spanish
     });
 
   } catch (error) {
@@ -613,15 +639,155 @@ async function getEscalationRate() {
 }
 
 /**
- * Helper: Get out of scope rate from analytics table
+ * Helper: Get out of scope rate from questions table
+ * Calculates percentage of questions categorized as non-diabetes-related
  */
 async function getOutOfScopeRate() {
   try {
-    // Return 0 until we have actual out-of-scope analytics data
-    return 0;
+    // Get all questions to calculate out-of-scope rate
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      ProjectionExpression: 'category',
+      Limit: 1000
+    }));
+
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    const totalQuestions = items.length;
+
+    if (totalQuestions === 0) return 0;
+
+    // Count questions categorized as non-diabetes-related
+    const outOfScopeQuestions = items.filter(item =>
+      item.category === 'non-diabetes-related'
+    ).length;
+
+    const rate = Math.round((outOfScopeQuestions / totalQuestions) * 100);
+
+    console.log(`Out of scope rate: ${outOfScopeQuestions}/${totalQuestions} = ${rate}%`);
+    return Math.min(rate, 100); // Cap at 100%
   } catch (error) {
     console.error('Error calculating out of scope rate:', error);
     return 0;
+  }
+}
+
+/**
+ * Get detailed category insights
+ */
+async function getCategoryInsights() {
+  try {
+    console.log('Fetching category insights...');
+
+    // Get all questions from questions table
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      Limit: 1000
+    }));
+
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    console.log(`Found ${items.length} questions for category analysis`);
+
+    const categoryDisplayNames = {
+      'type-1-diabetes': 'Type 1 Diabetes',
+      'type-2-diabetes': 'Type 2 Diabetes',
+      'gestational-diabetes': 'Gestational Diabetes',
+      'prediabetes': 'Prediabetes',
+      'symptoms-diagnosis': 'Symptoms & Diagnosis',
+      'blood-sugar-management': 'Blood Sugar Management',
+      'insulin-medication': 'Insulin & Medication',
+      'diet-nutrition': 'Diet & Nutrition',
+      'exercise-lifestyle': 'Exercise & Lifestyle',
+      'complications': 'Complications',
+      'emergency-care': 'Emergency Care',
+      'insurance-coverage': 'Insurance & Coverage',
+      'general-information': 'General Information',
+      'non-diabetes-related': 'Non-Diabetes Related',
+      'general': 'Uncategorized'
+    };
+
+    // Analyze each category
+    const categoryInsights = {};
+    
+    items.forEach(item => {
+      const category = item.category || 'general';
+      
+      if (!categoryInsights[category]) {
+        categoryInsights[category] = {
+          displayName: categoryDisplayNames[category] || category,
+          totalQuestions: 0,
+          escalatedQuestions: 0,
+          averageConfidence: 0,
+          confidenceScores: [],
+          languages: { en: 0, es: 0, other: 0 },
+          sampleQuestions: []
+        };
+      }
+      
+      const insight = categoryInsights[category];
+      insight.totalQuestions++;
+      
+      if (item.escalated === true) {
+        insight.escalatedQuestions++;
+      }
+      
+      if (typeof item.confidence === 'number') {
+        insight.confidenceScores.push(item.confidence);
+      }
+      
+      // Track languages
+      const lang = item.language || 'en';
+      if (lang === 'en') insight.languages.en++;
+      else if (lang === 'es') insight.languages.es++;
+      else insight.languages.other++;
+      
+      // Collect sample questions (up to 3 per category)
+      if (insight.sampleQuestions.length < 3 && item.question) {
+        insight.sampleQuestions.push({
+          question: item.question,
+          confidence: item.confidence,
+          escalated: item.escalated
+        });
+      }
+    });
+
+    // Calculate final metrics for each category
+    const processedInsights = Object.entries(categoryInsights)
+      .map(([categoryKey, insight]) => {
+        const avgConfidence = insight.confidenceScores.length > 0
+          ? insight.confidenceScores.reduce((sum, score) => sum + score, 0) / insight.confidenceScores.length
+          : 0;
+        
+        const escalationRate = insight.totalQuestions > 0
+          ? Math.round((insight.escalatedQuestions / insight.totalQuestions) * 100)
+          : 0;
+
+        return {
+          categoryKey,
+          displayName: insight.displayName,
+          totalQuestions: insight.totalQuestions,
+          escalatedQuestions: insight.escalatedQuestions,
+          escalationRate,
+          averageConfidence: Math.round(avgConfidence * 100) / 100,
+          languages: insight.languages,
+          sampleQuestions: insight.sampleQuestions
+        };
+      })
+      .sort((a, b) => b.totalQuestions - a.totalQuestions); // Sort by question count
+
+    console.log(`Returning insights for ${processedInsights.length} categories`);
+
+    return createResponse(200, {
+      categoryInsights: processedInsights,
+      totalCategories: processedInsights.length,
+      totalQuestions: items.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching category insights:', error);
+    return createResponse(500, {
+      error: 'Failed to fetch category insights',
+      message: error.message || 'Unknown error'
+    });
   }
 }
 

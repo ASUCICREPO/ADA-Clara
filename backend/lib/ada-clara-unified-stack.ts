@@ -754,6 +754,12 @@ export class AdaClaraUnifiedStack extends Stack {
       authorizer: cognitoAuthorizer,
     });
     
+    // Category insights endpoint
+    const categoryInsightsResource = adminResource.addResource('category-insights');
+    categoryInsightsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
     const metricsResource = adminResource.addResource('metrics');
     metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
       authorizer: cognitoAuthorizer,

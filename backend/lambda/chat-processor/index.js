@@ -626,6 +626,37 @@ async function recordAnalytics(category, action, data) {
 }
 
 /**
+ * Process question for analytics with AI-powered categorization
+ */
+async function processQuestion(question, response, confidence, language, sessionId, escalated) {
+  try {
+    // Get AI-powered category
+    const category = await categorizeQuestion(question, language);
+    
+    const questionRecord = {
+      questionId: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      question,
+      response,
+      confidence,
+      language,
+      sessionId,
+      escalated, // This will be true for low confidence or explicit escalation requests
+      category, // Now uses AI-powered categorization
+      timestamp: new Date().toISOString(),
+      date: new Date().toISOString().split('T')[0],
+      ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 year TTL
+    };
+    
+    await dynamodb.send(new PutItemCommand({
+      TableName: QUESTIONS_TABLE,
+      Item: marshall(questionRecord, { removeUndefinedValues: true })
+    }));
+  } catch (error) {
+    console.error('Failed to process question:', error);
+  }
+}
+
+/**
  * Categorize question using AI
  */
 async function categorizeQuestion(question, language = 'en') {

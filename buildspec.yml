@@ -19,17 +19,6 @@ phases:
       - npm ci
       - echo "Building TypeScript..."
       - npm run build
-      - echo "Packaging web scraper Lambda..."
-      - mkdir -p dist/web-scraper
-      - cp -r dist/src dist/web-scraper/
-      - cd dist/web-scraper
-      - echo "Creating wrapper index.js at root..."
-      - echo "module.exports = require('./src/handlers/web-scraper/index');" > index.js
-      - echo "Creating package.json for web scraper..."
-      - echo '{"name":"web-scraper","version":"1.0.0","type":"commonjs","dependencies":{"axios":"^1.13.2","cheerio":"^1.0.0"}}' > package.json
-      - echo "Installing web scraper dependencies..."
-      - npm install --production
-      - cd ../..
       - echo "Bootstrapping CDK..."
       - cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
 
