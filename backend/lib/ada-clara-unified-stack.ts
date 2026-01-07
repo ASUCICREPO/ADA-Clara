@@ -651,6 +651,13 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.contentBucket.grantRead(this.ragProcessor);
 
+    // Create log group for chat processor
+    const chatProcessorLogGroup = new logs.LogGroup(this, 'ChatProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     // Chat Processor Lambda
     this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
       functionName: `ada-clara-chat-processor${stackSuffix}`,
@@ -659,6 +666,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/chat-processor'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: chatProcessorLogGroup,
       role: lambdaExecutionRole,
       environment: {
         SESSIONS_TABLE: this.chatSessionsTable.tableName,
@@ -673,6 +681,13 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
+    // Create log group for escalation handler
+    const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-escalation-handler${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.escalationHandler = new lambda.Function(this, 'EscalationHandler', {
       functionName: `ada-clara-escalation-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -680,10 +695,18 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/escalation-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: escalationHandlerLogGroup,
       role: lambdaExecutionRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
       },
+    });
+
+    // Create log group for admin analytics
+    const adminAnalyticsLogGroup = new logs.LogGroup(this, 'AdminAnalyticsLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-admin-analytics${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
 
     this.adminAnalytics = new lambda.Function(this, 'AdminAnalytics', {
@@ -693,6 +716,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/admin-analytics'),
       timeout: Duration.seconds(30),
       memorySize: 512,
+      logGroup: adminAnalyticsLogGroup,
       role: lambdaExecutionRole,
       environment: {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
