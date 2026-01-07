@@ -14,6 +14,7 @@ const { DynamoDBClient, PutItemCommand, GetItemCommand, ScanCommand, UpdateItemC
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const { ComprehendClient, DetectDominantLanguageCommand } = require('@aws-sdk/client-comprehend');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -145,7 +146,6 @@ async function handleChatMessage(event) {
     let finalResponse = ragResponse.response;
     if (escalationSuggested) {
       await createEscalation(session.sessionId, 'Low confidence or complex query');
-      await storeUnansweredQuestion(request.message, language, ragResponse.confidence);
       
       // Replace generic escalation message with more helpful one
       if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') || 
@@ -581,28 +581,7 @@ async function createEscalation(sessionId, reason) {
   return escalationRecord;
 }
 
-/**
- * Store unanswered question
- */
-async function storeUnansweredQuestion(question, language, confidence) {
-  const questionId = `q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  
-  const questionRecord = {
-    questionId,
-    question,
-    language,
-    confidence,
-    timestamp: new Date().toISOString(),
-    status: 'unanswered'
-  };
-  
-  await dynamodb.send(new PutItemCommand({
-    TableName: QUESTIONS_TABLE,
-    Item: marshall(questionRecord, { removeUndefinedValues: true })
-  }));
-  
-  return questionRecord;
-}
+
 
 /**
  * Update session activity
@@ -647,30 +626,149 @@ async function recordAnalytics(category, action, data) {
 }
 
 /**
- * Process question for analytics
+ * Categorize question using AI
  */
-async function processQuestion(question, response, confidence, language, sessionId, escalated) {
+async function categorizeQuestion(question, language = 'en') {
   try {
-    const questionRecord = {
-      questionId: `q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      question,
-      response,
-      confidence,
-      language,
-      sessionId,
-      escalated,
-      timestamp: new Date().toISOString(),
-      date: new Date().toISOString().split('T')[0],
-      category: 'general' // Could be enhanced with categorization logic
-    };
+    // Define diabetes-specific categories
+    const categories = [
+      'type-1-diabetes',
+      'type-2-diabetes', 
+      'gestational-diabetes',
+      'prediabetes',
+      'symptoms-diagnosis',
+      'blood-sugar-management',
+      'insulin-medication',
+      'diet-nutrition',
+      'exercise-lifestyle',
+      'complications',
+      'emergency-care',
+      'insurance-coverage',
+      'general-information',
+      'non-diabetes-related'
+    ];
+
+    const prompt = language === 'es' 
+      ? `Analiza esta pregunta sobre diabetes y clasifícala en una de estas categorías: ${categories.join(', ')}.
+
+Pregunta: "${question}"
+
+Responde solo con el nombre de la categoría más apropiada.`
+      : `Analyze this diabetes-related question and classify it into one of these categories: ${categories.join(', ')}.
+
+Question: "${question}"
+
+Respond with only the most appropriate category name.`;
+
+    // Use Bedrock to categorize
+    const bedrockCommand = new InvokeModelCommand({
+      modelId: 'anthropic.claude-3-haiku-20240307-v1:0', // Fast, cost-effective model for classification
+      body: JSON.stringify({
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 50,
+        messages: [{
+          role: 'user',
+          content: prompt
+        }]
+      })
+    });
+
+    const bedrockClient = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
+    const response = await bedrockClient.send(bedrockCommand);
+    const result = JSON.parse(new TextDecoder().decode(response.body));
     
-    await dynamodb.send(new PutItemCommand({
-      TableName: QUESTIONS_TABLE,
-      Item: marshall(questionRecord, { removeUndefinedValues: true })
-    }));
+    const category = result.content[0].text.trim().toLowerCase();
+    
+    // Validate category is in our list
+    if (categories.includes(category)) {
+      return category;
+    } else {
+      // Fallback to keyword-based classification
+      return classifyByKeywords(question, language);
+    }
+    
   } catch (error) {
-    console.error('Failed to process question:', error);
+    console.error('AI categorization failed, falling back to keywords:', error);
+    return classifyByKeywords(question, language);
   }
+}
+
+/**
+ * Fallback keyword-based categorization
+ */
+function classifyByKeywords(question, language = 'en') {
+  const lowerQuestion = question.toLowerCase();
+  
+  // Define keyword patterns for different categories
+  const keywordPatterns = {
+    'type-1-diabetes': [
+      'type 1', 'tipo 1', 't1d', 'insulin dependent', 'insulino dependiente',
+      'autoimmune', 'autoinmune', 'juvenile diabetes', 'diabetes juvenil'
+    ],
+    'type-2-diabetes': [
+      'type 2', 'tipo 2', 't2d', 'adult onset', 'diabetes adulto',
+      'insulin resistance', 'resistencia insulina', 'metformin', 'metformina'
+    ],
+    'gestational-diabetes': [
+      'gestational', 'gestacional', 'pregnancy', 'embarazo', 'pregnant', 'embarazada'
+    ],
+    'prediabetes': [
+      'prediabetes', 'prediabético', 'borderline', 'pre diabetes', 'pre diabetic'
+    ],
+    'blood-sugar-management': [
+      'blood sugar', 'azúcar sangre', 'glucose', 'glucosa', 'a1c', 'hemoglobina',
+      'monitor', 'monitorear', 'test', 'prueba', 'cgm', 'glucometer', 'glucómetro'
+    ],
+    'insulin-medication': [
+      'insulin', 'insulina', 'injection', 'inyección', 'pen', 'pluma',
+      'pump', 'bomba', 'medication', 'medicamento', 'drug', 'fármaco'
+    ],
+    'diet-nutrition': [
+      'diet', 'dieta', 'food', 'comida', 'carb', 'carbohidrato', 'nutrition', 'nutrición',
+      'meal', 'comida', 'eat', 'comer', 'sugar', 'azúcar', 'carbohydrate'
+    ],
+    'exercise-lifestyle': [
+      'exercise', 'ejercicio', 'workout', 'entrenamiento', 'physical activity', 'actividad física',
+      'lifestyle', 'estilo vida', 'weight', 'peso', 'fitness'
+    ],
+    'complications': [
+      'complication', 'complicación', 'neuropathy', 'neuropatía', 'retinopathy', 'retinopatía',
+      'kidney', 'riñón', 'heart', 'corazón', 'foot', 'pie', 'wound', 'herida'
+    ],
+    'symptoms-diagnosis': [
+      'symptom', 'síntoma', 'diagnos', 'diagnóstico', 'thirsty', 'sed',
+      'urinate', 'orinar', 'tired', 'cansado', 'blurred vision', 'visión borrosa'
+    ],
+    'emergency-care': [
+      'emergency', 'emergencia', 'hypoglycemia', 'hipoglucemia', 'low blood sugar',
+      'azúcar bajo', 'ketoacidosis', 'cetoacidosis', 'dka', 'urgent', 'urgente'
+    ],
+    'insurance-coverage': [
+      'insurance', 'seguro', 'coverage', 'cobertura', 'cost', 'costo',
+      'medicare', 'medicaid', 'afford', 'permitir', 'expensive', 'caro'
+    ]
+  };
+
+  // Check each category for keyword matches
+  for (const [category, keywords] of Object.entries(keywordPatterns)) {
+    for (const keyword of keywords) {
+      if (lowerQuestion.includes(keyword)) {
+        return category;
+      }
+    }
+  }
+
+  // Check if it's diabetes-related at all
+  const diabetesKeywords = [
+    'diabetes', 'diabetic', 'diabético', 'insulin', 'insulina', 
+    'glucose', 'glucosa', 'blood sugar', 'azúcar sangre'
+  ];
+  
+  const isDiabetesRelated = diabetesKeywords.some(keyword => 
+    lowerQuestion.includes(keyword)
+  );
+
+  return isDiabetesRelated ? 'general-information' : 'non-diabetes-related';
 }
 
 /**

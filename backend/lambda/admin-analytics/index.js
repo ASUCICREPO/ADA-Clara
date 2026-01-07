@@ -12,7 +12,7 @@
  */
 
 const { DynamoDBClient, ScanCommand } = require('@aws-sdk/client-dynamodb');
-const { unmarshall } = require('@aws-sdk/util-dynamodb');
+const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -21,7 +21,7 @@ const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west
 const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
 const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
 const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
-const UNANSWERED_QUESTIONS_TABLE = process.env.UNANSWERED_QUESTIONS_TABLE || 'ada-clara-unanswered-questions';
+const CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
 const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
 
 /**
@@ -152,21 +152,70 @@ async function getQuestionAnalytics() {
   try {
     console.log('Fetching question analytics...');
 
-    // Return actual analytics based on real data
-    const totalQuestions = await getConversationCount();
+    // Get all questions from questions table
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      Limit: 1000
+    }));
+
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    console.log(`Found ${items.length} questions for analytics`);
+
+    // Calculate analytics with proper null handling
+    const totalQuestions = items.length;
+    const answeredQuestions = items.filter(item => item.escalated !== true).length;
+    const unansweredQuestions = items.filter(item => item.escalated === true).length;
     
+    // Calculate average confidence with null checks
+    const confidenceScores = items
+      .filter(item => typeof item.confidence === 'number' && !isNaN(item.confidence))
+      .map(item => item.confidence);
+    const averageConfidence = confidenceScores.length > 0 
+      ? confidenceScores.reduce((sum, score) => sum + score, 0) / confidenceScores.length 
+      : 0;
+
+    // Calculate confidence distribution (aligned with chat processor 95% escalation threshold)
+    const confidenceDistribution = {
+      high: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.95).length,    // High: 95%+ (not escalated)
+      medium: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.8 && item.confidence < 0.95).length, // Medium: 80-94%
+      low: items.filter(item => typeof item.confidence === 'number' && item.confidence < 0.8).length        // Low: <80%
+    };
+
+    // Get top categories with null handling
+    const categoryCounts = {};
+    items.forEach(item => {
+      const category = (item.category && typeof item.category === 'string') ? item.category : 'general';
+      categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+    });
+
+    const topCategories = Object.entries(categoryCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 5)
+      .map(([category, count]) => ({ category, count }));
+
+    // Language breakdown
+    const languageBreakdown = {};
+    items.forEach(item => {
+      const language = (item.language && typeof item.language === 'string') ? item.language : 'en';
+      languageBreakdown[language] = (languageBreakdown[language] || 0) + 1;
+    });
+
     const analytics = {
-      totalQuestions: totalQuestions,
-      answeredQuestions: 0, // Will be calculated from actual data
-      unansweredQuestions: 0, // Will be calculated from actual data
-      averageConfidence: 0, // Will be calculated from actual data
-      topCategories: [], // Will be populated from actual data
-      confidenceDistribution: {
-        high: 0,
-        medium: 0,
-        low: 0
+      totalQuestions,
+      answeredQuestions,
+      unansweredQuestions,
+      averageConfidence: Math.round(averageConfidence * 100) / 100,
+      topCategories,
+      confidenceDistribution,
+      languageBreakdown,
+      dataQuality: {
+        questionsWithConfidence: confidenceScores.length,
+        questionsWithCategory: items.filter(item => item.category && item.category !== 'general').length,
+        questionsWithLanguage: items.filter(item => item.language).length
       }
     };
+
+    console.log('Question analytics:', analytics);
 
     return createResponse(200, analytics);
 
@@ -186,21 +235,22 @@ async function getMetrics() {
   try {
     console.log('Fetching dashboard metrics...');
 
-    // Get conversation count from chat sessions table
-    const conversationCount = await getConversationCount();
+    // Get total questions (more accurate than sessions for conversation activity)
+    const totalQuestions = await getTotalQuestions();
     
-    // Get escalation rate from escalation requests table
+    // Get escalation rate from questions table (now consistent)
     const escalationRate = await getEscalationRate();
     
     // Get out of scope rate from analytics table
     const outOfScopeRate = await getOutOfScopeRate();
 
     const metrics = {
-      totalConversations: conversationCount,
+      totalConversations: await getConversationCount(), // Keep session count for actual conversations
+      totalQuestions: totalQuestions, // Add total questions metric
       escalationRate: escalationRate,
       outOfScopeRate: outOfScopeRate,
       trends: {
-        conversations: 'N/A',
+        conversations: 'N/A', // TODO: Implement trending calculations
         escalations: 'N/A',
         outOfScope: 'N/A'
       }
@@ -229,22 +279,41 @@ async function getConversationsChart() {
   try {
     console.log('Fetching conversations chart data...');
 
-    // Generate last 7 days of data from actual chat sessions
+    // Get all sessions first, then filter by date in memory for better performance
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: CHAT_SESSIONS_TABLE,
+      ProjectionExpression: 'startTime',
+      Limit: 1000
+    }));
+
+    const sessions = scanResult.Items?.map(item => unmarshall(item)) || [];
+    console.log(`Found ${sessions.length} total sessions for chart analysis`);
+
+    // Generate last 7 days of data
     const chartData = [];
     const today = new Date();
     
     for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const targetDate = new Date(today);
+      targetDate.setDate(targetDate.getDate() - i);
+      const dateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD format
       
-      // Query actual conversation data by date
-      // For now, return 0 until we have real data
+      // Count sessions that started on this date
+      const conversationsOnDate = sessions.filter(session => {
+        if (!session.startTime) return false;
+        
+        // Extract date from startTime (handles both ISO strings and date strings)
+        const sessionDate = new Date(session.startTime).toISOString().split('T')[0];
+        return sessionDate === dateStr;
+      }).length;
+      
       chartData.push({
         date: dateStr,
-        conversations: 0
+        conversations: conversationsOnDate
       });
     }
+
+    console.log('Chart data:', chartData);
 
     return createResponse(200, {
       data: chartData
@@ -266,13 +335,49 @@ async function getLanguageSplit() {
   try {
     console.log('Fetching language split data...');
 
-    // Return actual language data - start with empty data until we have real conversations
-    const languageSplit = {
+    // Scan chat sessions table to get language distribution
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: CHAT_SESSIONS_TABLE,
+      ProjectionExpression: '#lang',
+      ExpressionAttributeNames: {
+        '#lang': 'language'
+      },
+      Limit: 1000
+    }));
+
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    console.log(`Found ${items.length} chat sessions for language analysis`);
+
+    // Count languages with better handling of missing/invalid values
+    const languageCounts = {
       english: 0,
-      spanish: 0
+      spanish: 0,
+      other: 0
     };
 
-    return createResponse(200, languageSplit);
+    items.forEach(item => {
+      const language = item.language;
+      
+      // Handle missing or invalid language values
+      if (!language || typeof language !== 'string') {
+        languageCounts.english++; // Default to English for missing values
+      } else if (language.toLowerCase() === 'en' || language.toLowerCase() === 'english') {
+        languageCounts.english++;
+      } else if (language.toLowerCase() === 'es' || language.toLowerCase() === 'spanish') {
+        languageCounts.spanish++;
+      } else {
+        languageCounts.other++;
+      }
+    });
+
+    console.log('Language distribution:', languageCounts);
+
+    return createResponse(200, {
+      english: languageCounts.english,
+      spanish: languageCounts.spanish,
+      other: languageCounts.other,
+      total: languageCounts.english + languageCounts.spanish + languageCounts.other
+    });
 
   } catch (error) {
     console.error('Error fetching language split:', error);
@@ -299,22 +404,31 @@ async function getFrequentlyAskedQuestions() {
     const items = scanResult.Items?.map(item => unmarshall(item)) || [];
     console.log(`Found ${items.length} questions in table`);
 
-    // Aggregate questions by content
-    const questionCounts = {};
+    // Aggregate questions by content while preserving original capitalization
+    const questionCounts = new Map();
     items.forEach(item => {
       if (item.question && typeof item.question === 'string') {
-        const question = item.question.trim().toLowerCase();
-        questionCounts[question] = (questionCounts[question] || 0) + 1;
+        const normalizedQuestion = item.question.trim().toLowerCase();
+        const originalQuestion = item.question.trim();
+        
+        if (questionCounts.has(normalizedQuestion)) {
+          questionCounts.get(normalizedQuestion).count++;
+        } else {
+          questionCounts.set(normalizedQuestion, {
+            original: originalQuestion,
+            count: 1
+          });
+        }
       }
     });
 
     // Sort by count and take top 10
-    const sortedQuestions = Object.entries(questionCounts)
-      .sort(([,a], [,b]) => b - a)
+    const sortedQuestions = Array.from(questionCounts.entries())
+      .sort(([,a], [,b]) => b.count - a.count)
       .slice(0, 10)
-      .map(([question, count]) => ({
-        question: question.charAt(0).toUpperCase() + question.slice(1), // Capitalize first letter
-        count: count
+      .map(([normalizedQuestion, data]) => ({
+        question: data.original, // Use original capitalization
+        count: data.count
       }));
 
     console.log(`Returning ${sortedQuestions.length} frequently asked questions`);
@@ -339,37 +453,55 @@ async function getUnansweredQuestions() {
   try {
     console.log('Fetching unanswered questions...');
 
-    // Scan unanswered questions table
+    // Scan questions table for escalated questions (unanswered)
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: UNANSWERED_QUESTIONS_TABLE,
+      TableName: QUESTIONS_TABLE,
+      FilterExpression: 'escalated = :escalated',
+      ExpressionAttributeValues: marshall({
+        ':escalated': true
+      }),
       Limit: 100
     }));
 
     const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} unanswered questions in table`);
+    console.log(`Found ${items.length} unanswered questions in questions table`);
 
-    // Aggregate by question content
-    const questionCounts = {};
+    // Aggregate by question content while preserving original capitalization
+    const questionCounts = new Map();
     items.forEach(item => {
       if (item.question && typeof item.question === 'string') {
-        const question = item.question.trim();
-        questionCounts[question] = (questionCounts[question] || 0) + 1;
+        const normalizedQuestion = item.question.trim().toLowerCase();
+        const originalQuestion = item.question.trim();
+        
+        if (questionCounts.has(normalizedQuestion)) {
+          questionCounts.get(normalizedQuestion).count++;
+        } else {
+          questionCounts.set(normalizedQuestion, {
+            original: originalQuestion,
+            count: 1,
+            confidence: item.confidence || 0,
+            language: item.language || 'en'
+          });
+        }
       }
     });
 
     // Sort by count and take top 10
-    const sortedQuestions = Object.entries(questionCounts)
-      .sort(([,a], [,b]) => b - a)
+    const sortedQuestions = Array.from(questionCounts.entries())
+      .sort(([,a], [,b]) => b.count - a.count)
       .slice(0, 10)
-      .map(([question, count]) => ({
-        question: question,
-        count: count
+      .map(([normalizedQuestion, data]) => ({
+        question: data.original, // Use original capitalization
+        count: data.count,
+        averageConfidence: data.confidence,
+        language: data.language
       }));
 
     console.log(`Returning ${sortedQuestions.length} unanswered questions`);
 
     return createResponse(200, {
-      questions: sortedQuestions
+      questions: sortedQuestions,
+      totalUnanswered: items.length
     });
 
   } catch (error) {
@@ -387,7 +519,7 @@ async function getUnansweredQuestions() {
 async function getHealthCheck() {
   try {
     // Test access to all required tables
-    const tables = [ANALYTICS_TABLE, CHAT_SESSIONS_TABLE, QUESTIONS_TABLE, UNANSWERED_QUESTIONS_TABLE];
+    const tables = [ANALYTICS_TABLE, CHAT_SESSIONS_TABLE, QUESTIONS_TABLE, CONVERSATIONS_TABLE, ESCALATION_REQUESTS_TABLE];
     const tableStatus = {};
 
     for (const table of tables) {
@@ -437,23 +569,42 @@ async function getConversationCount() {
 }
 
 /**
- * Helper: Get escalation rate from escalation requests table
+ * Helper: Get total questions count from questions table
+ */
+async function getTotalQuestions() {
+  try {
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      Select: 'COUNT'
+    }));
+    return scanResult.Count || 0;
+  } catch (error) {
+    console.error('Error getting total questions count:', error);
+    return 0;
+  }
+}
+
+/**
+ * Helper: Get escalation rate from questions table
  */
 async function getEscalationRate() {
   try {
-    // Get total escalations
-    const escalationResult = await dynamodb.send(new ScanCommand({
-      TableName: ESCALATION_REQUESTS_TABLE,
-      Select: 'COUNT'
+    // Get all questions to calculate escalation rate properly
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      ProjectionExpression: 'escalated',
+      Limit: 1000
     }));
-    const escalationCount = escalationResult.Count || 0;
 
-    // Get total conversations
-    const conversationCount = await getConversationCount();
-
-    if (conversationCount === 0) return 0;
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    const totalQuestions = items.length;
     
-    const rate = Math.round((escalationCount / conversationCount) * 100);
+    if (totalQuestions === 0) return 0;
+    
+    const escalatedQuestions = items.filter(item => item.escalated === true).length;
+    const rate = Math.round((escalatedQuestions / totalQuestions) * 100);
+    
+    console.log(`Escalation rate: ${escalatedQuestions}/${totalQuestions} = ${rate}%`);
     return Math.min(rate, 100); // Cap at 100%
   } catch (error) {
     console.error('Error calculating escalation rate:', error);

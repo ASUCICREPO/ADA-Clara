@@ -29,7 +29,7 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly conversationsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
   public readonly questionsTable: dynamodb.Table;
-  public readonly unansweredQuestionsTable: dynamodb.Table;
+
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
 
@@ -138,6 +138,7 @@ export class AdaClaraUnifiedStack extends Stack {
       tableName: `ada-clara-questions${stackSuffix}`,
       partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -153,12 +154,7 @@ export class AdaClaraUnifiedStack extends Stack {
       partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
     });
 
-    this.unansweredQuestionsTable = new dynamodb.Table(this, 'UnansweredQuestionsTable', {
-      tableName: `ada-clara-unanswered-questions${stackSuffix}`,
-      partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+
 
     this.escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
       tableName: `ada-clara-escalation-requests${stackSuffix}`,
@@ -700,7 +696,6 @@ export class AdaClaraUnifiedStack extends Stack {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
         CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
-        UNANSWERED_QUESTIONS_TABLE: this.unansweredQuestionsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
       },
@@ -716,7 +711,6 @@ export class AdaClaraUnifiedStack extends Stack {
     this.analyticsTable.grantReadData(this.adminAnalytics);
     // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
     this.questionsTable.grantReadData(this.adminAnalytics);
-    this.unansweredQuestionsTable.grantReadData(this.adminAnalytics);
     this.chatSessionsTable.grantReadData(this.adminAnalytics);
     this.escalationRequestsTable.grantReadData(this.adminAnalytics);
 
@@ -736,6 +730,30 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // Admin endpoints (all require Cognito authentication)
     const adminResource = this.api.root.addResource('admin');
+    
+    // Admin dashboard endpoint (comprehensive data)
+    adminResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Admin health check
+    const adminHealthResource = adminResource.addResource('health');
+    adminHealthResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Admin dashboard data endpoint
+    const dashboardResource = adminResource.addResource('dashboard');
+    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
+    // Question analytics endpoint
+    const questionAnalyticsResource = adminResource.addResource('question-analytics');
+    questionAnalyticsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
+      authorizer: cognitoAuthorizer,
+    });
+    
     const metricsResource = adminResource.addResource('metrics');
     metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
       authorizer: cognitoAuthorizer,
