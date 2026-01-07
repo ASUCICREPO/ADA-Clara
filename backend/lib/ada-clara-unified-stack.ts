@@ -26,7 +26,6 @@ export class AdaClaraUnifiedStack extends Stack {
   // DynamoDB Tables
   public readonly chatSessionsTable: dynamodb.Table;
   public readonly analyticsTable: dynamodb.Table;
-  public readonly conversationsTable: dynamodb.Table;
   public readonly messagesTable: dynamodb.Table;
   public readonly questionsTable: dynamodb.Table;
 
@@ -113,21 +112,6 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.conversationsTable = new dynamodb.Table(this, 'ConversationsTable', {
-      tableName: `ada-clara-conversations${stackSuffix}`,
-      partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    // Add DateIndex GSI for querying conversations by date
-    this.conversationsTable.addGlobalSecondaryIndex({
-      indexName: 'DateIndex',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
     });
 
     this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
@@ -682,10 +666,10 @@ export class AdaClaraUnifiedStack extends Stack {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL to Lambda for CORS
         // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
+        // Note: CONVERSATIONS_TABLE removed - not used by chat processor
       },
     });
 
@@ -712,10 +696,10 @@ export class AdaClaraUnifiedStack extends Stack {
       role: lambdaExecutionRole,
       environment: {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
-        CONVERSATIONS_TABLE: this.conversationsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        // Note: CONVERSATIONS_TABLE removed - analytics uses CHAT_SESSIONS_TABLE instead
       },
     });
 

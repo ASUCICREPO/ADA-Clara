@@ -21,8 +21,8 @@ const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west
 const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE || 'ada-clara-analytics';
 const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE || 'ada-clara-chat-sessions';
 const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE || 'ada-clara-questions';
-const CONVERSATIONS_TABLE = process.env.CONVERSATIONS_TABLE || 'ada-clara-conversations';
 const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE || 'ada-clara-escalation-requests';
+// Note: CONVERSATIONS_TABLE removed - analytics now uses CHAT_SESSIONS_TABLE instead
 
 /**
  * Main Lambda handler
@@ -545,8 +545,8 @@ async function getUnansweredQuestions() {
  */
 async function getHealthCheck() {
   try {
-    // Test access to all required tables
-    const tables = [ANALYTICS_TABLE, CHAT_SESSIONS_TABLE, QUESTIONS_TABLE, CONVERSATIONS_TABLE, ESCALATION_REQUESTS_TABLE];
+    // Test access to all required tables (excluding CONVERSATIONS_TABLE - not used, analytics uses CHAT_SESSIONS_TABLE)
+    const tables = [ANALYTICS_TABLE, CHAT_SESSIONS_TABLE, QUESTIONS_TABLE, ESCALATION_REQUESTS_TABLE];
     const tableStatus = {};
 
     for (const table of tables) {

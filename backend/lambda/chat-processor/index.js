@@ -245,18 +245,26 @@ async function handleHealthCheck(event) {
     // Test RAG function
     try {
       if (RAG_FUNCTION_NAME) {
-        await lambda.send(new InvokeCommand({
+        const response = await lambda.send(new InvokeCommand({
           FunctionName: RAG_FUNCTION_NAME,
           Payload: JSON.stringify({
             httpMethod: 'GET',
             path: '/health'
           })
         }));
-        services.rag = true;
+
+        // Check if Lambda returned an error (FunctionError field)
+        if (response.FunctionError) {
+          console.error('RAG health check returned error:', response.FunctionError);
+          services.rag = false;
+        } else {
+          services.rag = true;
+        }
       } else {
         services.rag = 'not_configured';
       }
     } catch (error) {
+      console.error('RAG health check failed:', error.message);
       services.rag = false;
     }
     
