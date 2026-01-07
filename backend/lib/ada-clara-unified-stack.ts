@@ -207,11 +207,13 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Let CDK auto-generate domain prefix to avoid update conflicts
-    // Domain will be: <stackname>-userpooldomain-<unique-id>.auth.<region>.amazoncognito.com
+    // Create Cognito domain with stable prefix (no stackSuffix to allow updates)
+    // Domain will be: ada-clara-auth.auth.<region>.amazoncognito.com
     this.userPoolDomain = new cognito.UserPoolDomain(this, 'UserPoolDomain', {
       userPool: this.userPool,
-      // No cognitoDomain specified - CDK generates stable, unique domain prefix
+      cognitoDomain: {
+        domainPrefix: 'ada-clara-auth',
+      },
     });
 
     this.identityPool = new cognito.CfnIdentityPool(this, 'IdentityPool', {
