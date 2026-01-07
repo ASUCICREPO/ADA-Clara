@@ -459,7 +459,7 @@ async function getFrequentlyAskedQuestions() {
     // Sort by count and take top 10
     const sortedQuestions = Array.from(questionCounts.entries())
       .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 10)
+      .slice(0, 6)
       .map(([normalizedQuestion, data]) => ({
         question: data.original, // Use original capitalization
         count: data.count
@@ -523,7 +523,7 @@ async function getUnansweredQuestions() {
     // Sort by count and take top 10
     const sortedQuestions = Array.from(questionCounts.entries())
       .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 10)
+      .slice(0, 6)
       .map(([normalizedQuestion, data]) => ({
         question: data.original, // Use original capitalization
         count: data.count,
