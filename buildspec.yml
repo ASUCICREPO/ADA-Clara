@@ -3,7 +3,7 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      nodejs: 25
+      nodejs: 22
     commands:
       - echo "Installing AWS CDK CLI..."
       - npm install -g aws-cdk
@@ -30,6 +30,9 @@ phases:
       - npm run build
       - echo "Bootstrapping CDK (if not already bootstrapped)..."
       - |
+        # Set region from CodeBuild environment (AWS_DEFAULT_REGION is provided by CodeBuild)
+        export AWS_REGION=${AWS_DEFAULT_REGION:-$CDK_DEFAULT_REGION}
+        echo "Using AWS Region: $AWS_REGION"
         # Check if already bootstrapped to avoid errors
         if aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION >/dev/null 2>&1; then
           echo "CDK already bootstrapped, skipping..."
