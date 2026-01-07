@@ -472,6 +472,13 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Domain Discovery Lambda - Intelligent URL discovery and batch coordination
+    // Create log group for domain discovery function
+    const domainDiscoveryLogGroup = new logs.LogGroup(this, 'DomainDiscoveryLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-domain-discovery${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.domainDiscoveryFunction = new lambda.Function(this, 'DomainDiscoveryFunction', {
       functionName: `ada-clara-domain-discovery${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -479,7 +486,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/domain-discovery'),
       timeout: Duration.minutes(15), // Increased for comprehensive discovery
       memorySize: 1024, // Increased for XML parsing and URL processing
-      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
+      logGroup: domainDiscoveryLogGroup,
       role: lambdaExecutionRole,
       environment: {
         SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
@@ -491,6 +498,13 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Content Processor Lambda - Enhanced content processing with quality assessment
+    // Create log group for content processor function
+    const contentProcessorLogGroup = new logs.LogGroup(this, 'ContentProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-content-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.contentProcessorFunction = new lambda.Function(this, 'ContentProcessorFunction', {
       functionName: `ada-clara-content-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -498,7 +512,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/content-processor'),
       timeout: Duration.minutes(15),
       memorySize: 1024,
-      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
+      logGroup: contentProcessorLogGroup,
       role: lambdaExecutionRole,
       environment: {
         CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
@@ -527,15 +541,14 @@ export class AdaClaraUnifiedStack extends Stack {
       reportBatchItemFailures: true // Enable partial batch failure reporting
     }));
 
-    // EventBridge Rule for biweekly scraping (Every other Sunday at 2 AM UTC)
+    // EventBridge Rule for weekly scraping (Every Sunday at 2 AM UTC)
     this.webScraperScheduleRule = new events.Rule(this, 'WebScraperScheduleRule', {
       ruleName: `ada-clara-web-scraper-schedule${stackSuffix}`,
-      description: 'Biweekly scheduled web scraping for diabetes.org content',
+      description: 'Weekly scheduled web scraping for diabetes.org content',
       schedule: events.Schedule.cron({
         minute: '0',
         hour: '2',
-        weekDay: 'SUN', // Sunday
-        day: '1,15', // 1st and 15th of each month (approximately biweekly)
+        weekDay: 'SUN', // Every Sunday at 2 AM UTC
       }),
       enabled: true,
     });
@@ -599,6 +612,13 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
+    // Create log group for RAG processor function
+    const ragProcessorLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
       functionName: `ada-clara-rag-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -606,7 +626,7 @@ export class AdaClaraUnifiedStack extends Stack {
       code: lambda.Code.fromAsset('lambda/rag-processor'),
       timeout: Duration.minutes(5),
       memorySize: 1024,
-      logRetention: logs.RetentionDays.ONE_WEEK, // CDK manages log group lifecycle
+      logGroup: ragProcessorLogGroup,
       role: lambdaExecutionRole,
       environment: {
         VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
