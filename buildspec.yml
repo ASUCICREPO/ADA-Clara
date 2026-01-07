@@ -3,12 +3,12 @@ version: 0.2
 phases:
   install:
     runtime-versions:
-      nodejs: 20
+      nodejs: 25
     commands:
       - echo "Installing AWS CDK CLI..."
       - npm install -g aws-cdk
-      - echo "Installing zip utility for frontend..."
-      - yum install -y zip
+      - echo "Installing zip and jq utilities for frontend..."
+      - yum install -y zip jq
 
   pre_build:
     commands:
@@ -28,8 +28,15 @@ phases:
         done
       - echo "Building TypeScript..."
       - npm run build
-      - echo "Bootstrapping CDK..."
-      - cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+      - echo "Bootstrapping CDK (if not already bootstrapped)..."
+      - |
+        # Check if already bootstrapped to avoid errors
+        if aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION >/dev/null 2>&1; then
+          echo "CDK already bootstrapped, skipping..."
+        else
+          echo "Bootstrapping CDK for the first time..."
+          cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+        fi
 
   build:
     commands:
@@ -76,13 +83,20 @@ phases:
       - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_IN=$FRONTEND_URL/auth/callback" >> .env.local
       - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_OUT=$FRONTEND_URL" >> .env.local
       - echo "Building Next.js application..."
-      - npm run build
+      - npm run build 2>&1 | tee build.log
       - |
+        # Check for build errors in output
+        if grep -qi "error" build.log && ! grep -qi "0 error" build.log; then
+          echo "[ERROR] Next.js build had errors"
+          cat build.log
+          exit 1
+        fi
         # Validate Next.js build output
         if [ ! -d "out" ] || [ -z "$(ls -A out)" ]; then
           echo "[ERROR] Next.js build failed - no output directory or empty"
           exit 1
         fi
+        echo "[SUCCESS] Next.js build completed successfully"
       - echo "Creating deployment package..."
       - cd out && zip -r build.zip .
 
