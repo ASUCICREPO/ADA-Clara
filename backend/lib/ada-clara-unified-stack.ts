@@ -699,6 +699,7 @@ export class AdaClaraUnifiedStack extends Stack {
       role: lambdaExecutionRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL for CORS
       },
     });
 

@@ -15,6 +15,7 @@ const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const { ComprehendClient, DetectDominantLanguageCommand } = require('@aws-sdk/client-comprehend');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const crypto = require('crypto');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -570,7 +571,7 @@ function shouldEscalate(confidence, message) {
  * Create escalation record
  */
 async function createEscalation(sessionId, reason) {
-  const escalationId = `esc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const escalationId = `esc-${crypto.randomUUID()}`;
   
   const escalationRecord = {
     escalationId,
