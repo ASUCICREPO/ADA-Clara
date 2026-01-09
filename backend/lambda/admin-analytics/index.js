@@ -11,7 +11,7 @@
  * - GET /admin/health - Health check
  */
 
-const { DynamoDBClient, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
 const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
 
 // Initialize AWS clients
@@ -630,10 +630,11 @@ async function getEscalationRate() {
 
     if (totalQuestions === 0) return 0;
 
-    // Get count of actual form submissions from ESCALATION_REQUESTS_TABLE
-    const scanResult = await dynamodb.send(new ScanCommand({
+    // Get count of actual form submissions using GSI (much more efficient)
+    const queryResult = await dynamodb.send(new QueryCommand({
       TableName: ESCALATION_REQUESTS_TABLE,
-      FilterExpression: '#source = :formSubmit',
+      IndexName: 'SourceIndex',
+      KeyConditionExpression: '#source = :formSubmit',
       ExpressionAttributeNames: {
         '#source': 'source'
       },
@@ -643,7 +644,7 @@ async function getEscalationRate() {
       Select: 'COUNT'
     }));
 
-    const formSubmissions = scanResult.Count || 0;
+    const formSubmissions = queryResult.Count || 0;
     const rate = Math.round((formSubmissions / totalQuestions) * 100);
 
     console.log(`Escalation rate (actual form submissions): ${formSubmissions}/${totalQuestions} = ${rate}%`);

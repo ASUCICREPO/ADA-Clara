@@ -163,9 +163,14 @@ export async function getLanguageSplit(): Promise<LanguageSplit> {
 /**
  * Get escalation requests
  */
-export async function getEscalationRequests(page: number = 1, limit: number = 10): Promise<EscalationRequestsResponse> {
+export async function getEscalationRequests(page: number = 1, limit: number = 10, search?: string): Promise<EscalationRequestsResponse> {
   try {
-    const response = await authenticatedFetch(`/admin/escalation-requests?page=${page}&limit=${limit}`, {
+    let url = `/admin/escalation-requests?page=${page}&limit=${limit}`;
+    if (search && search.trim()) {
+      url += `&search=${encodeURIComponent(search.trim())}`;
+    }
+
+    const response = await authenticatedFetch(url, {
       method: 'GET',
     });
 

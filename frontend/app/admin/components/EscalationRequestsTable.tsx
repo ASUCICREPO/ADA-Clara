@@ -1,28 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEscalationRequests } from '../hooks/useAdminData';
 
 const ITEMS_PER_PAGE = 10;
 
 export default function EscalationRequestsTable() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const { data, loading, error } = useEscalationRequests(currentPage, ITEMS_PER_PAGE);
+
+  // Debounce search input to avoid too many API calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1); // Reset to first page when search changes
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const { data, loading, error } = useEscalationRequests(currentPage, ITEMS_PER_PAGE, debouncedSearch);
 
   // Calculate total pages
   const totalPages = data?.total ? Math.ceil(data.total / ITEMS_PER_PAGE) : 0;
 
-  // Filter data by search query (client-side filtering on current page)
-  const filteredData = data?.requests?.filter(item =>
-    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.email.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  // Server-side filtering - no need for client-side filter anymore
+  const filteredData = data?.requests || [];
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
       setCurrentPage(page);
-      setSearchQuery(''); // Clear search when changing pages
+      // Keep search query when changing pages (server-side search)
     }
   };
 

@@ -8,7 +8,7 @@
  * - GET /escalation/health - Health check
  */
 
-const { DynamoDBClient, PutItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, PutItemCommand, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const crypto = require('crypto');
 
@@ -158,8 +158,9 @@ async function getEscalationRequests(event) {
       parseInt(event.queryStringParameters.limit) : 10;
     const page = event.queryStringParameters?.page ?
       parseInt(event.queryStringParameters.page) : 1;
+    const search = event.queryStringParameters?.search?.trim() || '';
 
-    console.log(`Getting escalation requests: page=${page}, limit=${limit}`);
+    console.log(`Getting escalation requests: page=${page}, limit=${limit}, search="${search}"`);
 
     // Validate parameters
     if (isNaN(limit) || limit < 1 || limit > 100) {
@@ -176,28 +177,41 @@ async function getEscalationRequests(event) {
       });
     }
 
-    // Scan DynamoDB table
-    const scanResult = await dynamodb.send(new ScanCommand({
+    // Use GSI to query only form_submit escalations, sorted by timestamp
+    // This is much more efficient than scanning the entire table
+    const queryResult = await dynamodb.send(new QueryCommand({
       TableName: ESCALATION_TABLE,
-      Limit: 1000 // Get all items to filter and paginate
+      IndexName: 'SourceIndex',
+      KeyConditionExpression: '#source = :formSubmit',
+      ExpressionAttributeNames: {
+        '#source': 'source'
+      },
+      ExpressionAttributeValues: marshall({
+        ':formSubmit': 'form_submit'
+      }),
+      ScanIndexForward: false, // Sort descending (newest first)
+      Limit: 1000 // Reasonable limit for pagination
     }));
 
-    const allItems = scanResult.Items?.map(item => unmarshall(item)) || [];
+    let allItems = queryResult.Items?.map(item => unmarshall(item)) || [];
 
-    // Filter to only include requests submitted via Submit button
-    const submittedItems = allItems.filter(item => 
-      item.escalationId && item.source === 'form_submit'
-    );
+    console.log(`Found ${allItems.length} submitted escalation requests using GSI`);
 
-    console.log(`Found ${submittedItems.length} submitted escalation requests out of ${allItems.length} total`);
+    // Apply search filter if provided
+    if (search) {
+      const searchLower = search.toLowerCase();
+      allItems = allItems.filter(item => {
+        const name = (item.name || '').toLowerCase();
+        const email = (item.email || '').toLowerCase();
+        return name.includes(searchLower) || email.includes(searchLower);
+      });
+      console.log(`After search filter: ${allItems.length} results matching "${search}"`);
+    }
 
-    // Sort by timestamp (newest first)
-    submittedItems.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    // Paginate
+    // Paginate in-memory (could be improved with DynamoDB pagination tokens)
     const startIndex = (page - 1) * limit;
     const endIndex = startIndex + limit;
-    const paginatedItems = submittedItems.slice(startIndex, endIndex);
+    const paginatedItems = allItems.slice(startIndex, endIndex);
 
     // Format response
     const requests = paginatedItems.map(item => ({
@@ -208,11 +222,11 @@ async function getEscalationRequests(event) {
       dateTime: item.dateTime || 'N/A'
     }));
 
-    console.log(`Returning ${requests.length} requests for page ${page}, total: ${submittedItems.length}`);
+    console.log(`Returning ${requests.length} requests for page ${page}, total: ${allItems.length}`);
 
     return createResponse(200, {
       requests,
-      total: submittedItems.length
+      total: allItems.length
     });
 
   } catch (error) {

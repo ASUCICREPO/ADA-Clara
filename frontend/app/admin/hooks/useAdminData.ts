@@ -123,30 +123,30 @@ export function useLanguageSplit() {
   return { data, loading, error };
 }
 
-export function useEscalationRequests(page: number = 1, limit: number = 10) {
+export function useEscalationRequests(page: number = 1, limit: number = 10, search: string = '') {
   const [data, setData] = useState<EscalationRequestsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
-    
-    // Clear previous data when page changes
+
+    // Clear previous data when page/search changes
     setData(null);
     setLoading(true);
     setError(null);
-    
+
     async function fetchData(skipLoading = false) {
       try {
         if (!skipLoading) {
           setLoading(true);
         }
         setError(null);
-        console.log(`[useEscalationRequests] Fetching page ${page}, limit ${limit}`);
-        const requests = await getEscalationRequests(page, limit);
+        console.log(`[useEscalationRequests] Fetching page ${page}, limit ${limit}, search "${search}"`);
+        const requests = await getEscalationRequests(page, limit, search);
         console.log(`[useEscalationRequests] Received ${requests.requests.length} requests for page ${page}, total: ${requests.total}`);
-        
-        // Only update state if component is still mounted and we're still on the same page
+
+        // Only update state if component is still mounted and we're still on the same page/search
         if (isMounted) {
           setData(requests);
         }
@@ -162,22 +162,22 @@ export function useEscalationRequests(page: number = 1, limit: number = 10) {
       }
     }
 
-    // Always fetch with loading state when page/limit changes
+    // Always fetch with loading state when page/limit/search changes
     fetchData(false);
-    
+
     // Refresh data every 30 seconds for real-time updates (without showing loading state)
-    // Only refresh if still on the same page
+    // Only refresh if still on the same page/search
     const interval = setInterval(() => {
       if (isMounted) {
         fetchData(true);
       }
     }, 30000);
-    
+
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [page, limit]);
+  }, [page, limit, search]);
 
   return { data, loading, error };
 }

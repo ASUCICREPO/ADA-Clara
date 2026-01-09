@@ -153,6 +153,13 @@ export class AdaClaraUnifiedStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
+    // Add GSI for efficient querying by source type (form_submit vs chat_escalation)
+    this.escalationRequestsTable.addGlobalSecondaryIndex({
+      indexName: 'SourceIndex',
+      partitionKey: { name: 'source', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+    });
+
     this.contentTrackingTable = new dynamodb.Table(this, 'ContentTrackingTable', {
       tableName: `ada-clara-content-tracking${stackSuffix}`,
       partitionKey: { name: 'url', type: dynamodb.AttributeType.STRING },
