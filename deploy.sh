@@ -398,52 +398,43 @@ echo ""
 echo "Frontend URL: https://main.$AMPLIFY_URL"
 echo ""
 
-# --- Interactive Web Scraper Prompt ---
+# --- Automatic Knowledge Base Population ---
 echo ""
-print_status "Knowledge Base Population"
+print_status "Automatically populating knowledge base..."
 echo ""
-echo "Would you like to populate the knowledge base by scraping diabetes.org content?"
-echo "This will:"
-echo "   - Discover up to 1200 high-quality pages from diabetes.org using intelligent prioritization"
-echo "   - Process content with enhanced HTML-to-Markdown conversion and quality assessment"
-echo "   - Store content in S3 with proper structure for knowledge base ingestion"
-echo "   - Take approximately 15-20 minutes to complete"
-echo ""
-read -p "Populate knowledge base now? (y/n): " -r REPLY
+echo "Starting web scraper pipeline:"
+echo "   - Discovering up to 1200 high-quality pages from diabetes.org"
+echo "   - Processing content with quality assessment and change detection"
+echo "   - Triggering automatic Knowledge Base ingestion after processing"
+echo "   - Total time: ~20-25 minutes for complete KB population"
 echo ""
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-  print_status "Starting initial knowledge base population..."
+# Determine the script directory (where deploy.sh is located)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRAPING_SCRIPT="$SCRIPT_DIR/backend/scripts/trigger-web-scraper.sh"
+
+# Check if the scraping script exists
+if [ -f "$SCRAPING_SCRIPT" ]; then
+  print_status "Running web scraper trigger script: $SCRAPING_SCRIPT"
   echo ""
-  
-  # Determine the script directory (where deploy.sh is located)
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  SCRAPING_SCRIPT="$SCRIPT_DIR/backend/scripts/trigger-initial-scraping.sh"
-  
-  # Check if the scraping script exists
-  if [ -f "$SCRAPING_SCRIPT" ]; then
-    print_status "Running initial scraping script: $SCRAPING_SCRIPT"
+
+  # Execute the scraping script
+  bash "$SCRAPING_SCRIPT"
+  SCRAPE_EXIT_CODE=$?
+
+  if [ $SCRAPE_EXIT_CODE -eq 0 ]; then
+    print_success "Knowledge base population started successfully!"
     echo ""
-    
-    # Execute the scraping script
-    bash "$SCRAPING_SCRIPT"
-    SCRAPE_EXIT_CODE=$?
-    
-    if [ $SCRAPE_EXIT_CODE -eq 0 ]; then
-      print_success "Initial scraping script completed successfully!"
-    else
-      print_warning "Initial scraping script exited with code: $SCRAPE_EXIT_CODE"
-      print_status "You can manually run the script later: $SCRAPING_SCRIPT"
-    fi
+    print_status "The scraping pipeline is running in the background."
+    print_status "KB ingestion will trigger automatically after content processing completes."
   else
-    print_warning "Scraping script not found at: $SCRAPING_SCRIPT"
-    print_status "You can manually trigger knowledge base population later."
+    print_warning "Initial scraping script exited with code: $SCRAPE_EXIT_CODE"
+    print_status "You can manually run the script later: $SCRAPING_SCRIPT"
   fi
 else
-  print_status "Skipping knowledge base population."
-  echo ""
-  print_status "You can trigger knowledge base population later by running:"
-  print_status "  ./backend/scripts/trigger-initial-scraping.sh"
+  print_warning "Scraping script not found at: $SCRAPING_SCRIPT"
+  print_status "You can manually trigger knowledge base population by running:"
+  print_status "  ./backend/scripts/trigger-web-scraper.sh"
 fi
 
 echo ""

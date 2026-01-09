@@ -102,8 +102,8 @@ The following describes how administrators interact with the system:
   - **ragProcessor**: Processes RAG queries, sends prompts to Bedrock Knowledge Base, and generates responses using Claude Sonnet 3
   - **escalationHandler**: Manages escalation requests triggered by low confidence or explicit user requests, sends analytics to DynamoDB
   - **adminAnalytics**: Provides analytics data for the admin dashboard (metrics, charts, FAQs, unanswered questions)
-  - **domainDiscovery**: Automatically scrapes content from diabetes.org and processes it for knowledge base ingestion
-  - **contentProcessor**: Scraper
+  - **domainDiscovery**: Searches diabetes.org for sources of relevant information for the chatbot and sends payloads of them through SQS to contentProcessor to process in parallel
+  - **contentProcessor**: Scrapes content from URLs found by domainDiscovery, processes it for knowledge base ingestion, and triggers ingestion
 
 ### AI/ML Services
 - **Amazon Comprehend**: Used by Chat Processor to categorize chats by language
@@ -154,9 +154,8 @@ The following describes how administrators interact with the system:
   - Integrates with Cognito for admin authentication
 
 - **Amazon EventBridge**: Scheduled automation
-  - Weekly trigger (Sundays at 2 AM UTC) that activates the web scraping pipeline
+  - Weekly trigger (Sundays at 2 AM UTC) that activates the web scraping pipeline, including Knowledge Base ingestion
   - Ensures Knowledge Base stays up-to-date with latest diabetes.org content
-  - Triggers the complete knowledge base ingestion pipeline
 
 ### Knowledge Base Ingestion Flow
 
@@ -168,7 +167,7 @@ The system includes an automated pipeline for keeping the knowledge base current
 4. **Content Processor Lambda**: Scrapes discovered URLs in parallel, logs and checks content hash w/DynamoDB, formats changed and new content into cleaned .mds, and stores these in the content bucket
 5. **S3 Bucket (Scraped Content)**: Stores the raw scraped HTML content
 6. **Bedrock (Titan Text Embedding V2)**: Processes scraped content to create vector embeddings
-7. **Bedrock Knowledge Base**: Ingests the embeddings and makes them searchable via vector search
+7. **Bedrock Knowledge Base**: Generates and stores embeddings from content in the S3 Bucket (triggered by the final operation of Content Processor) and searches for vectors via semantic search
 8. **Change Detection**: DynamoDB tables track content changes to optimize scraping and detect updates
 
 ### Monitoring and Logging

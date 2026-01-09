@@ -117,6 +117,7 @@ The `deploy.sh` script automates the entire deployment process:
   - S3 buckets for content and vector storage
   - Bedrock Knowledge Base configuration
   - EventBridge rules for scheduled web scraping
+- **Initial Web Scraping**: Triggers initial scrape of the diabetes.org domain and KB ingestion of scraped content
 
 ### Frontend Deployment
 - **Amplify App Creation**: Creates or updates the AWS Amplify app
@@ -239,6 +240,25 @@ In CloudShell, run these commands to verify backend resources:
    ```
 
    You should see scraped content files with `.md` extensions.
+
+3. **Verify Knowledge Base sync**
+
+   Allow 30 minutes for the full web scraper pipeline to run, then check the logs:
+
+   ```bash
+   # Check Content Processor logs for KB ingestion
+   aws logs tail /aws/lambda/ada-clara-content-processor --since 30m --region $(aws configure get region) | grep -i "ingestion"
+   ```
+
+   **Expected output should include:**
+   ```
+   TRIGGER_INGESTION sentinel received
+   Initiating Knowledge Base ingestion...
+   ✓ Knowledge Base ingestion job started successfully!
+   Ingestion Job ID: INGESTION-xxxxx
+   ```
+
+   If you see these messages, your Knowledge Base has been automatically populated and is ready to use!
 
 ---
 

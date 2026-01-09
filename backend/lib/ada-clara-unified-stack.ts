@@ -517,6 +517,8 @@ export class AdaClaraUnifiedStack extends Stack {
       environment: {
         CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
         CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName, // Use stack's content tracking table
+        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId, // For automatic KB ingestion
+        DATA_SOURCE_ID: this.dataSource.attrDataSourceId, // For automatic KB ingestion
         TARGET_DOMAIN: 'diabetes.org',
         RATE_LIMIT_DELAY: '1000',
         MIN_QUALITY_THRESHOLD: '50' // Minimum quality score (0-100)
@@ -533,6 +535,18 @@ export class AdaClaraUnifiedStack extends Stack {
     // Grant DynamoDB permissions for content tracking
     this.contentTrackingTable.grantReadWriteData(this.domainDiscoveryFunction);
     this.contentTrackingTable.grantReadWriteData(this.contentProcessorFunction);
+
+    // Grant Bedrock ingestion permissions to Content Processor for automatic KB sync
+    this.contentProcessorFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:StartIngestionJob',
+        'bedrock:GetIngestionJob',
+      ],
+      resources: [
+        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
+      ],
+    }));
 
     // Configure Content Processor to be triggered by SQS messages
     this.contentProcessorFunction.addEventSource(new SqsEventSource(this.scrapingQueue, {
