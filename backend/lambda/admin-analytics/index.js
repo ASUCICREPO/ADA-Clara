@@ -264,23 +264,67 @@ async function getMetrics() {
 
     // Get total questions (more accurate than sessions for conversation activity)
     const totalQuestions = await getTotalQuestions();
-    
+
     // Get escalation rate from questions table (now consistent)
     const escalationRate = await getEscalationRate();
-    
+
     // Get out of scope rate from analytics table
     const outOfScopeRate = await getOutOfScopeRate();
+
+    // Calculate week-over-week trends
+    const now = Date.now();
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+    const twoWeeksMs = 14 * 24 * 60 * 60 * 1000;
+
+    // Define time periods
+    const currentWeekStart = now - oneWeekMs;
+    const currentWeekEnd = now;
+    const previousWeekStart = now - twoWeeksMs;
+    const previousWeekEnd = now - oneWeekMs;
+
+    console.log('Calculating trends for periods:');
+    console.log(`  Current week: ${new Date(currentWeekStart).toISOString()} to ${new Date(currentWeekEnd).toISOString()}`);
+    console.log(`  Previous week: ${new Date(previousWeekStart).toISOString()} to ${new Date(previousWeekEnd).toISOString()}`);
+
+    // Calculate trends in parallel for performance
+    const [
+      currentConversations,
+      previousConversations,
+      currentEscalationRate,
+      previousEscalationRate,
+      currentOutOfScopeRate,
+      previousOutOfScopeRate
+    ] = await Promise.all([
+      getConversationCountForPeriod(currentWeekStart, currentWeekEnd),
+      getConversationCountForPeriod(previousWeekStart, previousWeekEnd),
+      getEscalationRateForPeriod(currentWeekStart, currentWeekEnd),
+      getEscalationRateForPeriod(previousWeekStart, previousWeekEnd),
+      getOutOfScopeRateForPeriod(currentWeekStart, currentWeekEnd),
+      getOutOfScopeRateForPeriod(previousWeekStart, previousWeekEnd)
+    ]);
+
+    console.log('Trend calculation values:');
+    console.log(`  Conversations: ${previousConversations} → ${currentConversations}`);
+    console.log(`  Escalation rate: ${previousEscalationRate}% → ${currentEscalationRate}%`);
+    console.log(`  Out-of-scope rate: ${previousOutOfScopeRate}% → ${currentOutOfScopeRate}%`);
+
+    const trends = {
+      // Conversations: Higher is good (+ = green)
+      conversations: calculateWeekOverWeekTrend(currentConversations, previousConversations, false),
+      // Escalation rate: Higher is bad (invert sign so + = green when rate decreases)
+      escalations: calculateWeekOverWeekTrend(currentEscalationRate, previousEscalationRate, true),
+      // Out-of-scope rate: Higher is bad (invert sign so + = green when rate decreases)
+      outOfScope: calculateWeekOverWeekTrend(currentOutOfScopeRate, previousOutOfScopeRate, true)
+    };
+
+    console.log('Calculated trends:', trends);
 
     const metrics = {
       totalConversations: await getConversationCount(), // Keep session count for actual conversations
       totalQuestions: totalQuestions, // Add total questions metric
       escalationRate: escalationRate,
       outOfScopeRate: outOfScopeRate,
-      trends: {
-        conversations: 'N/A', // TODO: Implement trending calculations
-        escalations: 'N/A',
-        outOfScope: 'N/A'
-      }
+      trends: trends
     };
 
     console.log('Dashboard metrics:', metrics);
@@ -807,6 +851,166 @@ async function getCategoryInsights() {
       error: 'Failed to fetch category insights',
       message: error.message || 'Unknown error'
     });
+  }
+}
+
+/**
+ * Helper: Calculate week-over-week trend
+ *
+ * @param {number} currentValue - Current period value
+ * @param {number} previousValue - Previous period value
+ * @param {boolean} invertSign - If true, invert the sign for rate metrics (higher = bad)
+ * @returns {string} Formatted trend string (e.g., "+12%", "-5%", "N/A")
+ */
+function calculateWeekOverWeekTrend(currentValue, previousValue, invertSign = false) {
+  // Handle edge cases
+  if (typeof currentValue !== 'number' || typeof previousValue !== 'number') {
+    return 'N/A';
+  }
+
+  // If previous value is 0, can't calculate percentage change
+  if (previousValue === 0) {
+    if (currentValue === 0) {
+      return '0%';
+    }
+    // New activity appeared
+    return invertSign ? '-100%' : '+100%';
+  }
+
+  // Calculate percentage change
+  const change = ((currentValue - previousValue) / previousValue) * 100;
+  const absChange = Math.abs(change);
+  const roundedChange = Math.round(absChange);
+
+  // Handle no change
+  if (roundedChange === 0) {
+    return '0%';
+  }
+
+  // Determine sign
+  let sign;
+  if (change > 0) {
+    sign = invertSign ? '-' : '+';
+  } else {
+    sign = invertSign ? '+' : '-';
+  }
+
+  return `${sign}${roundedChange}%`;
+}
+
+/**
+ * Helper: Get conversation count for a time period
+ *
+ * @param {number} startTime - Start timestamp (milliseconds)
+ * @param {number} endTime - End timestamp (milliseconds)
+ * @returns {Promise<number>} Count of conversations in period
+ */
+async function getConversationCountForPeriod(startTime, endTime) {
+  try {
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: CHAT_SESSIONS_TABLE,
+      FilterExpression: 'startTime BETWEEN :start AND :end',
+      ExpressionAttributeValues: marshall({
+        ':start': new Date(startTime).toISOString(),
+        ':end': new Date(endTime).toISOString()
+      }),
+      Select: 'COUNT'
+    }));
+    return scanResult.Count || 0;
+  } catch (error) {
+    console.error('Error getting conversation count for period:', error);
+    return 0;
+  }
+}
+
+/**
+ * Helper: Get escalation rate for a time period
+ *
+ * @param {number} startTime - Start timestamp (milliseconds)
+ * @param {number} endTime - End timestamp (milliseconds)
+ * @returns {Promise<number>} Escalation rate percentage (0-100)
+ */
+async function getEscalationRateForPeriod(startTime, endTime) {
+  try {
+    // Get total questions in period
+    const questionsScan = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      FilterExpression: '#ts BETWEEN :start AND :end',
+      ExpressionAttributeNames: {
+        '#ts': 'timestamp'
+      },
+      ExpressionAttributeValues: marshall({
+        ':start': new Date(startTime).toISOString(),
+        ':end': new Date(endTime).toISOString()
+      }),
+      Select: 'COUNT'
+    }));
+
+    const totalQuestions = questionsScan.Count || 0;
+    if (totalQuestions === 0) return 0;
+
+    // Get form submissions in period
+    const escalationsScan = await dynamodb.send(new ScanCommand({
+      TableName: ESCALATION_REQUESTS_TABLE,
+      FilterExpression: '#src = :formSubmit AND #ts BETWEEN :start AND :end',
+      ExpressionAttributeNames: {
+        '#src': 'source',
+        '#ts': 'timestamp'
+      },
+      ExpressionAttributeValues: marshall({
+        ':formSubmit': 'form_submit',
+        ':start': new Date(startTime).toISOString(),
+        ':end': new Date(endTime).toISOString()
+      }),
+      Select: 'COUNT'
+    }));
+
+    const formSubmissions = escalationsScan.Count || 0;
+    const rate = Math.round((formSubmissions / totalQuestions) * 100);
+
+    return Math.min(rate, 100); // Cap at 100%
+  } catch (error) {
+    console.error('Error calculating escalation rate for period:', error);
+    return 0;
+  }
+}
+
+/**
+ * Helper: Get out-of-scope rate for a time period
+ *
+ * @param {number} startTime - Start timestamp (milliseconds)
+ * @param {number} endTime - End timestamp (milliseconds)
+ * @returns {Promise<number>} Out-of-scope rate percentage (0-100)
+ */
+async function getOutOfScopeRateForPeriod(startTime, endTime) {
+  try {
+    // Get all questions in period
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: QUESTIONS_TABLE,
+      FilterExpression: '#ts BETWEEN :start AND :end',
+      ExpressionAttributeNames: {
+        '#ts': 'timestamp'
+      },
+      ExpressionAttributeValues: marshall({
+        ':start': new Date(startTime).toISOString(),
+        ':end': new Date(endTime).toISOString()
+      }),
+      ProjectionExpression: 'escalated'
+    }));
+
+    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
+    const totalQuestions = items.length;
+
+    if (totalQuestions === 0) return 0;
+
+    // Count escalated questions
+    const outOfScopeQuestions = items.filter(item => item.escalated === true).length;
+    const rate = Math.round((outOfScopeQuestions / totalQuestions) * 100);
+
+    return Math.min(rate, 100); // Cap at 100%
+  } catch (error) {
+    console.error('Error calculating out of scope rate for period:', error);
+    return 0;
   }
 }
 
