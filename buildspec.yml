@@ -44,7 +44,7 @@ phases:
   build:
     commands:
       - echo "Deploying CDK stack..."
-      - cdk deploy --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+      - cdk deploy --require-approval never --context environment=production --context amplifyAppId=$AMPLIFY_APP_ID
       - |
         if [ $? -ne 0 ]; then
           echo "CDK deployment failed. Skipping frontend deployment."

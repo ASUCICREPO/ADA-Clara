@@ -110,8 +110,8 @@ The `deploy.sh` script automates the entire deployment process:
 
 ### Backend Deployment
 - **CDK Stack Deployment**: Deploys all AWS resources including:
-  - Lambda functions (Chat Processor, RAG Processor, Admin Analytics, Escalation Handler, Web Scraper)
-  - DynamoDB tables (Chat Sessions, Messages, Conversations, Analytics, Questions, Escalation Requests, Content Tracking)
+  - Lambda functions (Chat Processor, RAG Processor, Admin Analytics, Escalation Handler, Domain Discovery, Content Processor)
+  - DynamoDB tables (Chat Sessions, Messages, Analytics, Questions, Escalation Requests, Content Tracking)
   - API Gateway with all endpoints
   - Cognito User Pool for admin authentication
   - S3 buckets for content and vector storage
@@ -154,16 +154,48 @@ In CloudShell, run these commands to verify backend resources:
    aws lambda list-functions --query "Functions[?contains(FunctionName, 'ada-clara')].FunctionName" --output table
    ```
    
-   You should see 5 Lambda functions listed.
+   You should see 6 Lambda functions listed.
 
 3. **Verify DynamoDB tables**
    ```bash
    aws dynamodb list-tables --query "TableNames[?contains(@, 'ada-clara')]" --output table
    ```
    
-   You should see multiple DynamoDB tables created.
+   You should see 6 DynamoDB tables created.
 
-4. **Get API Gateway endpoint** (from deployment output or CloudFormation)
+4. **Verify S3 Content Bucket**
+   ```bash
+   # List S3 buckets to find the content bucket
+   aws s3 ls | grep ada-clara-content
+   ```
+
+   You should see a bucket named: `ada-clara-content-{accountId}-{region}`
+
+5. **Verify S3 Vectors Bucket**
+   ```bash
+   # List S3 Vectors buckets using the S3 Vectors API
+   aws s3vectors list-vector-buckets --region $(aws configure get region)
+   ```
+
+   You should see a bucket named: `ada-clara-vectors-{accountId}-{region}`
+
+   Alternatively, retrieve from CloudFormation outputs:
+   ```bash
+   aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs[?OutputKey=='VectorsBucketName'].OutputValue" --output text
+   ```
+
+6. **Verify S3 Vectors Index**
+   ```bash
+   # Get the vectors bucket name from CloudFormation
+   VECTORS_BUCKET=$(aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs[?OutputKey=='VectorsBucketName'].OutputValue" --output text)
+
+   # List indexes in the vectors bucket
+   aws s3vectors list-indexes --vector-bucket-name $VECTORS_BUCKET --region $(aws configure get region)
+   ```
+
+   You should see an index named: `ada-clara-index`
+
+7. **Get API Gateway endpoint** (from deployment output or CloudFormation)
    ```bash
    aws cloudformation describe-stacks --stack-name AdaClaraUnifiedStack --query "Stacks[0].Outputs[?OutputKey=='ApiGatewayUrl'].OutputValue" --output text
    ```
@@ -186,23 +218,27 @@ In CloudShell, run these commands to verify backend resources:
    - [ ] Language switching works
    - [ ] Admin dashboard is accessible at `/admin` (requires Cognito login)
 
-### Verify Knowledge Base (if scraper was triggered)
-
-If you chose to populate the knowledge base:
+### Verify Knowledge Base
 
 1. **Check web scraper logs**
    ```bash
-   aws logs tail /aws/lambda/ada-clara-web-scraper-dev-v2 --follow --region $(aws configure get region)
+   aws logs tail /aws/lambda/ada-clara-content-processor --follow --region $(aws configure get region)
    ```
    
    Look for successful completion messages.
 
 2. **Verify content in S3**
    ```bash
-   aws s3 ls s3://ada-clara-content-$(aws configure get region)-$(aws sts get-caller-identity --query Account --output text)/ --recursive | head -20
+   # Construct the content bucket name
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+   REGION=$(aws configure get region)
+   CONTENT_BUCKET="ada-clara-content-${ACCOUNT_ID}-${REGION}"
+
+   # List scraped content files
+   aws s3 ls s3://${CONTENT_BUCKET}/ --recursive | head -20
    ```
-   
-   You should see scraped content files.
+
+   You should see scraped content files with `.md` extensions.
 
 ---
 
