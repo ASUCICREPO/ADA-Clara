@@ -619,26 +619,34 @@ async function getTotalQuestions() {
 }
 
 /**
- * Helper: Get escalation rate from questions table
+ * Helper: Get escalation rate from actual form submissions
+ * Calculates percentage of questions that resulted in users submitting the escalation form
+ * This is different from out-of-scope rate (which uses auto-escalations)
  */
 async function getEscalationRate() {
   try {
-    // Get all questions to calculate escalation rate properly
+    // Get total questions count
+    const totalQuestions = await getTotalQuestions();
+
+    if (totalQuestions === 0) return 0;
+
+    // Get count of actual form submissions from ESCALATION_REQUESTS_TABLE
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      ProjectionExpression: 'escalated',
-      Limit: 1000
+      TableName: ESCALATION_REQUESTS_TABLE,
+      FilterExpression: '#source = :formSubmit',
+      ExpressionAttributeNames: {
+        '#source': 'source'
+      },
+      ExpressionAttributeValues: marshall({
+        ':formSubmit': 'form_submit'
+      }),
+      Select: 'COUNT'
     }));
 
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    const totalQuestions = items.length;
-    
-    if (totalQuestions === 0) return 0;
-    
-    const escalatedQuestions = items.filter(item => item.escalated === true).length;
-    const rate = Math.round((escalatedQuestions / totalQuestions) * 100);
-    
-    console.log(`Escalation rate: ${escalatedQuestions}/${totalQuestions} = ${rate}%`);
+    const formSubmissions = scanResult.Count || 0;
+    const rate = Math.round((formSubmissions / totalQuestions) * 100);
+
+    console.log(`Escalation rate (actual form submissions): ${formSubmissions}/${totalQuestions} = ${rate}%`);
     return Math.min(rate, 100); // Cap at 100%
   } catch (error) {
     console.error('Error calculating escalation rate:', error);
