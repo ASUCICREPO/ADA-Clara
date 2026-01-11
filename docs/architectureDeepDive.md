@@ -98,17 +98,20 @@ The following describes how administrators interact with the system:
   - Stage-based deployment (prod/dev)
 
 - **AWS Lambda**: Serverless compute for backend logic
-  - **chatProcessor**: Handles user chat messages, session management, and routes to RAG processor or escalation handler
+  - **chatProcessor**: Handles user chat messages, stores session details and raw chat analytics, and routes to RAG processor and escalation handler, as necessary
   - **ragProcessor**: Processes RAG queries, sends prompts to Bedrock Knowledge Base, and generates responses using Claude Sonnet 3
   - **escalationHandler**: Manages escalation requests triggered by low confidence or explicit user requests, sends analytics to DynamoDB
   - **adminAnalytics**: Provides analytics data for the admin dashboard (metrics, charts, FAQs, unanswered questions)
-  - **webScraperProcessor**: Automatically scrapes content from diabetes.org and processes it for knowledge base ingestion
+  - **domainDiscovery**: Searches diabetes.org for sources of relevant information for the chatbot and sends payloads of them through SQS to contentProcessor to process in parallel
+  - **contentProcessor**: Scrapes content from URLs found by domainDiscovery, processes it for knowledge base ingestion, and triggers ingestion
 
 ### AI/ML Services
+- **Amazon Comprehend**: Used by Chat Processor to categorize chats by language
 - **Amazon Bedrock**: Foundation model service for AI capabilities
-  - **Claude Sonnet 3**: Used by RAG Processor for generating contextual responses based on retrieved knowledge base content
+  - **Claude Sonnet 3.7**: Used by RAG Processor for generating contextual responses based on retrieved knowledge base content
   - **Titan Text Embedding V2**: Used for creating vector embeddings of scraped content from diabetes.org
   - Both models work together in the RAG pipeline: embeddings for retrieval, Claude for generation
+  - **Claude Haiku**: Used by Chat Processor to categorize questions asked in chat, to be use
 
 - **Language Support**: Multi-language interface support
   - Users can select their preferred language via the language switcher
@@ -123,7 +126,7 @@ The following describes how administrators interact with the system:
 
 ### Data Storage
 - **Amazon S3**: Object storage for content and vector embeddings
-  - **S3 Bucket (Scraped Content)**: Stores raw HTML content scraped from diabetes.org by the Web Scraper
+  - **S3 Bucket (Scraped Content)**: Stores raw HTML content scraped from diabetes.org by the Content Processor (web scraper)
   - **S3 Vector Bucket**: Stores vector embeddings created by Titan Text Embedding V2 for semantic search
   - Vector embeddings are created from scraped content and stored for efficient similarity search in RAG queries
 
@@ -151,20 +154,21 @@ The following describes how administrators interact with the system:
   - Integrates with Cognito for admin authentication
 
 - **Amazon EventBridge**: Scheduled automation
-  - Weekly trigger (Sundays at 2 AM UTC) that activates the Web Scraper Lambda
-  - Ensures knowledge base stays up-to-date with latest diabetes.org content
-  - Triggers the complete knowledge base ingestion pipeline
+  - Weekly trigger (Sundays at 2 AM UTC) that activates the web scraping pipeline, including Knowledge Base ingestion
+  - Ensures Knowledge Base stays up-to-date with latest diabetes.org content
 
 ### Knowledge Base Ingestion Flow
 
 The system includes an automated pipeline for keeping the knowledge base current:
 
 1. **EventBridge Weekly Trigger**: Schedules weekly execution of the web scraper
-2. **Web Scraper Lambda**: Scrapes content from diabetes.org website
-3. **S3 Bucket (Scraped Content)**: Stores the raw scraped HTML content
-4. **Bedrock (Titan Text Embedding V2)**: Processes scraped content to create vector embeddings
-5. **Bedrock Knowledge Base**: Ingests the embeddings and makes them searchable via vector search
-6. **Change Detection**: DynamoDB tables track content changes to optimize scraping and detect updates
+2. **Domain Discovery Lambda**: Searches through diabetes.org for properly-formed sources, makes list of URLS to be scraped
+3. **SQS**: Invokes Content Processor lambda with batched URL payloads (15 URLs per invocation)
+4. **Content Processor Lambda**: Scrapes discovered URLs in parallel, logs and checks content hash w/DynamoDB, formats changed and new content into cleaned .mds, and stores these in the content bucket
+5. **S3 Bucket (Scraped Content)**: Stores the raw scraped HTML content
+6. **Bedrock (Titan Text Embedding V2)**: Processes scraped content to create vector embeddings
+7. **Bedrock Knowledge Base**: Generates and stores embeddings from content in the S3 Bucket (triggered by the final operation of Content Processor) and searches for vectors via semantic search
+8. **Change Detection**: DynamoDB tables track content changes to optimize scraping and detect updates
 
 ### Monitoring and Logging
 
@@ -199,7 +203,7 @@ backend/
 
 The unified stack (`AdaClaraUnifiedStack`) defines all AWS resources in a single stack:
 
-1. **DynamoDB Tables**: Seven tables for chat sessions, messages, conversations, analytics, questions, escalation requests, and content tracking. All use on-demand billing and include GSIs for efficient querying.
+1. **DynamoDB Tables**: Six tables for chat sessions, messages, analytics, questions, escalation requests, and content tracking. All use on-demand billing and include GSIs for efficient querying.
 
 2. **Lambda Functions**: Five Lambda functions with appropriate IAM roles, environment variables, and log groups. Functions are configured with timeouts, memory allocation, and VPC settings as needed.
 

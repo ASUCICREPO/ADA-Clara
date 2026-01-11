@@ -95,8 +95,15 @@ async function handleDomainDiscovery(event) {
     console.log('Phase 3: Batch Creation and Queuing');
     const batches = createBatches(filteredUrls, discoveryId);
     const queueResults = await sendBatchesToQueue(batches);
-    
-    // Phase 4: Track discovery progress
+
+    // Phase 4: Send sentinel messages for KB ingestion
+    console.log('Phase 4: Sending KB ingestion sentinel messages');
+    await sendIngestionSentinels(discoveryId, {
+      totalBatches: batches.length,
+      totalUrls: filteredUrls.length
+    });
+
+    // Phase 5: Track discovery progress
     await trackDiscoveryProgress(discoveryId, {
       totalUrls: discoveredUrls.length,
       filteredUrls: filteredUrls.length,
@@ -686,6 +693,71 @@ async function handleHealthCheck() {
       error: error.message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
+  }
+}
+
+/**
+ * Send sentinel messages for KB ingestion automation
+ * Two-step approach: PREPARE (immediate) and TRIGGER (5-minute delay)
+ */
+async function sendIngestionSentinels(discoveryId, metadata) {
+  try {
+    // Step 1: Send PREPARE_INGESTION message (immediate)
+    const prepareMessage = {
+      type: 'PREPARE_INGESTION',
+      discoveryId: discoveryId,
+      metadata: {
+        totalBatches: metadata.totalBatches,
+        totalUrls: metadata.totalUrls,
+        timestamp: new Date().toISOString()
+      },
+      message: 'Preparation sentinel - all content batches have been queued'
+    };
+
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: SCRAPING_QUEUE_URL,
+      MessageBody: JSON.stringify(prepareMessage),
+      MessageAttributes: {
+        messageType: {
+          DataType: 'String',
+          StringValue: 'PREPARE_INGESTION'
+        }
+      }
+    }));
+
+    console.log('Sent PREPARE_INGESTION sentinel message');
+
+    // Step 2: Send TRIGGER_INGESTION message (5-minute delay)
+    const triggerMessage = {
+      type: 'TRIGGER_INGESTION',
+      discoveryId: discoveryId,
+      metadata: {
+        totalBatches: metadata.totalBatches,
+        totalUrls: metadata.totalUrls,
+        timestamp: new Date().toISOString()
+      },
+      message: 'Trigger sentinel - initiate Knowledge Base ingestion'
+    };
+
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: SCRAPING_QUEUE_URL,
+      MessageBody: JSON.stringify(triggerMessage),
+      MessageAttributes: {
+        messageType: {
+          DataType: 'String',
+          StringValue: 'TRIGGER_INGESTION'
+        }
+      },
+      DelaySeconds: 300 // 5-minute delay (300 seconds)
+    }));
+
+    console.log('Sent TRIGGER_INGESTION sentinel message with 5-minute delay');
+    console.log('KB ingestion will be triggered automatically after content processing completes');
+
+  } catch (error) {
+    console.error('Error sending ingestion sentinel messages:', error);
+    // Don't throw - this shouldn't fail the entire discovery
+    console.warn('KB ingestion will need to be triggered manually');
   }
 }
 

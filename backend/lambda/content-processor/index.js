@@ -12,8 +12,9 @@
  */
 
 const { S3Client, PutObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
-const { DynamoDBClient, PutItemCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, PutItemCommand, QueryCommand, ScanCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
+const { BedrockAgentClient, StartIngestionJobCommand } = require('@aws-sdk/client-bedrock-agent');
 const cheerio = require('cheerio');
 const axios = require('axios');
 const crypto = require('crypto');
@@ -21,10 +22,13 @@ const crypto = require('crypto');
 // Initialize AWS clients
 const s3Client = new S3Client({ region: process.env.AWS_REGION || 'us-west-2' });
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const bedrockAgentClient = new BedrockAgentClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables - No fallbacks for resource names (must be set by CDK)
 const CONTENT_BUCKET = process.env.CONTENT_BUCKET;
 const CONTENT_TRACKING_TABLE = process.env.CONTENT_TRACKING_TABLE;
+const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
+const DATA_SOURCE_ID = process.env.DATA_SOURCE_ID;
 const TARGET_DOMAIN = process.env.TARGET_DOMAIN || 'diabetes.org';
 const RATE_LIMIT_DELAY = parseInt(process.env.RATE_LIMIT_DELAY || '1000');
 const MIN_QUALITY_THRESHOLD = parseInt(process.env.MIN_QUALITY_THRESHOLD || '50');
@@ -101,18 +105,47 @@ exports.handler = async (event, context) => {
 };
 
 /**
- * Handle SQS messages containing URL batches
+ * Handle SQS messages containing URL batches or sentinel messages
  */
 async function handleSqsMessages(event) {
   console.log(`Processing ${event.Records.length} SQS messages`);
-  
+
   const results = [];
 
-  // Process each SQS message (each message contains a batch of URLs)
+  // Process each SQS message (each message contains a batch of URLs or a sentinel)
   for (const record of event.Records) {
     try {
       // Parse the message body
-      const batch = JSON.parse(record.body);
+      const message = JSON.parse(record.body);
+
+      // Check if this is a sentinel message
+      if (message.type === 'PREPARE_INGESTION') {
+        console.log('='.repeat(80));
+        console.log('PREPARE_INGESTION sentinel received');
+        console.log('All content batches have been queued');
+        console.log(`Discovery ID: ${message.discoveryId}`);
+        console.log(`Metadata:`, message.metadata);
+        console.log('Waiting for TRIGGER_INGESTION message to initiate KB ingestion...');
+        console.log('='.repeat(80));
+        continue; // Skip further processing, just log and continue
+      }
+
+      if (message.type === 'TRIGGER_INGESTION') {
+        console.log('='.repeat(80));
+        console.log('TRIGGER_INGESTION sentinel received');
+        console.log('Initiating Knowledge Base ingestion...');
+        console.log(`Discovery ID: ${message.discoveryId}`);
+        console.log(`Metadata:`, message.metadata);
+        console.log('='.repeat(80));
+
+        // Trigger KB ingestion
+        const ingestionResult = await triggerKnowledgeBaseIngestion(message);
+        results.push(ingestionResult);
+        continue; // Skip batch processing
+      }
+
+      // Normal batch processing
+      const batch = message;
       console.log(`Processing batch ${batch.batchId} with ${batch.urls.length} URLs`);
 
       // Process the batch of URLs
@@ -130,9 +163,9 @@ async function handleSqsMessages(event) {
   return {
     statusCode: 200,
     processedBatches: results.length,
-    totalUrls: results.reduce((sum, r) => sum + r.totalCount, 0),
-    successfulUrls: results.reduce((sum, r) => sum + r.successCount, 0),
-    failedUrls: results.reduce((sum, r) => sum + r.failureCount, 0)
+    totalUrls: results.reduce((sum, r) => sum + (r.totalCount || 0), 0),
+    successfulUrls: results.reduce((sum, r) => sum + (r.successCount || 0), 0),
+    failedUrls: results.reduce((sum, r) => sum + (r.failureCount || 0), 0)
   };
 }
 
@@ -592,6 +625,202 @@ async function handleHealthCheck() {
       error: error.message || 'Unknown error',
       timestamp: new Date().toISOString()
     });
+  }
+}
+
+/**
+ * Trigger Knowledge Base ingestion after content processing completes
+ */
+async function triggerKnowledgeBaseIngestion(sentinelMessage) {
+  console.log('Starting Knowledge Base ingestion trigger...');
+
+  try {
+    // Verify required environment variables
+    if (!KNOWLEDGE_BASE_ID || !DATA_SOURCE_ID) {
+      throw new Error('KNOWLEDGE_BASE_ID and DATA_SOURCE_ID must be set as environment variables');
+    }
+
+    console.log(`Knowledge Base ID: ${KNOWLEDGE_BASE_ID}`);
+    console.log(`Data Source ID: ${DATA_SOURCE_ID}`);
+
+    // Step 1: Verify S3 content exists
+    console.log('Step 1: Verifying S3 content...');
+    const s3FileCount = await verifyS3Content();
+    console.log(`Verified ${s3FileCount} files in S3 content bucket`);
+
+    if (s3FileCount === 0) {
+      console.warn('No files found in S3 content bucket - skipping ingestion');
+      return {
+        success: false,
+        reason: 'no_content',
+        message: 'No content files found in S3'
+      };
+    }
+
+    // Step 2: Get processing statistics from DynamoDB
+    console.log('Step 2: Getting content processing statistics...');
+    const contentStats = await getContentProcessingStats();
+    console.log('Content processing stats:', contentStats);
+
+    // Step 3: Start Bedrock ingestion job
+    console.log('Step 3: Starting Bedrock Knowledge Base ingestion job...');
+    const ingestionCommand = new StartIngestionJobCommand({
+      knowledgeBaseId: KNOWLEDGE_BASE_ID,
+      dataSourceId: DATA_SOURCE_ID,
+      description: `Automatic ingestion triggered after content processing completion at ${new Date().toISOString()}. Discovery ID: ${sentinelMessage.discoveryId}`
+    });
+
+    const response = await bedrockAgentClient.send(ingestionCommand);
+
+    const ingestionJobId = response.ingestionJob.ingestionJobId;
+    const ingestionStatus = response.ingestionJob.status;
+
+    console.log('='.repeat(80));
+    console.log('✓ Knowledge Base ingestion job started successfully!');
+    console.log(`Ingestion Job ID: ${ingestionJobId}`);
+    console.log(`Status: ${ingestionStatus}`);
+    console.log(`S3 Files: ${s3FileCount}`);
+    console.log(`Content Stats:`, contentStats);
+    console.log('='.repeat(80));
+
+    // Step 4: Record ingestion job metadata in DynamoDB
+    await recordIngestionJobMetadata({
+      ingestionJobId,
+      ingestionStatus,
+      discoveryId: sentinelMessage.discoveryId,
+      s3FileCount,
+      contentStats,
+      timestamp: new Date().toISOString()
+    });
+
+    return {
+      success: true,
+      ingestionJobId,
+      ingestionStatus,
+      s3FileCount,
+      contentStats,
+      message: 'Knowledge Base ingestion started successfully'
+    };
+
+  } catch (error) {
+    console.error('Error triggering Knowledge Base ingestion:', error);
+    console.error('Error details:', error.message);
+
+    return {
+      success: false,
+      error: error.message,
+      message: 'Failed to trigger Knowledge Base ingestion'
+    };
+  }
+}
+
+/**
+ * Verify S3 content bucket has files
+ */
+async function verifyS3Content() {
+  try {
+    let fileCount = 0;
+    let continuationToken = null;
+
+    do {
+      const listParams = {
+        Bucket: CONTENT_BUCKET,
+        MaxKeys: 1000
+      };
+
+      if (continuationToken) {
+        listParams.ContinuationToken = continuationToken;
+      }
+
+      const result = await s3Client.send(new ListObjectsV2Command(listParams));
+      fileCount += result.KeyCount || 0;
+      continuationToken = result.NextContinuationToken;
+    } while (continuationToken);
+
+    return fileCount;
+  } catch (error) {
+    console.error('Error listing S3 content:', error);
+    return 0;
+  }
+}
+
+/**
+ * Get content processing statistics from DynamoDB
+ */
+async function getContentProcessingStats() {
+  const stats = {
+    totalProcessed: 0,
+    successful: 0,
+    qualityRejected: 0,
+    failed: 0
+  };
+
+  try {
+    let lastEvaluatedKey = null;
+
+    do {
+      const params = {
+        TableName: CONTENT_TRACKING_TABLE,
+        ProjectionExpression: '#status',
+        ExpressionAttributeNames: {
+          '#status': 'status'
+        }
+      };
+
+      if (lastEvaluatedKey) {
+        params.ExclusiveStartKey = lastEvaluatedKey;
+      }
+
+      const result = await dynamoClient.send(new ScanCommand(params));
+
+      // Count status types
+      for (const item of result.Items || []) {
+        const record = unmarshall(item);
+        stats.totalProcessed++;
+
+        const status = record.status?.toLowerCase() || '';
+        if (status === 'success') {
+          stats.successful++;
+        } else if (status === 'quality_rejected') {
+          stats.qualityRejected++;
+        } else if (status === 'failed' || status === 'error') {
+          stats.failed++;
+        }
+      }
+
+      lastEvaluatedKey = result.LastEvaluatedKey;
+    } while (lastEvaluatedKey);
+
+    return stats;
+  } catch (error) {
+    console.error('Error getting content processing stats:', error);
+    return stats;
+  }
+}
+
+/**
+ * Record ingestion job metadata in DynamoDB
+ */
+async function recordIngestionJobMetadata(metadata) {
+  try {
+    await dynamoClient.send(new UpdateItemCommand({
+      TableName: CONTENT_TRACKING_TABLE,
+      Key: marshall({ url: 'INGESTION_JOB_METADATA' }),
+      UpdateExpression: 'SET lastIngestionJobId = :jobId, lastIngestionTime = :time, lastIngestionStatus = :status, discoveryId = :discoveryId, s3FileCount = :fileCount, contentStats = :stats',
+      ExpressionAttributeValues: marshall({
+        ':jobId': metadata.ingestionJobId,
+        ':time': metadata.timestamp,
+        ':status': metadata.ingestionStatus,
+        ':discoveryId': metadata.discoveryId,
+        ':fileCount': metadata.s3FileCount,
+        ':stats': metadata.contentStats
+      })
+    }));
+
+    console.log('Recorded ingestion job metadata in DynamoDB');
+  } catch (error) {
+    console.error('Error recording ingestion job metadata:', error);
+    // Don't throw - this shouldn't fail the whole operation
   }
 }
 

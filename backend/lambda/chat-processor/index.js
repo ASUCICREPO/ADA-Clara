@@ -15,6 +15,7 @@ const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const { ComprehendClient, DetectDominantLanguageCommand } = require('@aws-sdk/client-comprehend');
 const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
+const crypto = require('crypto');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -114,56 +115,85 @@ async function handleChatMessage(event) {
     }
 
     const timestamp = new Date();
-    
-    // Step 1: Detect language
-    const language = await detectLanguage(request.message);
-    
-    // Step 2: Get or create session
-    const session = await getOrCreateSession(request.sessionId, language, request.userInfo);
-    
-    // Step 3: Store user message
+
+    // Step 1: Check if session exists first
+    let existingSession = null;
+    if (request.sessionId) {
+      try {
+        const result = await dynamodb.send(new GetItemCommand({
+          TableName: SESSIONS_TABLE,
+          Key: marshall({
+            PK: `SESSION#${request.sessionId}`,
+            SK: 'METADATA'
+          })
+        }));
+
+        if (result.Item) {
+          existingSession = unmarshall(result.Item);
+        }
+      } catch (error) {
+        console.log('Session not found, will create new one:', error);
+      }
+    }
+
+    // Step 2: Detect language only for new sessions (optimization)
+    let language;
+    if (existingSession) {
+      // Reuse existing session language (no API call needed)
+      language = existingSession.language || 'en';
+      console.log(`Reusing session language: ${language}`);
+    } else {
+      // New session - detect language from first message
+      language = await detectLanguage(request.message);
+      console.log(`Detected language for new session: ${language}`);
+    }
+
+    // Step 3: Get or create session (will reuse existingSession if available)
+    const session = await getOrCreateSession(request.sessionId, language, request.userInfo, existingSession);
+
+    // Step 4: Store user message
     await storeUserMessage(session.sessionId, request.message, language, timestamp);
-    
-    // Step 4: Generate response using RAG
+
+    // Step 5: Generate response using RAG
     const processingStart = Date.now();
     const ragResponse = await generateResponse(request.message, language);
     const processingTime = Date.now() - processingStart;
-    
-    // Step 5: Store bot response
+
+    // Step 6: Store bot response
     await storeBotMessage(
-      session.sessionId, 
-      ragResponse.response, 
-      language, 
-      ragResponse.confidence, 
-      ragResponse.sources, 
+      session.sessionId,
+      ragResponse.response,
+      language,
+      ragResponse.confidence,
+      ragResponse.sources,
       processingTime
     );
-    
-    // Step 6: Check for escalation
+
+    // Step 7: Check for escalation
     const escalationSuggested = shouldEscalate(ragResponse.confidence, request.message);
-    
-    // Step 6a: Handle escalation
+
+    // Step 7a: Handle escalation
     let finalResponse = ragResponse.response;
     if (escalationSuggested) {
       await createEscalation(session.sessionId, 'Low confidence or complex query');
-      
+
       // Replace generic escalation message with more helpful one
-      if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') || 
+      if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') ||
           ragResponse.response.includes('Lo siento, no puedo ayudarte con esta solicitud')) {
-        finalResponse = language === 'es' 
+        finalResponse = language === 'es'
           ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
           : 'Let me connect you with someone who can help you with that.';
       }
     }
-    
-    // Step 7: Update session activity
+
+    // Step 8: Update session activity
     try {
       await updateSessionActivity(session.sessionId);
     } catch (error) {
       console.error('Failed to update session activity:', error);
     }
-    
-    // Step 8: Record analytics
+
+    // Step 9: Record analytics
     await recordAnalytics('chat', 'message_processed', {
       sessionId: session.sessionId,
       language,
@@ -171,8 +201,8 @@ async function handleChatMessage(event) {
       escalated: escalationSuggested,
       processingTime
     });
-    
-    // Step 9: Process question for analytics
+
+    // Step 10: Process question for analytics
     try {
       await processQuestion(
         request.message,
@@ -364,29 +394,68 @@ function validateChatRequest(request) {
 }
 
 /**
- * Detect language using Comprehend
+ * Heuristic-based language detection fallback
+ * Used when AWS Comprehend is unavailable or returns no results
+ */
+function detectLanguageFallback(text) {
+  // Spanish indicators - special characters, question words, and common words
+  const spanishPatterns = [
+    // Spanish-specific characters
+    /[áéíóúñ¿¡]/i,
+    // Common Spanish question words
+    /^(qué|cómo|cuándo|dónde|por qué|quién|cuál)\s/i,
+    // Common Spanish articles and prepositions
+    /\b(el|la|los|las|un|una|de|del|por|para|con|sin|sobre)\b/i,
+    // Common Spanish verbs and expressions
+    /\b(es|son|está|están|tiene|tienen|puede|pueden|necesito|quiero|ayuda|ayúdame)\b/i,
+  ];
+
+  // Check if any Spanish pattern matches
+  const hasSpanishIndicators = spanishPatterns.some(pattern => pattern.test(text));
+
+  return hasSpanishIndicators ? 'es' : 'en';
+}
+
+/**
+ * Detect language using Comprehend with heuristic fallback
  */
 async function detectLanguage(text) {
   try {
     const result = await comprehend.send(new DetectDominantLanguageCommand({
       Text: text
     }));
-    
+
     if (result.Languages && result.Languages.length > 0) {
-      return result.Languages[0].LanguageCode || 'en';
+      return result.Languages[0].LanguageCode || detectLanguageFallback(text);
     }
-    
-    return 'en';
+
+    // No languages detected, use heuristic fallback
+    return detectLanguageFallback(text);
   } catch (error) {
-    console.error('Language detection failed:', error);
-    return 'en'; // Default to English
+    console.error('Language detection failed, using heuristic fallback:', error);
+    return detectLanguageFallback(text);
   }
 }
 
 /**
  * Get existing session or create new one
  */
-async function getOrCreateSession(sessionId, language = 'en', userInfo) {
+async function getOrCreateSession(sessionId, language = 'en', userInfo, existingSession = null) {
+  // If existingSession provided (already fetched), use it to avoid duplicate lookup
+  if (existingSession) {
+    return {
+      sessionId: existingSession.sessionId,
+      startTime: existingSession.startTime,
+      language: existingSession.language,
+      escalated: existingSession.escalated,
+      messageCount: existingSession.messageCount,
+      lastActivity: existingSession.lastActivity,
+      userInfo: existingSession.userInfo,
+      ttl: existingSession.ttl
+    };
+  }
+
+  // Fallback: Try to fetch session (for backward compatibility if called without existingSession)
   if (sessionId) {
     try {
       const result = await dynamodb.send(new GetItemCommand({
@@ -396,7 +465,7 @@ async function getOrCreateSession(sessionId, language = 'en', userInfo) {
           SK: 'METADATA'
         })
       }));
-      
+
       if (result.Item) {
         const session = unmarshall(result.Item);
         return {
@@ -557,20 +626,59 @@ function shouldEscalate(confidence, message) {
   }
 
   // Escalate if user explicitly asks for human help
-  const escalationKeywords = [
-    'talk to person', 'speak to human', 'human help', 'representative',
-    'hablar con persona', 'hablar con humano', 'ayuda humana', 'representante'
+  // Use word boundary patterns to avoid false positives (e.g., "humanely", "personal")
+  const escalationPatterns = [
+    // ENGLISH: General human contact
+    /\btalk to (a |an )?person\b/i,
+    /\bspeak to (a |an )?human\b/i,
+    /\bhuman help\b/i,
+    /\brepresentative\b/i,
+
+    // ENGLISH: Doctor/physician requests
+    /\b(talk to|speak to|speak with|see|contact|need|find) (a |an )?(doctor|physician)\b/i,
+    /\bmedical (advice|help|professional|guidance)\b/i,
+    /\b(connect|refer) me (to|with) (a |an )?(doctor|physician)\b/i,
+
+    // ENGLISH: Emergency/urgent (CRITICAL)
+    /\b(medical )?emergency\b/i,
+    /\burgent (medical )?(help|care|attention|assistance)\b/i,
+    /\bimmediate (medical )?(help|attention|care)\b/i,
+
+    // ENGLISH: Healthcare providers
+    /\b(talk to|speak to|see|need) (a |an )?(nurse|specialist|clinician)\b/i,
+    /\b(healthcare|health care) provider\b/i,
+    /\bmedical (consultation|appointment)\b/i,
+
+    // SPANISH: General human contact
+    /\bhablar con (una )?persona\b/i,
+    /\bhablar con (un )?humano\b/i,
+    /\bayuda humana\b/i,
+    /\brepresentante\b/i,
+
+    // SPANISH: Doctor/physician requests
+    /\b(hablar con|ver|contactar|necesito|encontrar) (un |una )?(médico|doctor|doctora)\b/i,
+    /\b(consejo|ayuda|orientación) médic[oa]\b/i,
+    /\b(conectar|conect|referir)([ae])?rme (con|a) (un |una )?(médico|doctor)\b/i,
+
+    // SPANISH: Emergency/urgent (CRITICAL)
+    /\bemergencia( médica)?\b/i,
+    /\bayuda urgente( médica)?\b/i,
+    /\batención (médica )?inmediata\b/i,
+
+    // SPANISH: Healthcare providers
+    /\b(hablar con|ver|necesito) (un |una )?(enfermera|enfermero|especialista)\b/i,
+    /\bproveedor de (salud|atención médica)\b/i,
+    /\bconsulta médica\b/i,
   ];
 
-  const lowerMessage = message.toLowerCase();
-  return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
+  return escalationPatterns.some(pattern => pattern.test(message));
 }
 
 /**
  * Create escalation record
  */
 async function createEscalation(sessionId, reason) {
-  const escalationId = `esc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const escalationId = `esc-${crypto.randomUUID()}`;
   
   const escalationRecord = {
     escalationId,

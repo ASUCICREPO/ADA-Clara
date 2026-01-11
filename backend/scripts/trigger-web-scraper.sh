@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Initial Knowledge Base Population Script
-# Triggers comprehensive diabetes.org domain discovery for fresh deployments
+# Web Scraper Trigger Script
+# Triggers comprehensive diabetes.org domain discovery and automatic KB ingestion
+# Can be used for initial deployment or manual refreshes between scheduled scrapes
 # Compatible with AdaClaraUnifiedStack
 
 set -e
@@ -18,7 +19,7 @@ NC='\033[0m' # No Color
 STACK_NAME="AdaClaraUnifiedStack"
 REGION=${AWS_REGION:-$(aws configure get region 2>/dev/null || echo "us-west-2")}
 
-echo -e "${PURPLE}[INITIAL SCRAPING]${NC} 🚀 Starting Initial Knowledge Base Population"
+echo -e "${PURPLE}[WEB SCRAPER]${NC} 🚀 Starting Knowledge Base Population"
 echo -e "${BLUE}[INFO]${NC} Stack: $STACK_NAME"
 echo -e "${BLUE}[INFO]${NC} Region: $REGION"
 echo ""
@@ -95,7 +96,7 @@ echo ""
 echo -e "${BLUE}[INFO]${NC} ⏳ Waiting for Lambda functions to be ready..."
 sleep 10
 
-# Create comprehensive discovery payload for initial scraping
+# Create comprehensive discovery payload
 DISCOVERY_PAYLOAD=$(cat << 'EOF'
 {
   "action": "discover-domain",
@@ -105,16 +106,16 @@ DISCOVERY_PAYLOAD=$(cat << 'EOF'
   "priorityFilter": 50,
   "forceRefresh": true,
   "initialScraping": true,
-  "description": "Initial knowledge base population for fresh deployment"
+  "description": "Knowledge base population triggered by web scraper script"
 }
 EOF
 )
 
-echo -e "${BLUE}[INFO]${NC} 📄 Initial scraping payload:"
+echo -e "${BLUE}[INFO]${NC} 📄 Web scraper payload:"
 echo "$DISCOVERY_PAYLOAD" | jq '.' 2>/dev/null || echo "$DISCOVERY_PAYLOAD"
 echo ""
 
-echo -e "${PURPLE}[INITIAL SCRAPING]${NC} 🔍 Starting comprehensive domain discovery..."
+echo -e "${PURPLE}[WEB SCRAPER]${NC} 🔍 Starting comprehensive domain discovery..."
 echo -e "${BLUE}[INFO]${NC} This will discover ~1200 high-quality URLs from diabetes.org"
 echo -e "${BLUE}[INFO]${NC} Processing will take approximately 15-20 minutes"
 echo ""
@@ -168,17 +169,21 @@ echo "  1. 🔍 Domain Discovery Lambda parses diabetes.org sitemaps"
 echo "  2. 🎯 URLs are filtered and prioritized (Spanish + advocacy content prioritized)"
 echo "  3. 📦 High-priority URLs are batched (15 URLs per batch)"
 echo "  4. 📨 URL batches are sent to SQS queue for processing"
-echo "  5. ⚡ Content Processor Lambda instances process batches concurrently"
-echo "  6. 🧹 Content is enhanced, quality-assessed, and change-detected"
-echo "  7. 💾 High-quality content is stored in S3 as Markdown files"
-echo "  8. 🧠 Knowledge base can then ingest the processed content"
+echo "  5. 🔔 Two sentinel messages queued (prepare + trigger with 5-min delay)"
+echo "  6. ⚡ Content Processor Lambda instances process batches concurrently"
+echo "  7. 🧹 Content is enhanced, quality-assessed, and change-detected"
+echo "  8. 💾 High-quality content is stored in S3 as Markdown files"
+echo "  9. 🤖 After 5 minutes, KB ingestion triggers AUTOMATICALLY"
+echo "  10. 🧠 Knowledge Base ingests all processed content"
 echo ""
 echo -e "${BLUE}Expected Results:${NC}"
 echo "  - ~1200 URLs discovered from sitemap"
 echo "  - ~80 batches created (15 URLs each)"
 echo "  - ~1000+ high-quality pages processed and stored"
 echo "  - Content stored in web_content/ folder in S3"
-echo "  - Processing completes in 15-20 minutes"
+echo "  - Content processing completes in 15-20 minutes"
+echo "  - KB ingestion triggers automatically 5 minutes after queuing completes"
+echo "  - Total time: ~20-25 minutes for complete KB population"
 echo ""
 # Monitoring information
 echo -e "${BLUE}🔍 Monitor progress:${NC}"
@@ -234,15 +239,23 @@ if [ ! -z "$SQS_QUEUE_URL" ]; then
 fi
 
 echo ""
-echo "  # Trigger knowledge base ingestion (after content processing completes):"
-if [ ! -z "$KNOWLEDGE_BASE_ID" ]; then
-  echo "  aws bedrock-agent start-ingestion-job --knowledge-base-id '$KNOWLEDGE_BASE_ID' --data-source-id <DATA_SOURCE_ID>"
+echo "  # Check KB ingestion status (triggers automatically after processing):"
+if [ ! -z "$CONTENT_BUCKET" ]; then
+  echo "  aws logs tail /aws/lambda/$CONTENT_PROCESSOR_FUNCTION --follow --region $REGION | grep -i 'ingestion'"
 fi
 
 echo ""
 echo -e "${GREEN}[SUCCESS]${NC} 🎉 Initial scraping trigger completed!"
 echo -e "${BLUE}[INFO]${NC} The knowledge base population is now running in the background."
 echo -e "${BLUE}[INFO]${NC} Monitor the CloudWatch logs above to track progress."
+echo ""
+echo -e "${PURPLE}[AUTOMATIC KB INGESTION]${NC} 🤖"
+echo -e "${BLUE}[INFO]${NC} Knowledge Base ingestion will trigger automatically!"
+echo -e "${BLUE}[INFO]${NC} Timeline:"
+echo "  - Content processing: 15-20 minutes"
+echo "  - Sentinel delay: 5 minutes (allows in-flight batches to complete)"
+echo "  - KB ingestion trigger: Automatic"
+echo "  - No manual intervention required!"
 
 # Clean up response file
 rm -f response.json

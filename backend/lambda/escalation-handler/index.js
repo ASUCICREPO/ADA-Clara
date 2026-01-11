@@ -8,20 +8,26 @@
  * - GET /escalation/health - Health check
  */
 
-const { DynamoDBClient, PutItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, PutItemCommand, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
+const crypto = require('crypto');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables - No fallbacks for table names (must be set by CDK)
 const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
+const FRONTEND_URL = process.env.FRONTEND_URL || '*'; // Frontend URL for CORS (defaults to wildcard in dev)
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MINUTES = 60; // Time window for rate limiting
+const MAX_SUBMISSIONS_PER_EMAIL = 3; // Max submissions per email within window
 
 /**
  * Main Lambda handler
  */
 exports.handler = async (event) => {
-  console.log('Escalation handler invoked:', JSON.stringify(event, null, 2));
+  console.log('Escalation handler invoked:', JSON.stringify(redactPII(event), null, 2));
 
   try {
     const path = event.path;
@@ -87,16 +93,25 @@ async function handleEscalationRequest(event) {
       });
     }
 
+    // Check rate limiting
+    const rateLimitCheck = await checkRateLimit(request.email);
+    if (!rateLimitCheck.allowed) {
+      return createResponse(429, {
+        error: 'Rate limit exceeded',
+        message: rateLimitCheck.message
+      });
+    }
+
     // Create escalation record
     const now = new Date();
-    const escalationId = `esc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const escalationId = `esc-${crypto.randomUUID()}`;
 
     const escalationRecord = {
       escalationId,
-      name: request.name.trim(),
-      email: request.email.trim().toLowerCase(), // Convert to lowercase like original
-      phoneNumber: request.phoneNumber?.trim() || undefined,
-      zipCode: request.zipCode?.trim() || undefined,
+      name: sanitizeInput(request.name),
+      email: sanitizeInput(request.email).toLowerCase(),
+      phoneNumber: request.phoneNumber ? sanitizeInput(request.phoneNumber) : undefined,
+      zipCode: request.zipCode ? sanitizeInput(request.zipCode) : undefined,
       dateTime: now.toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -116,7 +131,7 @@ async function handleEscalationRequest(event) {
       Item: marshall(escalationRecord, { removeUndefinedValues: true })
     }));
 
-    console.log(`Escalation request created: ${escalationId} for ${request.email}`);
+    console.log(`Escalation request created: ${escalationId} for ${request.email ? request.email[0] + '***@' + request.email.split('@')[1] : '[no-email]'}`);
 
     return createResponse(200, {
       success: true,
@@ -143,8 +158,9 @@ async function getEscalationRequests(event) {
       parseInt(event.queryStringParameters.limit) : 10;
     const page = event.queryStringParameters?.page ?
       parseInt(event.queryStringParameters.page) : 1;
+    const search = event.queryStringParameters?.search?.trim() || '';
 
-    console.log(`Getting escalation requests: page=${page}, limit=${limit}`);
+    console.log(`Getting escalation requests: page=${page}, limit=${limit}, search="${search}"`);
 
     // Validate parameters
     if (isNaN(limit) || limit < 1 || limit > 100) {
@@ -161,28 +177,41 @@ async function getEscalationRequests(event) {
       });
     }
 
-    // Scan DynamoDB table
-    const scanResult = await dynamodb.send(new ScanCommand({
+    // Use GSI to query only form_submit escalations, sorted by timestamp
+    // This is much more efficient than scanning the entire table
+    const queryResult = await dynamodb.send(new QueryCommand({
       TableName: ESCALATION_TABLE,
-      Limit: 1000 // Get all items to filter and paginate
+      IndexName: 'SourceIndex',
+      KeyConditionExpression: '#source = :formSubmit',
+      ExpressionAttributeNames: {
+        '#source': 'source'
+      },
+      ExpressionAttributeValues: marshall({
+        ':formSubmit': 'form_submit'
+      }),
+      ScanIndexForward: false, // Sort descending (newest first)
+      Limit: 1000 // Reasonable limit for pagination
     }));
 
-    const allItems = scanResult.Items?.map(item => unmarshall(item)) || [];
+    let allItems = queryResult.Items?.map(item => unmarshall(item)) || [];
 
-    // Filter to only include requests submitted via Submit button
-    const submittedItems = allItems.filter(item => 
-      item.escalationId && item.source === 'form_submit'
-    );
+    console.log(`Found ${allItems.length} submitted escalation requests using GSI`);
 
-    console.log(`Found ${submittedItems.length} submitted escalation requests out of ${allItems.length} total`);
+    // Apply search filter if provided
+    if (search) {
+      const searchLower = search.toLowerCase();
+      allItems = allItems.filter(item => {
+        const name = (item.name || '').toLowerCase();
+        const email = (item.email || '').toLowerCase();
+        return name.includes(searchLower) || email.includes(searchLower);
+      });
+      console.log(`After search filter: ${allItems.length} results matching "${search}"`);
+    }
 
-    // Sort by timestamp (newest first)
-    submittedItems.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    // Paginate
+    // Paginate in-memory (could be improved with DynamoDB pagination tokens)
     const startIndex = (page - 1) * limit;
     const endIndex = startIndex + limit;
-    const paginatedItems = submittedItems.slice(startIndex, endIndex);
+    const paginatedItems = allItems.slice(startIndex, endIndex);
 
     // Format response
     const requests = paginatedItems.map(item => ({
@@ -193,11 +222,11 @@ async function getEscalationRequests(event) {
       dateTime: item.dateTime || 'N/A'
     }));
 
-    console.log(`Returning ${requests.length} requests for page ${page}, total: ${submittedItems.length}`);
+    console.log(`Returning ${requests.length} requests for page ${page}, total: ${allItems.length}`);
 
     return createResponse(200, {
       requests,
-      total: submittedItems.length
+      total: allItems.length
     });
 
   } catch (error) {
@@ -245,28 +274,42 @@ function validateEscalationRequest(request) {
     return { valid: false, message: 'Name is required' };
   }
 
+  if (request.name.trim().length > 100) {
+    return { valid: false, message: 'Name must be 100 characters or less' };
+  }
+
   if (!request.email || typeof request.email !== 'string' || request.email.trim().length === 0) {
     return { valid: false, message: 'Email is required' };
   }
 
-  // Basic email validation
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (request.email.trim().length > 255) {
+    return { valid: false, message: 'Email must be 255 characters or less' };
+  }
+
+  // More strict email validation
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
   if (!emailRegex.test(request.email.trim())) {
     return { valid: false, message: 'Please provide a valid email address' };
   }
 
   // Validate optional phone number format if provided (like original)
   if (request.phoneNumber && request.phoneNumber.trim().length > 0) {
+    if (request.phoneNumber.trim().length > 20) {
+      return { valid: false, message: 'Phone number must be 20 characters or less' };
+    }
     const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
     const cleanPhone = request.phoneNumber.replace(/[\s\-\(\)\.]/g, '');
     if (!phoneRegex.test(cleanPhone)) {
       // Don't fail validation, just log warning like original
-      console.warn('Invalid phone number format provided:', request.phoneNumber);
+      console.warn('Invalid phone number format provided:', '***-***-' + request.phoneNumber.slice(-4));
     }
   }
 
   // Validate optional zip code format if provided (like original)
   if (request.zipCode && request.zipCode.trim().length > 0) {
+    if (request.zipCode.trim().length > 10) {
+      return { valid: false, message: 'ZIP code must be 10 characters or less' };
+    }
     const zipRegex = /^\d{5}(-\d{4})?$/;
     if (!zipRegex.test(request.zipCode.trim())) {
       // Don't fail validation, just log warning like original
@@ -278,16 +321,141 @@ function validateEscalationRequest(request) {
 }
 
 /**
- * Create standardized API response
+ * Check rate limiting for escalation submissions
+ * Prevents spam by limiting submissions per email address
+ */
+async function checkRateLimit(email) {
+  try {
+    const now = Date.now();
+    const windowStart = new Date(now - (RATE_LIMIT_WINDOW_MINUTES * 60 * 1000)).toISOString();
+
+    // Query recent submissions from the same email
+    const scanResult = await dynamodb.send(new ScanCommand({
+      TableName: ESCALATION_TABLE,
+      FilterExpression: '#email = :email AND #timestamp > :windowStart',
+      ExpressionAttributeNames: {
+        '#email': 'email',
+        '#timestamp': 'timestamp'
+      },
+      ExpressionAttributeValues: marshall({
+        ':email': email.toLowerCase(),
+        ':windowStart': windowStart
+      }),
+      Select: 'COUNT'
+    }));
+
+    const recentSubmissions = scanResult.Count || 0;
+
+    if (recentSubmissions >= MAX_SUBMISSIONS_PER_EMAIL) {
+      return {
+        allowed: false,
+        message: `Too many requests. Please wait ${RATE_LIMIT_WINDOW_MINUTES} minutes before submitting again.`
+      };
+    }
+
+    return { allowed: true };
+  } catch (error) {
+    console.error('Error checking rate limit:', error);
+    // Fail open - allow submission if rate limit check fails
+    return { allowed: true };
+  }
+}
+
+/**
+ * Redact PII from data before logging to CloudWatch
+ * Masks email addresses, phone numbers, and other sensitive data
+ */
+function redactPII(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const redacted = JSON.parse(JSON.stringify(obj)); // Deep clone
+
+  function redactRecursive(item) {
+    if (Array.isArray(item)) {
+      return item.map(redactRecursive);
+    }
+
+    if (item && typeof item === 'object') {
+      const result = {};
+      for (const [key, value] of Object.entries(item)) {
+        const lowerKey = key.toLowerCase();
+
+        // Redact email addresses
+        if (lowerKey.includes('email')) {
+          if (typeof value === 'string' && value.includes('@')) {
+            const parts = value.split('@');
+            result[key] = `${parts[0][0]}***@${parts[1]}`;
+          } else {
+            result[key] = '[REDACTED-EMAIL]';
+          }
+        }
+        // Redact phone numbers
+        else if (lowerKey.includes('phone')) {
+          result[key] = typeof value === 'string' && value.length > 0 ? '***-***-' + value.slice(-4) : '[REDACTED-PHONE]';
+        }
+        // Redact names
+        else if (lowerKey === 'name') {
+          result[key] = typeof value === 'string' && value.length > 0 ? value[0] + '***' : '[REDACTED-NAME]';
+        }
+        // Redact body content which might contain PII
+        else if (lowerKey === 'body' && typeof value === 'string') {
+          try {
+            const parsed = JSON.parse(value);
+            result[key] = JSON.stringify(redactRecursive(parsed));
+          } catch {
+            result[key] = '[REDACTED-BODY]';
+          }
+        }
+        // Recursively handle nested objects
+        else if (value && typeof value === 'object') {
+          result[key] = redactRecursive(value);
+        }
+        // Keep other fields as-is
+        else {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+
+    return item;
+  }
+
+  return redactRecursive(redacted);
+}
+
+/**
+ * Sanitize user input to prevent XSS and injection attacks
+ * Removes HTML tags, control characters, and normalizes whitespace
+ */
+function sanitizeInput(input) {
+  if (!input || typeof input !== 'string') return input;
+
+  return input
+    .trim()
+    // Remove HTML tags (greedy to catch everything between < and >)
+    .replace(/<[^>]*>?/gm, '')
+    // Remove any remaining < or > characters
+    .replace(/[<>]/g, '')
+    // Remove control characters except newlines and tabs
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, '')
+    // Normalize multiple spaces/newlines
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Create standardized API response with CORS headers
  */
 function createResponse(statusCode, body) {
   return {
     statusCode,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': FRONTEND_URL,
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS'
+      'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+      'Access-Control-Allow-Credentials': 'true'
     },
     body: typeof body === 'string' ? body : JSON.stringify(body)
   };
