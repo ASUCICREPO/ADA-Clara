@@ -39,7 +39,8 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly identityPool: cognito.CfnIdentityPool;
 
   // Lambda Functions
-  public readonly chatProcessor: lambda.Function;
+  public readonly chatHandler: lambda.Function;
+  public readonly chatDataProcessor: lambda.Function;
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
   public readonly ragProcessor: lambda.Function;
@@ -672,35 +673,64 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.contentBucket.grantRead(this.ragProcessor);
 
-    // Create log group for chat processor
-    const chatProcessorLogGroup = new logs.LogGroup(this, 'ChatProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-processor${stackSuffix}`,
+    // ========== CHAT HANDLER LAMBDA (NEW) ==========
+    // Minimal latency, user-facing chat processor
+    const chatHandlerLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-handler${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Chat Processor Lambda
-    this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
-      functionName: `ada-clara-chat-processor${stackSuffix}`,
+    this.chatHandler = new lambda.Function(this, 'ChatHandler', {
+      functionName: `ada-clara-chat-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-processor'),
+      code: lambda.Code.fromAsset('lambda/chat-handler'),
       timeout: Duration.seconds(30),
       memorySize: 512,
-      logGroup: chatProcessorLogGroup,
+      logGroup: chatHandlerLogGroup,
       role: lambdaExecutionRole,
       environment: {
-        SESSIONS_TABLE: this.chatSessionsTable.tableName,
+        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
+        MESSAGES_TABLE: this.messagesTable.tableName,
+        RAG_FUNCTION_NAME: this.ragProcessor.functionName,
+        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
+        // CHAT_DATA_PROCESSOR_FUNCTION will be set after chat-data-processor is created
+      },
+    });
+
+    // ========== CHAT DATA PROCESSOR LAMBDA (NEW) ==========
+    // Async analytics and data processing
+    const chatDataProcessorLogGroup = new logs.LogGroup(this, 'ChatDataProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-data-processor${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    this.chatDataProcessor = new lambda.Function(this, 'ChatDataProcessor', {
+      functionName: `ada-clara-chat-data-processor${stackSuffix}`,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/chat-data-processor'),
+      timeout: Duration.seconds(60), // Longer timeout for analytics processing
+      memorySize: 512,
+      logGroup: chatDataProcessorLogGroup,
+      role: lambdaExecutionRole,
+      environment: {
+        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         MESSAGES_TABLE: this.messagesTable.tableName,
         ANALYTICS_TABLE: this.analyticsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
-        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL to Lambda for CORS
-        // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
-        // Note: CONVERSATIONS_TABLE removed - not used by chat processor
+        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
       },
     });
+
+    // Grant chat-handler permission to invoke chat-data-processor asynchronously
+    this.chatDataProcessor.grantInvoke(this.chatHandler);
+
+    // Update chat-handler environment with chat-data-processor function name
+    this.chatHandler.addEnvironment('CHAT_DATA_PROCESSOR_FUNCTION', this.chatDataProcessor.functionName);
 
     // Create log group for escalation handler
     const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
@@ -750,26 +780,41 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // Grant DynamoDB permissions
-    this.chatSessionsTable.grantReadWriteData(this.chatProcessor);
-    this.messagesTable.grantReadWriteData(this.chatProcessor);
-    this.analyticsTable.grantReadWriteData(this.chatProcessor);
+    // Chat Handler (minimal - only sessions and messages)
+    this.chatSessionsTable.grantReadWriteData(this.chatHandler);
+    this.messagesTable.grantReadWriteData(this.chatHandler);
+
+    // Chat Data Processor (analytics write access)
+    this.chatSessionsTable.grantReadWriteData(this.chatDataProcessor);
+    this.messagesTable.grantReadData(this.chatDataProcessor);
+    this.analyticsTable.grantReadWriteData(this.chatDataProcessor);
+    this.escalationRequestsTable.grantReadWriteData(this.chatDataProcessor);
+    this.questionsTable.grantReadWriteData(this.chatDataProcessor);
+
+    // Escalation Handler
     this.escalationRequestsTable.grantReadWriteData(this.escalationHandler);
-    this.escalationRequestsTable.grantReadWriteData(this.chatProcessor);
-    this.questionsTable.grantReadWriteData(this.chatProcessor);
+
+    // Admin Analytics (read-only)
     this.analyticsTable.grantReadData(this.adminAnalytics);
-    // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
     this.questionsTable.grantReadData(this.adminAnalytics);
     this.chatSessionsTable.grantReadData(this.adminAnalytics);
     this.escalationRequestsTable.grantReadData(this.adminAnalytics);
 
     // ========== API GATEWAY ROUTES ==========
-    // Health endpoint
-    this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatProcessor));
+    // Health endpoint (chat-handler)
+    this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatHandler));
 
     // Chat endpoints
     const chatResource = this.api.root.addResource('chat');
-    chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.chatProcessor));
-    chatResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatProcessor));
+    // POST /chat -> chat-handler (user-facing, minimal latency)
+    chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.chatHandler));
+
+    // Chat history and sessions -> chat-data-processor
+    const chatHistoryResource = chatResource.addResource('history');
+    chatHistoryResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
+
+    const chatSessionsResource = chatResource.addResource('sessions');
+    chatSessionsResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
 
     // Escalation endpoints
     const escalationResource = this.api.root.addResource('escalation');
@@ -869,19 +914,8 @@ export class AdaClaraUnifiedStack extends Stack {
       authorizer: cognitoAuthorizer,
     });
 
-    // Update chat processor environment with RAG endpoint and function name (AFTER all API Gateway methods are created)
-    // Construct API URL manually to avoid circular dependency
-    // Using Fn.join to construct URL from API Gateway ID and region avoids the circular dependency
-    // Must use Fn.join for the full URL including /query path to work correctly with CloudFormation tokens
-    const ragEndpoint = Fn.join('', [
-      'https://',
-      this.api.restApiId,
-      '.execute-api.',
-      this.region,
-      '.amazonaws.com/prod/query'
-    ]);
-    this.chatProcessor.addEnvironment('RAG_ENDPOINT', ragEndpoint);
-    this.chatProcessor.addEnvironment('RAG_FUNCTION_NAME', this.ragProcessor.functionName);
+    // Note: chat-handler already has RAG_FUNCTION_NAME set during creation
+    // No additional RAG configuration needed here
 
     // ========== AMPLIFY APP ==========
     // Amplify app is created by deploy.sh script before CDK deployment
