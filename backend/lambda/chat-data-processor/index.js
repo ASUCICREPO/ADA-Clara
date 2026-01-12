@@ -3,28 +3,27 @@
  * Async analytics and data processing
  *
  * Responsibilities:
- * - Language detection for new sessions
+ * - AI-powered language detection and question categorization (single Haiku call)
  * - Update session activity
  * - Record analytics events
- * - Process questions with AI categorization
- * - Check escalation conditions
  * - Create escalation records
  * - Handle GET endpoints (history, sessions)
  *
  * Invocation:
  * - Async from chat-handler (fire and forget)
  * - Sync from API Gateway for GET endpoints
+ *
+ * NOTE: Language detection now uses Haiku instead of Comprehend
+ * This eliminates AWS Comprehend dependency and reduces API calls
  */
 
 const { DynamoDBClient, PutItemCommand, ScanCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
-const { ComprehendClient, DetectDominantLanguageCommand } = require('@aws-sdk/client-comprehend');
 const { BedrockRuntimeClient, InvokeModelCommand } = require('@aws-sdk/client-bedrock-runtime');
 const crypto = require('crypto');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
-const comprehend = new ComprehendClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const bedrockRuntime = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
@@ -99,13 +98,36 @@ async function processChatAnalytics(event) {
       escalationSuggested // Now passed from chat-handler
     } = event;
 
-    // STEP 1: Detect language for new sessions (or update existing)
-    let language = detectedLanguage;
-    if (isNewSession && userMessage) {
-      language = await detectLanguage(userMessage);
-      console.log(`Detected language for new session: ${language}`);
+    // STEP 1: Create escalation record if needed (escalation already determined by chat-handler)
+    if (escalationSuggested) {
+      await createEscalation(sessionId, 'Low confidence or complex query');
+    }
 
-      // Update session with detected language
+    // STEP 2: Update session activity
+    try {
+      await updateSessionActivity(sessionId);
+    } catch (error) {
+      console.error('Failed to update session activity:', error);
+    }
+
+    // STEP 3: Process question for analytics (includes AI language detection + categorization in ONE call)
+    let finalLanguage = detectedLanguage;
+    try {
+      finalLanguage = await processQuestion(
+        userMessage,
+        botResponse,
+        confidence,
+        detectedLanguage,
+        sessionId,
+        escalationSuggested
+      );
+      console.log(`AI detected language: ${finalLanguage}`);
+    } catch (error) {
+      console.error('Failed to process question for analytics:', error);
+    }
+
+    // STEP 4: Update session with AI-detected language (for new sessions or language corrections)
+    if (isNewSession || finalLanguage !== detectedLanguage) {
       try {
         await dynamodb.send(new UpdateItemCommand({
           TableName: SESSIONS_TABLE,
@@ -118,48 +140,23 @@ async function processChatAnalytics(event) {
             '#lang': 'language'
           },
           ExpressionAttributeValues: marshall({
-            ':language': language
+            ':language': finalLanguage
           })
         }));
+        console.log(`Updated session language to: ${finalLanguage}`);
       } catch (error) {
         console.error('Failed to update session language:', error);
       }
     }
 
-    // STEP 2: Create escalation record if needed (escalation already determined by chat-handler)
-    if (escalationSuggested) {
-      await createEscalation(sessionId, 'Low confidence or complex query');
-    }
-
-    // STEP 4: Update session activity
-    try {
-      await updateSessionActivity(sessionId);
-    } catch (error) {
-      console.error('Failed to update session activity:', error);
-    }
-
-    // STEP 5: Record analytics
+    // STEP 5: Record analytics with final language
     await recordAnalytics('chat', 'message_processed', {
       sessionId,
-      language,
+      language: finalLanguage,
       confidence,
       escalated: escalationSuggested,
       processingTime
     });
-
-    // STEP 6: Process question for analytics
-    try {
-      await processQuestion(
-        userMessage,
-        botResponse,
-        confidence,
-        language,
-        sessionId,
-        escalationSuggested
-      );
-    } catch (error) {
-      console.error('Failed to process question for analytics:', error);
-    }
 
     console.log('Chat analytics processing completed successfully');
 
@@ -194,25 +191,8 @@ function detectLanguageFallback(text) {
   return hasSpanishIndicators ? 'es' : 'en';
 }
 
-/**
- * Detect language using Comprehend with heuristic fallback
- */
-async function detectLanguage(text) {
-  try {
-    const result = await comprehend.send(new DetectDominantLanguageCommand({
-      Text: text
-    }));
-
-    if (result.Languages && result.Languages.length > 0) {
-      return result.Languages[0].LanguageCode || detectLanguageFallback(text);
-    }
-
-    return detectLanguageFallback(text);
-  } catch (error) {
-    console.error('Language detection failed, using heuristic fallback:', error);
-    return detectLanguageFallback(text);
-  }
-}
+// NOTE: Language detection now handled by AI in categorizeAndDetectLanguage()
+// This eliminates the need for AWS Comprehend and reduces to a single Haiku call
 
 /**
  * Create escalation record
@@ -282,19 +262,19 @@ async function recordAnalytics(category, action, data) {
 }
 
 /**
- * Process question for analytics with AI-powered categorization
+ * Process question for analytics with AI-powered categorization and language detection
  */
 async function processQuestion(question, response, confidence, language, sessionId, escalated) {
   try {
-    // Get AI-powered category
-    const category = await categorizeQuestion(question, language);
+    // Get AI-powered category (and language if not already detected)
+    const { category, detectedLanguage } = await categorizeAndDetectLanguage(question, language);
 
     const questionRecord = {
       questionId: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       question,
       response,
       confidence,
-      language,
+      language: detectedLanguage, // Use AI-detected language if available
       sessionId,
       escalated,
       category,
@@ -307,15 +287,20 @@ async function processQuestion(question, response, confidence, language, session
       TableName: QUESTIONS_TABLE,
       Item: marshall(questionRecord, { removeUndefinedValues: true })
     }));
+
+    // Return detected language for session update
+    return detectedLanguage;
   } catch (error) {
     console.error('Failed to process question:', error);
+    return language; // Return original language on error
   }
 }
 
 /**
- * Categorize question using AI
+ * Categorize question AND detect language using AI (single Haiku call)
+ * This replaces separate Comprehend language detection + Haiku categorization
  */
-async function categorizeQuestion(question, language = 'en') {
+async function categorizeAndDetectLanguage(question, knownLanguage = null) {
   try {
     const categories = [
       'type-1-diabetes',
@@ -334,41 +319,28 @@ async function categorizeQuestion(question, language = 'en') {
       'non-diabetes-related'
     ];
 
-    const prompt = language === 'es'
-      ? `Clasifica esta pregunta en UNA de estas categorías:
-${categories.join(', ')}
+    // Single prompt that handles BOTH language detection and categorization
+    const prompt = `Analyze this question and respond with TWO pieces of information in JSON format:
+1. Language code: "en" for English or "es" for Spanish
+2. Category: ONE of these categories: ${categories.join(', ')}
 
-IMPORTANTE: Si la pregunta NO está relacionada con diabetes en absoluto, usa "non-diabetes-related".
-
-Ejemplos:
-- "¿Qué es la diabetes?" → general-information
-- "¿Qué debo comer?" → diet-nutrition
-- "¿Cómo está el clima?" → non-diabetes-related
-- "¿Quién ganó el partido?" → non-diabetes-related
-
-Pregunta: "${question}"
-
-Responde SOLO con el nombre de la categoría.`
-      : `Classify this question into ONE of these categories:
-${categories.join(', ')}
-
-IMPORTANT: If the question is NOT related to diabetes at all, use "non-diabetes-related".
+Rules:
+- If the question is NOT about diabetes at all, use "non-diabetes-related"
+- Respond ONLY with valid JSON in this exact format: {"language": "en", "category": "category-name"}
 
 Examples:
-- "What is diabetes?" → general-information
-- "What foods should I eat?" → diet-nutrition
-- "What's the weather like?" → non-diabetes-related
-- "Who won the game?" → non-diabetes-related
+- "What is diabetes?" → {"language": "en", "category": "general-information"}
+- "¿Qué debo comer?" → {"language": "es", "category": "diet-nutrition"}
+- "What's the weather like?" → {"language": "en", "category": "non-diabetes-related"}
+- "¿Quién ganó el partido?" → {"language": "es", "category": "non-diabetes-related"}
 
-Question: "${question}"
-
-Respond with ONLY the category name.`;
+Question: "${question}"`;
 
     const bedrockCommand = new InvokeModelCommand({
       modelId: 'anthropic.claude-3-haiku-20240307-v1:0',
       body: JSON.stringify({
         anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 50,
+        max_tokens: 100,
         temperature: 0,
         messages: [{
           role: 'user',
@@ -379,18 +351,28 @@ Respond with ONLY the category name.`;
 
     const response = await bedrockRuntime.send(bedrockCommand);
     const result = JSON.parse(new TextDecoder().decode(response.body));
+    const responseText = result.content[0].text.trim();
 
-    const category = result.content[0].text.trim().toLowerCase();
+    // Parse JSON response
+    const parsed = JSON.parse(responseText);
+    const detectedLanguage = parsed.language || knownLanguage || 'en';
+    const category = parsed.category?.toLowerCase();
 
+    // Validate category
     if (categories.includes(category)) {
-      return category;
+      return { category, detectedLanguage };
     } else {
-      return classifyByKeywords(question, language);
+      // Fallback to keyword-based classification
+      const fallbackCategory = classifyByKeywords(question, detectedLanguage);
+      return { category: fallbackCategory, detectedLanguage };
     }
 
   } catch (error) {
-    console.error('AI categorization failed, falling back to keywords:', error);
-    return classifyByKeywords(question, language);
+    console.error('AI categorization and language detection failed, falling back:', error);
+    // Use heuristic fallback for both language and category
+    const detectedLanguage = knownLanguage || detectLanguageFallback(question);
+    const category = classifyByKeywords(question, detectedLanguage);
+    return { category, detectedLanguage };
   }
 }
 
@@ -619,17 +601,9 @@ async function handleHealthCheck(event) {
       services.dynamodb = false;
     }
 
-    // Test Comprehend
-    try {
-      await comprehend.send(new DetectDominantLanguageCommand({
-        Text: 'test'
-      }));
-      services.comprehend = true;
-    } catch (error) {
-      services.comprehend = false;
-    }
+    // Note: Comprehend no longer used - language detection now uses Haiku
 
-    const overall = services.dynamodb && services.comprehend;
+    const overall = services.dynamodb;
 
     return createResponse(overall ? 200 : 503, {
       status: overall ? 'healthy' : 'unhealthy',
