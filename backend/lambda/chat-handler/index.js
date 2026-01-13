@@ -1,22 +1,26 @@
 /**
  * Chat Handler Lambda
- * Minimal latency, user-facing chat processor
+ * Minimal latency, user-facing chat processor (called by Step Functions)
  *
  * Responsibilities:
  * - Validate chat requests
  * - Manage sessions (get/create)
  * - Store user message
- * - Call RAG processor (synchronous)
+ * - Call RAG processor (synchronous via Lambda SDK for lowest latency)
  * - Store bot response
- * - Async invoke chat-data-processor
- * - Return response immediately to frontend
+ * - Check for escalation
+ * - Return structured data to Step Functions
  *
  * What this Lambda DOES NOT do:
- * - Language detection (done by chat-data-processor)
- * - Analytics recording (done by chat-data-processor)
- * - Question categorization (done by chat-data-processor)
- * - Escalation logic (done by chat-data-processor)
- * - Session activity updates (done by chat-data-processor)
+ * - Language detection (done by chat-data-processor async)
+ * - Analytics recording (done by chat-data-processor async)
+ * - Question categorization (done by chat-data-processor async)
+ * - Session activity updates (done by chat-data-processor async)
+ * - EventBridge publish (done by Step Functions)
+ *
+ * Note: This Lambda can be invoked in two modes:
+ * 1. Via Step Functions (event is JSON payload) - returns structured data
+ * 2. Via API Gateway directly (for health checks) - returns HTTP response
  */
 
 const { DynamoDBClient, PutItemCommand, GetItemCommand } = require('@aws-sdk/client-dynamodb');
@@ -31,155 +35,170 @@ const lambda = new LambdaClient({ region: process.env.AWS_REGION || 'us-west-2' 
 const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
 const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
 const RAG_FUNCTION_NAME = process.env.RAG_FUNCTION_NAME;
-const CHAT_DATA_PROCESSOR_FUNCTION = process.env.CHAT_DATA_PROCESSOR_FUNCTION;
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
 
 /**
  * Main Lambda handler
+ * Supports two invocation modes:
+ * 1. Step Functions (direct JSON payload)
+ * 2. API Gateway (HTTP request for health checks)
  */
 exports.handler = async (event) => {
   console.log('Chat handler invoked:', JSON.stringify(event, null, 2));
 
   try {
-    // Normalize path - remove stage prefix if present
-    let path = event.path;
-    if (path.startsWith('/prod/')) {
-      path = path.replace('/prod', '');
-    } else if (path.startsWith('/dev/')) {
-      path = path.replace('/dev', '');
-    } else if (path.startsWith('/staging/')) {
-      path = path.replace('/staging', '');
-    }
+    // Detect invocation source
+    const isApiGateway = event.httpMethod && event.path;
 
-    const method = event.httpMethod;
-
-    // Route requests
-    if (method === 'POST' && (path === '/chat' || path.endsWith('/chat'))) {
-      return await handleChatMessage(event);
-    } else if (method === 'GET' && (path === '/health' || path === '/chat/health' || path.endsWith('/health'))) {
-      return await handleHealthCheck(event);
-    } else if (method === 'OPTIONS') {
-      return createResponse(200, '', event);
+    if (isApiGateway) {
+      // API Gateway invocation (health checks, legacy support)
+      return await handleApiGatewayRequest(event);
     } else {
-      return createResponse(404, {
-        error: 'Endpoint not found',
-        availableEndpoints: [
-          'POST /chat',
-          'GET /health'
-        ]
-      }, event);
+      // Step Functions invocation (direct JSON payload)
+      return await handleStepFunctionsRequest(event);
     }
 
   } catch (error) {
     console.error('Chat handler error:', error);
-    return createResponse(500, {
-      error: 'Internal server error',
-      message: error.message || 'Unknown error occurred'
-    }, event);
+
+    // Return format depends on invocation source
+    if (event.httpMethod) {
+      return createResponse(500, {
+        error: 'Internal server error',
+        message: error.message || 'Unknown error occurred'
+      }, event);
+    } else {
+      throw error; // Let Step Functions handle the error
+    }
   }
 };
 
 /**
- * Handle chat message processing - OPTIMIZED FOR MINIMAL LATENCY
+ * Handle API Gateway requests (health checks)
  */
-async function handleChatMessage(event) {
-  try {
-    if (!event.body) {
-      return createResponse(400, {
-        error: 'Request body is required',
-        message: 'Please provide a chat message'
-      }, event);
-    }
+async function handleApiGatewayRequest(event) {
+  // Normalize path - remove stage prefix if present
+  let path = event.path;
+  if (path.startsWith('/prod/')) {
+    path = path.replace('/prod', '');
+  } else if (path.startsWith('/dev/')) {
+    path = path.replace('/dev', '');
+  } else if (path.startsWith('/staging/')) {
+    path = path.replace('/staging', '');
+  }
 
-    let request;
+  const method = event.httpMethod;
+
+  // Route requests
+  if (method === 'GET' && (path === '/health' || path === '/chat/health' || path.endsWith('/health'))) {
+    return await handleHealthCheck(event);
+  } else if (method === 'OPTIONS') {
+    return createResponse(200, '', event);
+  } else {
+    return createResponse(404, {
+      error: 'Endpoint not found',
+      message: 'Chat endpoint should be accessed via Step Functions orchestrator',
+      availableEndpoints: [
+        'GET /health'
+      ]
+    }, event);
+  }
+}
+
+/**
+ * Handle Step Functions requests (chat message processing)
+ */
+async function handleStepFunctionsRequest(event) {
+  // Validate request structure
+  if (!event.message || typeof event.message !== 'string') {
+    throw new Error('Message content is required and must be a string');
+  }
+
+  if (event.message.trim().length === 0) {
+    throw new Error('Message content cannot be empty');
+  }
+
+  if (event.message.length > 5000) {
+    throw new Error('Message content cannot exceed 5000 characters');
+  }
+
+  const timestamp = new Date();
+  const startTime = Date.now();
+
+  // STEP 1: Check if session exists
+  let existingSession = null;
+  let isNewSession = false;
+
+  if (event.sessionId) {
     try {
-      request = JSON.parse(event.body);
-    } catch (parseError) {
-      return createResponse(400, {
-        error: 'Invalid JSON',
-        message: 'Request body must be valid JSON'
-      }, event);
-    }
+      const result = await dynamodb.send(new GetItemCommand({
+        TableName: SESSIONS_TABLE,
+        Key: marshall({
+          PK: `SESSION#${event.sessionId}`,
+          SK: 'METADATA'
+        })
+      }));
 
-    // Validate request
-    const validation = validateChatRequest(request);
-    if (!validation.valid) {
-      return createResponse(400, {
-        error: 'Validation error',
-        message: validation.message
-      }, event);
-    }
-
-    const timestamp = new Date();
-    const startTime = Date.now();
-
-    // STEP 1: Check if session exists (optimized - single lookup)
-    let existingSession = null;
-    let isNewSession = false;
-
-    if (request.sessionId) {
-      try {
-        const result = await dynamodb.send(new GetItemCommand({
-          TableName: SESSIONS_TABLE,
-          Key: marshall({
-            PK: `SESSION#${request.sessionId}`,
-            SK: 'METADATA'
-          })
-        }));
-
-        if (result.Item) {
-          existingSession = unmarshall(result.Item);
-          console.log(`Found existing session: ${request.sessionId}`);
-        }
-      } catch (error) {
-        console.log('Session not found, will create new one');
+      if (result.Item) {
+        existingSession = unmarshall(result.Item);
+        console.log(`Found existing session: ${event.sessionId}`);
       }
+    } catch (error) {
+      console.log('Session not found, will create new one');
     }
+  }
 
-    // STEP 2: Get or create session (no language detection here - done async)
-    const session = await getOrCreateSession(request.sessionId, request.userInfo, existingSession);
-    isNewSession = !existingSession;
+  // STEP 2: Get or create session
+  const session = await getOrCreateSession(event.sessionId, event.userInfo, existingSession);
+  isNewSession = !existingSession;
 
-    // STEP 3: Store user message
-    await storeUserMessage(session.sessionId, request.message, timestamp);
+  // STEP 3: Store user message
+  await storeUserMessage(session.sessionId, event.message, timestamp);
 
-    // STEP 4: Generate response using RAG (ONLY BLOCKING OPERATION)
-    const processingStart = Date.now();
-    const ragResponse = await generateResponse(request.message, session.language || 'en');
-    const processingTime = Date.now() - processingStart;
+  // STEP 4: Generate response using RAG (BLOCKING - uses Lambda SDK)
+  const processingStart = Date.now();
+  const ragResponse = await generateResponse(event.message, session.language || 'en');
+  const processingTime = Date.now() - processingStart;
 
-    // STEP 5: Store bot response
-    await storeBotMessage(
-      session.sessionId,
-      ragResponse.response,
-      ragResponse.confidence,
-      ragResponse.sources,
-      processingTime
-    );
+  // STEP 5: Store bot response
+  await storeBotMessage(
+    session.sessionId,
+    ragResponse.response,
+    ragResponse.confidence,
+    ragResponse.sources,
+    processingTime
+  );
 
-    const totalTime = Date.now() - startTime;
-    console.log(`Chat processing time: ${totalTime}ms (RAG: ${processingTime}ms)`);
+  const totalTime = Date.now() - startTime;
+  console.log(`Chat processing time: ${totalTime}ms (RAG: ${processingTime}ms)`);
 
-    // STEP 6: Check for escalation and modify response if needed (BEFORE returning to user)
-    const escalationSuggested = shouldEscalate(ragResponse.confidence, request.message);
+  // STEP 6: Check for escalation and modify response if needed
+  const escalationSuggested = shouldEscalate(ragResponse.confidence, event.message);
 
-    let finalResponse = ragResponse.response;
-    if (escalationSuggested) {
-      // Replace generic escalation message with more helpful one
-      if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') ||
-          ragResponse.response.includes('Lo siento, no puedo ayudarte con esta solicitud')) {
-        finalResponse = (session.language || 'en') === 'es'
-          ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
-          : 'Let me connect you with someone who can help you with that.';
-      }
-      console.log(`Escalation suggested - modified response for user-friendly message`);
+  let finalResponse = ragResponse.response;
+  if (escalationSuggested) {
+    // Replace generic escalation message with more helpful one
+    if (ragResponse.response.includes('Sorry, I am unable to assist you with this request') ||
+        ragResponse.response.includes('Lo siento, no puedo ayudarte con esta solicitud')) {
+      finalResponse = (session.language || 'en') === 'es'
+        ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
+        : 'Let me connect you with someone who can help you with that.';
     }
+    console.log(`Escalation suggested - modified response for user-friendly message`);
+  }
 
-    // STEP 7: Async invoke chat-data-processor (FIRE AND FORGET - DOES NOT BLOCK)
-    const analyticsEvent = {
-      eventType: 'chat_message_processed',
+  // STEP 7: Return structured data for Step Functions
+  // Step Functions will publish to EventBridge
+  return {
+    userResponse: {
+      message: finalResponse,
+      sources: ragResponse.sources || [],
       sessionId: session.sessionId,
-      userMessage: request.message,
+      escalated: escalationSuggested
+    },
+    analyticsData: {
+      sessionId: session.sessionId,
+      userMessage: event.message,
       botResponse: ragResponse.response,
       confidence: ragResponse.confidence,
       sources: ragResponse.sources,
@@ -187,38 +206,9 @@ async function handleChatMessage(event) {
       timestamp: timestamp.toISOString(),
       isNewSession,
       language: session.language || 'en',
-      escalationSuggested // Pass escalation flag to analytics processor
-    };
-
-    // Invoke async - no await!
-    invokeAsync(CHAT_DATA_PROCESSOR_FUNCTION, analyticsEvent).catch(err => {
-      console.error('Failed to invoke chat-data-processor (non-blocking):', err);
-      // Don't fail the request - analytics are best-effort
-    });
-
-    // STEP 8: Return response IMMEDIATELY (with potentially modified escalation message)
-    return createResponse(200, {
-      message: finalResponse, // Use modified response if escalated
-      sources: ragResponse.sources || [],
-      sessionId: session.sessionId,
-      escalated: escalationSuggested
-    }, event);
-
-  } catch (error) {
-    console.error('Chat message processing error:', error);
-
-    if (error.message && error.message.includes('required')) {
-      return createResponse(400, {
-        error: 'Bad Request',
-        message: error.message
-      }, event);
+      escalationSuggested
     }
-
-    return createResponse(500, {
-      error: 'Failed to process chat message',
-      message: error.message || 'Unknown error'
-    }, event);
-  }
+  };
 }
 
 /**
@@ -273,21 +263,6 @@ async function handleHealthCheck(event) {
       error: error.message || 'Unknown error'
     }, event);
   }
-}
-
-/**
- * Validate chat request
- */
-function validateChatRequest(request) {
-  if (!request.message || typeof request.message !== 'string' || request.message.trim().length === 0) {
-    return { valid: false, message: 'Message content is required and cannot be empty' };
-  }
-
-  if (request.message.length > 5000) {
-    return { valid: false, message: 'Message content cannot exceed 5000 characters' };
-  }
-
-  return { valid: true };
 }
 
 /**
@@ -492,23 +467,6 @@ async function storeBotMessage(sessionId, content, confidence, sources, processi
   }));
 
   return botMessage;
-}
-
-/**
- * Invoke Lambda asynchronously (fire and forget)
- */
-async function invokeAsync(functionName, payload) {
-  try {
-    await lambda.send(new InvokeCommand({
-      FunctionName: functionName,
-      InvocationType: 'Event', // Async invocation
-      Payload: JSON.stringify(payload)
-    }));
-    console.log(`Async invoked ${functionName}`);
-  } catch (error) {
-    console.error(`Failed to async invoke ${functionName}:`, error);
-    throw error;
-  }
 }
 
 /**
