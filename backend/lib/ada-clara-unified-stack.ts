@@ -749,13 +749,13 @@ export class AdaClaraUnifiedStack extends Stack {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
-        // Config endpoint variables - API_GATEWAY_URL constructed from API ID to avoid circular dependency
-        API_GATEWAY_URL: `https://${this.api.restApiId}.execute-api.${region}.amazonaws.com/prod/`,
+        // Config endpoint variables
+        // Note: API_GATEWAY_URL set to empty and will be updated by buildspec after deployment
+        API_GATEWAY_URL: '',
         USER_POOL_ID: this.userPool.userPoolId,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
         COGNITO_DOMAIN: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
-        // AWS_REGION is automatically provided by Lambda runtime
       },
     });
 
