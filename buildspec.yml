@@ -76,15 +76,27 @@ phases:
         # Update Chat Data Processor Lambda environment variables with actual values from CloudFormation
         # This is needed because the Lambda is created with empty API_GATEWAY_URL during CDK deployment
         # Note: AWS_REGION is excluded as it's a reserved Lambda environment variable
-        aws lambda update-function-configuration \
+        echo "Environment variables being set:"
+        echo "  API_GATEWAY_URL=$API_GATEWAY_URL"
+        echo "  USER_POOL_ID=$USER_POOL_ID"
+        echo "  COGNITO_DOMAIN=$COGNITO_DOMAIN"
+        echo "  FRONTEND_URL=$FRONTEND_URL"
+
+        if aws lambda update-function-configuration \
           --function-name ada-clara-chat-data-processor \
           --environment "Variables={CHAT_SESSIONS_TABLE=ada-clara-chat-sessions,MESSAGES_TABLE=ada-clara-messages,ANALYTICS_TABLE=ada-clara-analytics,QUESTIONS_TABLE=ada-clara-questions,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
-          --region $AWS_REGION > /dev/null 2>&1
-
-        if [ $? -eq 0 ]; then
+          --region $AWS_REGION 2>&1; then
           echo "[SUCCESS] Chat Data Processor Lambda environment variables updated"
+          echo "Verifying Lambda configuration..."
+          aws lambda get-function-configuration \
+            --function-name ada-clara-chat-data-processor \
+            --region $AWS_REGION \
+            --query 'Environment.Variables.API_GATEWAY_URL' \
+            --output text
         else
-          echo "[WARNING] Failed to update Lambda environment variables - /config endpoint may not work"
+          echo "[ERROR] Failed to update Lambda environment variables - /config endpoint will not work"
+          echo "This will cause the frontend to fail to load configuration"
+          exit 1
         fi
       - echo ""
       - echo "=== FRONTEND DEPLOYMENT ==="
@@ -110,6 +122,35 @@ phases:
           exit 1
         fi
         echo "[SUCCESS] Next.js build completed successfully"
+      - echo "Injecting runtime API URL into static HTML files..."
+      - |
+        # Inject the API base URL into all HTML files to ensure frontend can connect
+        # This is necessary because Next.js static exports bake env vars at build time
+        cd out
+
+        # Create a temporary JavaScript snippet to inject
+        cat > inject-api-url.js << 'INJECT_EOF'
+        window.__API_BASE_URL__ = "PLACEHOLDER_API_URL";
+        INJECT_EOF
+
+        # Replace placeholder with actual API URL
+        sed -i "s|PLACEHOLDER_API_URL|$API_GATEWAY_URL|g" inject-api-url.js
+
+        # Inject into all HTML files (before closing </head> tag)
+        for html_file in $(find . -name "*.html" -type f); do
+          # Check if the file already has __API_BASE_URL__ injection
+          if ! grep -q "__API_BASE_URL__" "$html_file"; then
+            # Inject before </head> tag
+            sed -i 's|</head>|<script>'"$(cat inject-api-url.js)"'</script></head>|' "$html_file"
+          else
+            # Update existing injection
+            sed -i "s|window.__API_BASE_URL__ = .*\";|window.__API_BASE_URL__ = \"$API_GATEWAY_URL\";|g" "$html_file"
+          fi
+        done
+
+        rm inject-api-url.js
+        cd ..
+        echo "[SUCCESS] API URL injected into static HTML files: $API_GATEWAY_URL"
       - echo "Creating deployment package..."
       - cd out
       - zip -r build.zip .
