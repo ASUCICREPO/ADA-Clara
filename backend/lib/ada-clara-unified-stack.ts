@@ -749,8 +749,8 @@ export class AdaClaraUnifiedStack extends Stack {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
-        // Config endpoint variables (updated by CDK on each deployment)
-        API_GATEWAY_URL: '', // Will be set after API Gateway creation
+        // Config endpoint variables - API_GATEWAY_URL constructed from API ID to avoid circular dependency
+        API_GATEWAY_URL: `https://${this.api.restApiId}.execute-api.${region}.amazonaws.com/prod/`,
         USER_POOL_ID: this.userPool.userPoolId,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
@@ -1017,9 +1017,6 @@ export class AdaClaraUnifiedStack extends Stack {
     // Note: CfnApp doesn't support referencing existing apps by appId
     // The appId is passed via context and used in outputs only
     this.amplifyApp = undefined;
-
-    // Update chat-data-processor with API Gateway URL (for config endpoint)
-    this.chatDataProcessor.addEnvironment('API_GATEWAY_URL', this.api.url);
 
     // ========== OUTPUTS ==========
     new CfnOutput(this, 'ApiGatewayUrl', {
