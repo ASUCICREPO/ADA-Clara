@@ -134,10 +134,16 @@ LAMBDA_STATUS_CODE=$(echo "$RESPONSE" | jq -r '.StatusCode' 2>/dev/null || echo 
 echo -e "${BLUE}[INFO]${NC} Lambda invocation exit code: $LAMBDA_EXIT_CODE"
 echo -e "${BLUE}[INFO]${NC} Lambda StatusCode: $LAMBDA_STATUS_CODE"
 
-if [ $LAMBDA_EXIT_CODE -eq 0 ] && [ "$LAMBDA_STATUS_CODE" = "200" ]; then
-  echo -e "${GREEN}[SUCCESS]${NC} ✅ Domain discovery invocation successful!"
+# Check both AWS CLI exit code and Lambda StatusCode (if available)
+if [ $LAMBDA_EXIT_CODE -eq 0 ]; then
+  if [ "$LAMBDA_STATUS_CODE" = "200" ] || [ "$LAMBDA_STATUS_CODE" = "unknown" ]; then
+    echo -e "${GREEN}[SUCCESS]${NC} ✅ Domain discovery invocation successful!"
+  else
+    echo -e "${RED}[ERROR]${NC} ❌ Lambda returned non-200 status: $LAMBDA_STATUS_CODE"
+    exit 1
+  fi
 else
-  echo -e "${RED}[ERROR]${NC} ❌ Domain discovery invocation failed!"
+  echo -e "${RED}[ERROR]${NC} ❌ AWS CLI invocation failed with exit code: $LAMBDA_EXIT_CODE"
   echo -e "${YELLOW}[INFO]${NC} Response: $RESPONSE"
   if [ -f "response.json" ]; then
     echo -e "${YELLOW}[INFO]${NC} Response content:"
