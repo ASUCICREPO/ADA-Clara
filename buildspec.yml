@@ -66,7 +66,8 @@ phases:
       - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_REGION)
       - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_REGION)
       # AMPLIFY_APP_ID is passed from deploy.sh as environment variable (created before CDK deployment)
-      - export FRONTEND_URL="https://main.${AMPLIFY_APP_ID}.amplifyapp.com"
+      # TEMPORARY: Using chat-processor-refactor branch for testing
+      - export FRONTEND_URL="https://chat-processor-refactor.${AMPLIFY_APP_ID}.amplifyapp.com"
       - echo "API Gateway URL=$API_GATEWAY_URL"
       - echo "User Pool ID=$USER_POOL_ID"
       - echo "Region=$AWS_REGION"
@@ -104,7 +105,8 @@ phases:
       - cd ../..
       - |
         # Create deployment and capture both exit code and output
-        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
+        # TEMPORARY: Using chat-processor-refactor branch for testing
+        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name chat-processor-refactor --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
           echo "[SUCCESS] Amplify deployment created successfully"
         else
           DEPLOYMENT_ERROR=$(cat deployment_response.json)
@@ -112,7 +114,7 @@ phases:
           if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
             echo "[WARNING] Deployment already in progress, checking status..."
             # Try to get the active job ID
-            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
+            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name chat-processor-refactor --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
             if [ -n "$ACTIVE_JOB" ]; then
               echo "[SUCCESS] Found active deployment job: $ACTIVE_JOB"
               echo "Complete deployment finished successfully! (Using existing deployment)"
@@ -150,6 +152,6 @@ phases:
           exit 1
         fi
       - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
+      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name chat-processor-refactor --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
       - echo "Complete deployment finished successfully!"
 
