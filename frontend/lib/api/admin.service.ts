@@ -72,7 +72,7 @@ async function getAuthToken(): Promise<string | null> {
  * Make an authenticated API call
  */
 async function authenticatedFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-  const config = getConfig();
+  const config = await getConfig();
   const token = await getAuthToken();
   
   if (!token) {

@@ -749,6 +749,13 @@ export class AdaClaraUnifiedStack extends Stack {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
+        // Config endpoint variables (updated by CDK on each deployment)
+        API_GATEWAY_URL: '', // Will be set after API Gateway creation
+        USER_POOL_ID: this.userPool.userPoolId,
+        USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+        IDENTITY_POOL_ID: this.identityPool.ref,
+        COGNITO_DOMAIN: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
+        AWS_REGION: region,
       },
     });
 
@@ -884,6 +891,10 @@ export class AdaClaraUnifiedStack extends Stack {
     this.escalationRequestsTable.grantReadData(this.adminAnalytics);
 
     // ========== API GATEWAY ROUTES ==========
+    // Config endpoint (public, no auth) -> chat-data-processor
+    // This provides runtime configuration to the frontend
+    this.api.root.addResource('config').addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
+
     // Health endpoint (chat-orchestrator)
     this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatOrchestrator));
 
@@ -1006,6 +1017,9 @@ export class AdaClaraUnifiedStack extends Stack {
     // Note: CfnApp doesn't support referencing existing apps by appId
     // The appId is passed via context and used in outputs only
     this.amplifyApp = undefined;
+
+    // Update chat-data-processor with API Gateway URL (for config endpoint)
+    this.chatDataProcessor.addEnvironment('API_GATEWAY_URL', this.api.url);
 
     // ========== OUTPUTS ==========
     new CfnOutput(this, 'ApiGatewayUrl', {

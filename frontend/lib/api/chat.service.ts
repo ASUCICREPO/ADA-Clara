@@ -39,7 +39,7 @@ export interface ChatHistoryResponse {
  * Send a chat message to the API
  */
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
-  const config = getConfig();
+  const config = await getConfig();
   
   try {
     const response = await fetch(`${config.apiBaseUrl}/chat`, {
@@ -71,7 +71,7 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
  * Get chat history for a session
  */
 export async function getChatHistory(sessionId: string): Promise<ChatHistoryResponse> {
-  const config = getConfig();
+  const config = await getConfig();
   
   try {
     const response = await fetch(`${config.apiBaseUrl}/chat/history?sessionId=${encodeURIComponent(sessionId)}`, {
@@ -98,7 +98,7 @@ export async function getChatHistory(sessionId: string): Promise<ChatHistoryResp
  * Health check for the API
  */
 export async function checkApiHealth(): Promise<boolean> {
-  const config = getConfig();
+  const config = await getConfig();
   
   try {
     const response = await fetch(`${config.apiBaseUrl}/health`, {

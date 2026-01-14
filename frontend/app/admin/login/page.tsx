@@ -16,7 +16,7 @@ export default function AdminLoginPage() {
     // Initialize auth and check if already authenticated
     const checkAuth = async () => {
       try {
-        initializeAuth();
+        await initializeAuth();
         const authenticated = await isAuthenticated();
         if (authenticated) {
           router.push('/admin');

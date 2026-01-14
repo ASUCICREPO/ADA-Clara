@@ -75,16 +75,10 @@ phases:
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
-      - echo "Setting environment variables for build..."
-      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL" > .env.local
-      - echo "NEXT_PUBLIC_AWS_REGION=$AWS_REGION" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REGION=$AWS_REGION" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=$USER_POOL_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=$IDENTITY_POOL_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_DOMAIN=$COGNITO_DOMAIN" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_IN=$FRONTEND_URL/auth/callback" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_OUT=$FRONTEND_URL" >> .env.local
+      - echo "Setting minimal environment variables for build (runtime config will be fetched from /config endpoint)..."
+      - echo "# Runtime configuration is fetched from /config endpoint" > .env.local
+      - echo "# Only the API base URL is needed at build time to bootstrap the config fetch" >> .env.local
+      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL" >> .env.local
       - echo "Building Next.js application..."
       - npm run build 2>&1 | tee build.log
       - |

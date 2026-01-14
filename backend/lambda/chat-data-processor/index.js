@@ -49,7 +49,9 @@ exports.handler = async (event) => {
     const path = event.path || '';
     const method = event.httpMethod;
 
-    if (method === 'GET' && (path === '/chat/history' || path.endsWith('/chat/history'))) {
+    if (method === 'GET' && (path === '/config' || path.endsWith('/config'))) {
+      return await handleConfig(event);
+    } else if (method === 'GET' && (path === '/chat/history' || path.endsWith('/chat/history'))) {
       return await handleChatHistory(event);
     } else if (method === 'GET' && (path === '/chat/sessions' || path.endsWith('/chat/sessions'))) {
       return await handleChatSessions(event);
@@ -61,6 +63,7 @@ exports.handler = async (event) => {
       return createResponse(404, {
         error: 'Endpoint not found',
         availableEndpoints: [
+          'GET /config',
           'GET /chat/history?sessionId=<sessionId>',
           'GET /chat/sessions?limit=<limit>',
           'GET /health'
@@ -277,6 +280,51 @@ async function processQuestion(question, response, confidence, language, session
   } catch (error) {
     console.error('Failed to process question:', error);
     return language; // Return original language on error
+  }
+}
+
+/**
+ * Handle config request - provides runtime configuration to frontend
+ * This allows frontend to be built once and work across deployments
+ */
+async function handleConfig(event) {
+  try {
+    // Build config from environment variables (always up-to-date)
+    const config = {
+      apiBaseUrl: process.env.API_GATEWAY_URL || '',
+      region: process.env.AWS_REGION || 'us-west-2',
+      cognito: {
+        userPoolId: process.env.USER_POOL_ID || '',
+        clientId: process.env.USER_POOL_CLIENT_ID || '',
+        identityPoolId: process.env.IDENTITY_POOL_ID || '',
+        domain: process.env.COGNITO_DOMAIN || '',
+        redirectSignIn: process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL}/auth/callback` : '',
+        redirectSignOut: process.env.FRONTEND_URL || ''
+      },
+      version: new Date().toISOString(), // For debugging/cache busting
+    };
+
+    // Validate required fields
+    if (!config.apiBaseUrl) {
+      return createResponse(500, {
+        error: 'Configuration incomplete',
+        message: 'API_GATEWAY_URL not configured'
+      });
+    }
+
+    // Add cache header for 5 minutes
+    const response = createResponse(200, config);
+    response.headers['Cache-Control'] = 'public, max-age=300';
+    response.headers['Access-Control-Allow-Origin'] = '*'; // Allow all origins for config
+
+    return response;
+
+  } catch (error) {
+    console.error('Config error:', error);
+    return createResponse(500, {
+      error: 'Failed to retrieve configuration',
+      message: error.message || 'Unknown error'
+    });
   }
 }
 
