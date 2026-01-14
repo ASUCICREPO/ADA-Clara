@@ -95,11 +95,11 @@
     },
     "ExtractRAGResponse": {
       "Type": "Pass",
-      "Comment": "Extract RAG response data from HTTP response",
+      "Comment": "Extract RAG response data from HTTP response and map to frontend schema",
       "Parameters": {
         "chatContext.$": "$.chatContext",
         "ragResponse": {
-          "response.$": "$.ragResult.body.response",
+          "message.$": "$.ragResult.body.response",
           "confidence.$": "$.ragResult.body.confidence",
           "sources.$": "$.ragResult.body.sources"
         }
@@ -197,7 +197,7 @@
       "Parameters": {
         "chatContext.$": "$.chatContext",
         "ragResponse": {
-          "response": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
+          "message": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
           "confidence": 0.3,
           "sources": []
         }

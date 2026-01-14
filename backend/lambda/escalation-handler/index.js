@@ -213,7 +213,7 @@ async function getEscalationRequests(event) {
     const endIndex = startIndex + limit;
     const paginatedItems = allItems.slice(startIndex, endIndex);
 
-    // Format response
+    // Format response (match frontend schema which uses "phone" not "phoneNumber")
     const requests = paginatedItems.map(item => ({
       name: item.name || 'N/A',
       email: item.email || 'N/A',

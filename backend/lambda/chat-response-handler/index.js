@@ -46,10 +46,11 @@ exports.handler = async (event) => {
     const timestamp = new Date();
     const startTime = Date.now();
 
-    // STEP 1: Store bot response
+    // STEP 1: Store bot response (using "message" field to match frontend schema)
+    const botMessage = ragResponse.message || 'I apologize, but I could not generate a response.';
     await storeBotMessage(
       session.sessionId,
-      ragResponse.response || 'I apologize, but I could not generate a response.',
+      botMessage,
       ragResponse.confidence || 0.5,
       ragResponse.sources || [],
       0 // Processing time handled by Step Functions
@@ -59,12 +60,12 @@ exports.handler = async (event) => {
     const escalationSuggested = shouldEscalate(ragResponse.confidence || 0.5, userMessage.content);
 
     // STEP 3: Modify response if escalation needed
-    let finalResponse = ragResponse.response;
+    let finalResponse = botMessage;
     if (escalationSuggested) {
       // Replace generic escalation message with more helpful one
-      if (ragResponse.response &&
-          (ragResponse.response.includes('Sorry, I am unable to assist you with this request') ||
-           ragResponse.response.includes('Lo siento, no puedo ayudarte con esta solicitud'))) {
+      if (botMessage &&
+          (botMessage.includes('Sorry, I am unable to assist you with this request') ||
+           botMessage.includes('Lo siento, no puedo ayudarte con esta solicitud'))) {
         finalResponse = (session.language || 'en') === 'es'
           ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
           : 'Let me connect you with someone who can help you with that.';
@@ -74,7 +75,7 @@ exports.handler = async (event) => {
 
     const processingTime = Date.now() - startTime;
 
-    // STEP 4: Return structured data for Step Functions
+    // STEP 4: Return structured data for Step Functions (using "message" to match frontend)
     return {
       userResponse: {
         message: finalResponse,
@@ -85,7 +86,7 @@ exports.handler = async (event) => {
       analyticsData: {
         sessionId: session.sessionId,
         userMessage: userMessage.content,
-        botResponse: ragResponse.response,
+        botResponse: botMessage,
         confidence: ragResponse.confidence,
         sources: ragResponse.sources,
         processingTime,
