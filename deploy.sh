@@ -154,6 +154,30 @@ else
         exit 1
     fi
     print_success "Amplify app created with ID: $AMPLIFY_APP_ID"
+
+    # Configure custom rewrite rules for Next.js static export
+    print_status "Configuring Amplify custom rewrite rules for Next.js..."
+    AWS_PAGER="" aws amplify update-app \
+        --app-id "$AMPLIFY_APP_ID" \
+        --custom-rules '[
+            {
+                "source": "/_next/static/<*>",
+                "target": "/_next/static/<*>",
+                "status": "200"
+            },
+            {
+                "source": "/<*>",
+                "target": "/index.html",
+                "status": "404-200"
+            }
+        ]' \
+        --region "$AWS_REGION" > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        print_success "Amplify custom rewrite rules configured"
+    else
+        print_warning "Failed to configure custom rewrite rules - frontend routing may not work correctly"
+    fi
 fi
 
 # Check if main branch exists
