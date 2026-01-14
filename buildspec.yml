@@ -75,21 +75,10 @@ phases:
       - |
         # Update Chat Data Processor Lambda environment variables with actual values from CloudFormation
         # This is needed because the Lambda is created with empty API_GATEWAY_URL during CDK deployment
+        # Note: AWS_REGION is excluded as it's a reserved Lambda environment variable
         aws lambda update-function-configuration \
           --function-name ada-clara-chat-data-processor \
-          --environment "Variables={
-            CHAT_SESSIONS_TABLE=ada-clara-chat-sessions,
-            MESSAGES_TABLE=ada-clara-messages,
-            ANALYTICS_TABLE=ada-clara-analytics,
-            QUESTIONS_TABLE=ada-clara-questions,
-            FRONTEND_URL=$FRONTEND_URL,
-            API_GATEWAY_URL=$API_GATEWAY_URL,
-            USER_POOL_ID=$USER_POOL_ID,
-            USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,
-            IDENTITY_POOL_ID=$IDENTITY_POOL_ID,
-            COGNITO_DOMAIN=$COGNITO_DOMAIN,
-            AWS_REGION=$AWS_REGION
-          }" \
+          --environment "Variables={CHAT_SESSIONS_TABLE=ada-clara-chat-sessions,MESSAGES_TABLE=ada-clara-messages,ANALYTICS_TABLE=ada-clara-analytics,QUESTIONS_TABLE=ada-clara-questions,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
           --region $AWS_REGION > /dev/null 2>&1
 
         if [ $? -eq 0 ]; then
