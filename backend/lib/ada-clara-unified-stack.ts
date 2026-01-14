@@ -4,6 +4,9 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -69,8 +72,8 @@ export class AdaClaraUnifiedStack extends Stack {
   // Step Functions
   public readonly chatStateMachine: sfn.StateMachine;
 
-  // API Gateway
-  public readonly api: apigateway.RestApi;
+  // API Gateway (HTTP API v2)
+  public readonly api: apigatewayv2.HttpApi;
 
   // Amplify App (created but deployment handled by buildspec)
   public readonly amplifyApp?: amplify.CfnApp;
@@ -374,12 +377,16 @@ export class AdaClaraUnifiedStack extends Stack {
       dataDeletionPolicy: 'RETAIN',
     });
 
-    // ========== LAMBDA FUNCTIONS ==========
-    const lambdaExecutionRole = new iam.Role(this, 'LambdaExecutionRole', {
+    // ========== LAMBDA EXECUTION ROLES ==========
+    // Split Lambda roles by responsibility to break circular dependencies
+    // Each role has only the permissions needed for its specific Lambda functions
+
+    // Public API Role - For chat endpoints (no Cognito auth required)
+    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
+    const publicApiRole = new iam.Role(this, 'PublicApiRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'),
       ],
       inlinePolicies: {
         BedrockAccess: new iam.PolicyDocument({
@@ -389,28 +396,28 @@ export class AdaClaraUnifiedStack extends Stack {
               actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
               resources: ['arn:aws:bedrock:*::foundation-model/*'],
             }),
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['comprehend:DetectDominantLanguage', 'comprehend:DetectSentiment'],
-              resources: ['*'],
-            }),
           ],
         }),
-        SQSAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'sqs:SendMessage',
-                'sqs:ReceiveMessage',
-                'sqs:DeleteMessage',
-                'sqs:GetQueueAttributes',
-                'sqs:GetQueueUrl'
-              ],
-              resources: ['*'], // Will be scoped by queue grants
-            }),
-          ],
-        }),
+      },
+    });
+
+    // Admin API Role - For admin dashboard endpoints (Cognito auth required)
+    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
+    const adminApiRole = new iam.Role(this, 'AdminApiRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    // Background Jobs Role - For scheduled tasks and async processing
+    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
+    const backgroundJobsRole = new iam.Role(this, 'BackgroundJobsRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+      inlinePolicies: {
         S3VectorsAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
@@ -420,28 +427,22 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
-        BedrockAgentAccess: new iam.PolicyDocument({
+        BedrockAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream',
+                'bedrock:RetrieveAndGenerate',
+                'bedrock:Retrieve',
                 'bedrock:StartIngestionJob',
                 'bedrock:GetIngestionJob',
-                'bedrock:ListIngestionJobs'
               ],
               resources: [
+                'arn:aws:bedrock:*::foundation-model/*',
                 `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
-                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}/*`
               ],
-            }),
-          ],
-        }),
-        LambdaInvokeAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['lambda:InvokeFunction'],
-              resources: [`arn:aws:lambda:${region}:${accountId}:function:ada-clara-*`],
             }),
           ],
         }),
@@ -495,7 +496,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(15), // Increased for comprehensive discovery
       memorySize: 1024, // Increased for XML parsing and URL processing
       logGroup: domainDiscoveryLogGroup,
-      role: lambdaExecutionRole,
+      role: backgroundJobsRole,
       environment: {
         SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
         CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
@@ -521,7 +522,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(15),
       memorySize: 1024,
       logGroup: contentProcessorLogGroup,
-      role: lambdaExecutionRole,
+      role: backgroundJobsRole,
       environment: {
         CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
         CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName, // Use stack's content tracking table
@@ -533,16 +534,8 @@ export class AdaClaraUnifiedStack extends Stack {
       }
     });
 
-    // Grant SQS permissions
-    this.scrapingQueue.grantSendMessages(this.domainDiscoveryFunction);
-    this.scrapingQueue.grantConsumeMessages(this.contentProcessorFunction);
-
-    // Grant S3 permissions to content processor
-    this.contentBucket.grantReadWrite(this.contentProcessorFunction);
-
-    // Grant DynamoDB permissions for content tracking
-    this.contentTrackingTable.grantReadWriteData(this.domainDiscoveryFunction);
-    this.contentTrackingTable.grantReadWriteData(this.contentProcessorFunction);
+    // Note: SQS, S3, and DynamoDB permissions are now granted to backgroundJobsRole
+    // See "GRANT PERMISSIONS TO LAMBDA ROLES" section below
 
     // Grant Bedrock ingestion permissions to Content Processor for automatic KB sync
     this.contentProcessorFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -608,30 +601,36 @@ export class AdaClaraUnifiedStack extends Stack {
       : [frontendUrl, 'http://localhost:3000', 'https://localhost:3000'];
     
     console.log(`CORS Origins configured: ${JSON.stringify(corsOrigins)}`);
-    
-    this.api = new apigateway.RestApi(this, 'Api', {
-      restApiName: `ada-clara-api${stackSuffix}`,
-      description: 'ADA Clara API Gateway',
-      defaultCorsPreflightOptions: {
+
+    // ========== HTTP API (V2) ==========
+    // Using HTTP API instead of REST API to avoid circular dependency issues
+    // HTTP APIs have simpler permission models and don't create as many implicit dependencies
+    this.api = new apigatewayv2.HttpApi(this, 'HttpApi', {
+      apiName: `ada-clara-api${stackSuffix}`,
+      description: 'ADA Clara HTTP API Gateway',
+      corsPreflight: {
         allowOrigins: corsOrigins,
-        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.PUT,
+          apigatewayv2.CorsHttpMethod.DELETE,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
+        ],
         allowHeaders: ['Content-Type', 'Authorization', 'X-Amz-Date', 'X-Api-Key'],
         allowCredentials: true,
-      },
-      deployOptions: {
-        stageName: 'prod',
-        throttlingRateLimit: 1000,
-        throttlingBurstLimit: 2000,
       },
     });
 
     // ========== COGNITO AUTHORIZER ==========
-    // Create Cognito User Pool Authorizer for admin endpoints
-    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'AdminCognitoAuthorizer', {
-      cognitoUserPools: [this.userPool],
-      authorizerName: `ada-clara-admin-authorizer${stackSuffix}`,
-      identitySource: 'method.request.header.Authorization',
-    });
+    // Create JWT Authorizer for Cognito User Pool (admin endpoints)
+    const cognitoAuthorizer = new HttpJwtAuthorizer('CognitoAuthorizer',
+      `https://cognito-idp.${region}.amazonaws.com/${this.userPool.userPoolId}`,
+      {
+        jwtAudience: [this.userPoolClient.userPoolClientId],
+        identitySource: ['$request.header.Authorization'],
+      }
+    );
 
     // RAG Processor Lambda (created before chat processor to reference its function name)
     // Create log group for RAG processor function
@@ -649,7 +648,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(5),
       memorySize: 1024,
       logGroup: ragProcessorLogGroup,
-      role: lambdaExecutionRole,
+      role: backgroundJobsRole,
       environment: {
         VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
         VECTOR_INDEX: this.vectorIndex.indexName,
@@ -696,7 +695,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: chatSessionManagerLogGroup,
-      role: lambdaExecutionRole,
+      role: publicApiRole,
       environment: {
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         MESSAGES_TABLE: this.messagesTable.tableName,
@@ -719,7 +718,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: chatResponseHandlerLogGroup,
-      role: lambdaExecutionRole,
+      role: publicApiRole,
       environment: {
         MESSAGES_TABLE: this.messagesTable.tableName,
       },
@@ -741,7 +740,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(60), // Longer timeout for analytics processing
       memorySize: 512,
       logGroup: chatDataProcessorLogGroup,
-      role: lambdaExecutionRole,
+      role: publicApiRole,
       environment: {
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         MESSAGES_TABLE: this.messagesTable.tableName,
@@ -809,15 +808,16 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(5), // Match Step Functions Express timeout
       memorySize: 256,
       logGroup: chatOrchestratorLogGroup,
-      role: lambdaExecutionRole,
+      role: publicApiRole,
       environment: {
         STATE_MACHINE_ARN: this.chatStateMachine.stateMachineArn,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
       },
     });
 
-    // Grant chat-orchestrator permission to start Step Functions executions
-    this.chatStateMachine.grantStartSyncExecution(this.chatOrchestrator);
+    // Note: Step Functions permissions are granted via publicApiRole.addToPolicy below
+    // Removed grantStartSyncExecution to avoid circular dependency
+    // The role already has states:StartSyncExecution permission via wildcard ARN
 
     // Create log group for escalation handler
     const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
@@ -834,7 +834,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: escalationHandlerLogGroup,
-      role: lambdaExecutionRole,
+      role: adminApiRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL for CORS
@@ -856,7 +856,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: adminAnalyticsLogGroup,
-      role: lambdaExecutionRole,
+      role: adminApiRole,
       environment: {
         ANALYTICS_TABLE: this.analyticsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
@@ -866,150 +866,220 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Grant DynamoDB permissions
-    // Chat Session Manager (session setup and user message storage)
-    this.chatSessionsTable.grantReadWriteData(this.chatSessionManager);
-    this.messagesTable.grantWriteData(this.chatSessionManager);
+    // Note: DynamoDB permissions are now granted to roles, not individual Lambda functions
+    // See "GRANT PERMISSIONS TO LAMBDA ROLES" section below for role-based grants
 
-    // Chat Response Handler (bot message storage only)
-    this.messagesTable.grantWriteData(this.chatResponseHandler);
+    // ========== HTTP API ROUTES ==========
+    // HTTP API uses routes instead of resources/methods
+    // Routes are defined with method + path, integrations are Lambda functions
 
-    // Chat Data Processor (analytics write access)
-    this.chatSessionsTable.grantReadWriteData(this.chatDataProcessor);
-    this.messagesTable.grantReadData(this.chatDataProcessor);
-    this.analyticsTable.grantReadWriteData(this.chatDataProcessor);
-    this.escalationRequestsTable.grantReadWriteData(this.chatDataProcessor);
-    this.questionsTable.grantReadWriteData(this.chatDataProcessor);
-
-    // Escalation Handler
-    this.escalationRequestsTable.grantReadWriteData(this.escalationHandler);
-
-    // Admin Analytics (read-only)
-    this.analyticsTable.grantReadData(this.adminAnalytics);
-    this.questionsTable.grantReadData(this.adminAnalytics);
-    this.chatSessionsTable.grantReadData(this.adminAnalytics);
-    this.escalationRequestsTable.grantReadData(this.adminAnalytics);
-
-    // ========== API GATEWAY ROUTES ==========
-    // Config endpoint (public, no auth) -> chat-data-processor
-    // This provides runtime configuration to the frontend
-    this.api.root.addResource('config').addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
-
-    // Health endpoint (chat-orchestrator)
-    this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatOrchestrator));
-
-    // Chat endpoints
-    const chatResource = this.api.root.addResource('chat');
-    // POST /chat -> chat-orchestrator (Step Functions entry point)
-    chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.chatOrchestrator));
-
-    // Chat history and sessions -> chat-data-processor
-    const chatHistoryResource = chatResource.addResource('history');
-    chatHistoryResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
-
-    const chatSessionsResource = chatResource.addResource('sessions');
-    chatSessionsResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatDataProcessor));
-
-    // Escalation endpoints
-    const escalationResource = this.api.root.addResource('escalation');
-    const escalationRequestResource = escalationResource.addResource('request');
-    escalationRequestResource.addMethod('POST', new apigateway.LambdaIntegration(this.escalationHandler));
-
-    // Admin endpoints (all require Cognito authentication)
-    const adminResource = this.api.root.addResource('admin');
-    
-    // Admin dashboard endpoint (comprehensive data)
-    adminResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+    // Public endpoints (no auth required)
+    this.api.addRoutes({
+      path: '/config',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ConfigIntegration', this.chatDataProcessor),
     });
-    
-    // Admin health check
-    const adminHealthResource = adminResource.addResource('health');
-    adminHealthResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/health',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('HealthIntegration', this.chatOrchestrator),
     });
-    
-    // Admin dashboard data endpoint
-    const dashboardResource = adminResource.addResource('dashboard');
-    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/chat',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ChatIntegration', this.chatOrchestrator),
     });
-    
-    // Question analytics endpoint
-    const questionAnalyticsResource = adminResource.addResource('question-analytics');
-    questionAnalyticsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/chat/history',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ChatHistoryIntegration', this.chatDataProcessor),
     });
-    
-    // Category insights endpoint
-    const categoryInsightsResource = adminResource.addResource('category-insights');
-    categoryInsightsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/chat/sessions',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ChatSessionsIntegration', this.chatDataProcessor),
     });
-    
-    const metricsResource = adminResource.addResource('metrics');
-    metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/escalation/request',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('EscalationRequestIntegration', this.escalationHandler),
     });
-    
-    const conversationsResource = adminResource.addResource('conversations');
-    const chartResource = conversationsResource.addResource('chart');
-    chartResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/query',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('QueryIntegration', this.ragProcessor),
     });
-    
-    const languageSplitResource = adminResource.addResource('language-split');
-    languageSplitResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const faqResource = adminResource.addResource('frequently-asked-questions');
-    faqResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const unansweredResource = adminResource.addResource('unanswered-questions');
-    unansweredResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const adminEscalationResource = adminResource.addResource('escalation-requests');
-    adminEscalationResource.addMethod('GET', new apigateway.LambdaIntegration(this.escalationHandler), {
+
+    // Admin endpoints (require Cognito JWT authentication)
+    this.api.addRoutes({
+      path: '/admin',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminDashboardIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
-    // RAG query endpoint
-    const queryResource = this.api.root.addResource('query');
-    queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
-
-    // Enhanced Web Scraper endpoints (admin-only)
-    const scraperResource = this.api.root.addResource('scraper');
-    
-    // Manual domain discovery trigger
-    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    // Content processor status and health
-    const scraperStatusResource = scraperResource.addResource('status');
-    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    // Domain discovery endpoint
-    const scraperDiscoverResource = scraperResource.addResource('discover');
-    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
+    this.api.addRoutes({
+      path: '/admin/health',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminHealthIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
-    // Content processor health check
-    const processorResource = scraperResource.addResource('processor');
-    processorResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
+    this.api.addRoutes({
+      path: '/admin/dashboard',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminDashboardDataIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/question-analytics',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('QuestionAnalyticsIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/category-insights',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('CategoryInsightsIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/metrics',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('MetricsIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/conversations/chart',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ConversationsChartIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/language-split',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('LanguageSplitIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/frequently-asked-questions',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('FAQIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/unanswered-questions',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('UnansweredQuestionsIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/escalation-requests',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminEscalationRequestsIntegration', this.escalationHandler),
+      authorizer: cognitoAuthorizer,
+    });
+
+    // Scraper endpoints (admin-only)
+    this.api.addRoutes({
+      path: '/scraper',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ScraperTriggerIntegration', this.domainDiscoveryFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/status',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ScraperStatusIntegration', this.contentProcessorFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/discover',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ScraperDiscoverIntegration', this.domainDiscoveryFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/processor',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ScraperProcessorIntegration', this.contentProcessorFunction),
       authorizer: cognitoAuthorizer,
     });
 
     // Note: RAG processor is now invoked via Step Functions (not Lambda SDK)
     // No direct Lambda-to-Lambda invocations
+
+    // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
+    // Grant permissions AFTER all resources are created to avoid circular dependencies
+
+    // Public API Role permissions - using wildcard ARNs to avoid circular dependencies
+    publicApiRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:*'],
+      resources: [
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-chat-sessions*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-messages*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-analytics*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-escalation-requests*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-questions*`,
+      ],
+    }));
+
+    // Grant Step Functions permissions using wildcard ARN to avoid circular dependency
+    publicApiRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['states:StartSyncExecution'],
+      resources: [`arn:aws:states:${region}:${accountId}:stateMachine:ada-clara-chat-flow*`],
+    }));
+
+    // Admin API Role permissions - using wildcard ARNs to avoid circular dependencies
+    adminApiRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:Query', 'dynamodb:Scan', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+      resources: [
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-analytics*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-questions*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-chat-sessions*`,
+        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-escalation-requests*`,
+      ],
+    }));
+
+    // Background Jobs Role permissions - using wildcard ARNs to avoid circular dependencies
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:*'],
+      resources: [`arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-content-tracking*`],
+    }));
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sqs:SendMessage', 'sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes'],
+      resources: [`arn:aws:sqs:${region}:${accountId}:ada-clara-scraping-queue*`],
+    }));
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
+      resources: [
+        `arn:aws:s3:::ada-clara-content*-${accountId}-${region}`,
+        `arn:aws:s3:::ada-clara-content*-${accountId}-${region}/*`,
+      ],
+    }));
 
     // ========== AMPLIFY APP ==========
     // Amplify app is created by deploy.sh script before CDK deployment
@@ -1020,8 +1090,8 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // ========== OUTPUTS ==========
     new CfnOutput(this, 'ApiGatewayUrl', {
-      value: this.api.url,
-      description: 'API Gateway URL',
+      value: this.api.url!,  // HTTP API URL is always defined after deployment
+      description: 'HTTP API Gateway URL',
       exportName: `AdaClara-ApiGatewayUrl-${region}`,
     });
 
