@@ -109,7 +109,6 @@ phases:
     commands:
       - echo "Deploying frontend to Amplify..."
       - echo "Creating Amplify deployment..."
-      - cd ../..
       - |
         # Create deployment and capture both exit code and output
         if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
