@@ -65,8 +65,8 @@ phases:
       - export USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text --region $AWS_REGION)
       - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_REGION)
       - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_REGION)
-      # AMPLIFY_APP_ID and BRANCH_NAME are passed from deploy.sh as environment variables
-      - export FRONTEND_URL="https://${BRANCH_NAME}.${AMPLIFY_APP_ID}.amplifyapp.com"
+      # AMPLIFY_APP_ID and AMPLIFY_BRANCH are passed from deploy.sh as environment variables
+      - export FRONTEND_URL="https://${AMPLIFY_BRANCH}.${AMPLIFY_APP_ID}.amplifyapp.com"
       - echo "API Gateway URL=$API_GATEWAY_URL"
       - echo "User Pool ID=$USER_POOL_ID"
       - echo "Region=$AWS_REGION"
@@ -112,17 +112,17 @@ phases:
       - |
         # Check for and stop any running deployments first
         echo "Checking for existing deployments..."
-        ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
+        ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
 
         if [ -n "$ACTIVE_JOB" ] && [ "$ACTIVE_JOB" != "None" ]; then
           echo "[WARNING] Found active deployment job: $ACTIVE_JOB. Stopping it..."
-          aws amplify stop-job --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --job-id $ACTIVE_JOB --region $AWS_DEFAULT_REGION 2>/dev/null || true
+          aws amplify stop-job --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $ACTIVE_JOB --region $AWS_DEFAULT_REGION 2>/dev/null || true
           echo "Waiting 5 seconds for job to stop..."
           sleep 5
         fi
 
         # Now create deployment
-        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
+        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
           echo "[SUCCESS] Amplify deployment created successfully"
         else
           DEPLOYMENT_ERROR=$(cat deployment_response.json)
@@ -157,6 +157,6 @@ phases:
           exit 1
         fi
       - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
+      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
       - echo "Complete deployment finished successfully!"
 
