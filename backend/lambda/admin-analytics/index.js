@@ -13,6 +13,7 @@
 
 const { DynamoDBClient, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
 const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
+const { CATEGORY_DISPLAY_NAMES } = require('./constants');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -188,36 +189,19 @@ async function getQuestionAnalytics() {
 
     // Get top categories with better display names
     const categoryCounts = {};
-    const categoryDisplayNames = {
-      'type-1-diabetes': 'Type 1 Diabetes',
-      'type-2-diabetes': 'Type 2 Diabetes',
-      'gestational-diabetes': 'Gestational Diabetes',
-      'prediabetes': 'Prediabetes',
-      'symptoms-diagnosis': 'Symptoms & Diagnosis',
-      'blood-sugar-management': 'Blood Sugar Management',
-      'insulin-medication': 'Insulin & Medication',
-      'diet-nutrition': 'Diet & Nutrition',
-      'exercise-lifestyle': 'Exercise & Lifestyle',
-      'complications': 'Complications',
-      'emergency-care': 'Emergency Care',
-      'insurance-coverage': 'Insurance & Coverage',
-      'general-information': 'General Information',
-      'non-diabetes-related': 'Non-Diabetes Related',
-      'general': 'Uncategorized' // Legacy fallback
-    };
 
     items.forEach(item => {
-      const category = (item.category && typeof item.category === 'string') ? item.category : 'general';
+      const category = (item.category && typeof item.category === 'string') ? item.category : 'general-information';
       categoryCounts[category] = (categoryCounts[category] || 0) + 1;
     });
 
     const topCategories = Object.entries(categoryCounts)
       .sort(([,a], [,b]) => b - a)
       .slice(0, 10) // Show top 10 categories instead of 5
-      .map(([category, count]) => ({ 
-        category: categoryDisplayNames[category] || category, 
+      .map(([category, count]) => ({
+        category: CATEGORY_DISPLAY_NAMES[category] || category,
         categoryKey: category,
-        count 
+        count
       }));
 
     // Language breakdown
@@ -237,7 +221,7 @@ async function getQuestionAnalytics() {
       languageBreakdown,
       dataQuality: {
         questionsWithConfidence: confidenceScores.length,
-        questionsWithCategory: items.filter(item => item.category && item.category !== 'general').length,
+        questionsWithCategory: items.filter(item => item.category).length,
         questionsWithLanguage: items.filter(item => item.language).length
       }
     };
@@ -467,52 +451,90 @@ async function getLanguageSplit() {
 }
 
 /**
- * Get frequently asked questions
+ * Get frequently asked questions (grouped by category)
+ * Returns one representative question per category with total count for that category
  */
 async function getFrequentlyAskedQuestions() {
   try {
-    console.log('Fetching frequently asked questions...');
+    console.log('Fetching frequently asked questions by category...');
 
-    // Scan questions table and aggregate by question content
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      Limit: 1000
-    }));
+    // Scan questions table with pagination to avoid missing data
+    let allItems = [];
+    let lastEvaluatedKey = null;
 
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} questions in table`);
+    do {
+      const scanResult = await dynamodb.send(new ScanCommand({
+        TableName: QUESTIONS_TABLE,
+        Limit: 1000,
+        ExclusiveStartKey: lastEvaluatedKey
+      }));
 
-    // Aggregate questions by content while preserving original capitalization
-    const questionCounts = new Map();
-    items.forEach(item => {
-      if (item.question && typeof item.question === 'string') {
-        const normalizedQuestion = item.question.trim().toLowerCase();
-        const originalQuestion = item.question.trim();
-        
-        if (questionCounts.has(normalizedQuestion)) {
-          questionCounts.get(normalizedQuestion).count++;
-        } else {
-          questionCounts.set(normalizedQuestion, {
-            original: originalQuestion,
-            count: 1
-          });
-        }
+      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
+      lastEvaluatedKey = scanResult.LastEvaluatedKey;
+
+      // Safety limit to prevent excessive scanning
+      if (allItems.length >= 5000) break;
+    } while (lastEvaluatedKey);
+
+    console.log(`Found ${allItems.length} questions in table`);
+
+    // Group questions by category
+    const categoryGroups = {};
+
+    allItems.forEach(item => {
+      if (!item.question || typeof item.question !== 'string') return;
+
+      const category = item.category || 'general-information';
+
+      if (!categoryGroups[category]) {
+        categoryGroups[category] = {
+          questions: [],
+          totalCount: 0
+        };
+      }
+
+      categoryGroups[category].totalCount++;
+
+      // Track individual questions within category for representative selection
+      const normalizedQuestion = item.question.trim().toLowerCase();
+      const existingQuestion = categoryGroups[category].questions.find(
+        q => q.normalized === normalizedQuestion
+      );
+
+      if (existingQuestion) {
+        existingQuestion.count++;
+      } else {
+        categoryGroups[category].questions.push({
+          normalized: normalizedQuestion,
+          original: item.question.trim(),
+          count: 1,
+          timestamp: item.timestamp
+        });
       }
     });
 
-    // Sort by count and take top 10
-    const sortedQuestions = Array.from(questionCounts.entries())
-      .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 6)
-      .map(([normalizedQuestion, data]) => ({
-        question: data.original, // Use original capitalization
-        count: data.count
-      }));
+    // For each category, pick most frequent question as representative
+    const representativeQuestions = Object.entries(categoryGroups)
+      .map(([category, data]) => {
+        // Sort questions within category by count (most frequent first)
+        const sortedQuestions = data.questions.sort((a, b) => b.count - a.count);
+        const representative = sortedQuestions[0]; // Most frequent question in category
 
-    console.log(`Returning ${sortedQuestions.length} frequently asked questions`);
+        return {
+          question: representative.original,
+          count: data.totalCount, // Total questions in this category
+          category: CATEGORY_DISPLAY_NAMES[category] || category,
+          categoryKey: category
+        };
+      })
+      .sort((a, b) => b.count - a.count) // Sort categories by total question count
+      .slice(0, 6); // Top 6 categories
+
+    console.log(`Returning ${representativeQuestions.length} category-representative FAQs`);
+    console.log('Category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
 
     return createResponse(200, {
-      questions: sortedQuestions
+      questions: representativeQuestions
     });
 
   } catch (error) {
@@ -525,61 +547,106 @@ async function getFrequentlyAskedQuestions() {
 }
 
 /**
- * Get unanswered questions
+ * Get unanswered questions (grouped by category)
+ * Returns one representative unanswered question per category with total count for that category
  */
 async function getUnansweredQuestions() {
   try {
-    console.log('Fetching unanswered questions...');
+    console.log('Fetching unanswered questions by category...');
 
-    // Scan questions table for escalated questions (unanswered)
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      FilterExpression: 'escalated = :escalated',
-      ExpressionAttributeValues: marshall({
-        ':escalated': true
-      }),
-      Limit: 100
-    }));
+    // Scan questions table for escalated questions with pagination
+    let allItems = [];
+    let lastEvaluatedKey = null;
 
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} unanswered questions in questions table`);
+    do {
+      const scanResult = await dynamodb.send(new ScanCommand({
+        TableName: QUESTIONS_TABLE,
+        FilterExpression: 'escalated = :escalated',
+        ExpressionAttributeValues: marshall({
+          ':escalated': true
+        }),
+        Limit: 500,
+        ExclusiveStartKey: lastEvaluatedKey
+      }));
 
-    // Aggregate by question content while preserving original capitalization
-    const questionCounts = new Map();
-    items.forEach(item => {
-      if (item.question && typeof item.question === 'string') {
-        const normalizedQuestion = item.question.trim().toLowerCase();
-        const originalQuestion = item.question.trim();
-        
-        if (questionCounts.has(normalizedQuestion)) {
-          questionCounts.get(normalizedQuestion).count++;
-        } else {
-          questionCounts.set(normalizedQuestion, {
-            original: originalQuestion,
-            count: 1,
-            confidence: item.confidence || 0,
-            language: item.language || 'en'
-          });
-        }
+      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
+      lastEvaluatedKey = scanResult.LastEvaluatedKey;
+
+      // Safety limit
+      if (allItems.length >= 2000) break;
+    } while (lastEvaluatedKey);
+
+    console.log(`Found ${allItems.length} unanswered questions`);
+
+    // Group by category
+    const categoryGroups = {};
+
+    allItems.forEach(item => {
+      if (!item.question || typeof item.question !== 'string') return;
+
+      const category = item.category || 'general-information';
+
+      if (!categoryGroups[category]) {
+        categoryGroups[category] = {
+          questions: [],
+          totalCount: 0,
+          confidenceScores: [],
+          languages: new Set()
+        };
+      }
+
+      categoryGroups[category].totalCount++;
+      categoryGroups[category].confidenceScores.push(item.confidence || 0);
+      if (item.language) categoryGroups[category].languages.add(item.language);
+
+      // Track individual questions within category
+      const normalizedQuestion = item.question.trim().toLowerCase();
+      const existingQuestion = categoryGroups[category].questions.find(
+        q => q.normalized === normalizedQuestion
+      );
+
+      if (existingQuestion) {
+        existingQuestion.count++;
+        existingQuestion.confidenceScores.push(item.confidence || 0);
+      } else {
+        categoryGroups[category].questions.push({
+          normalized: normalizedQuestion,
+          original: item.question.trim(),
+          count: 1,
+          confidenceScores: [item.confidence || 0],
+          timestamp: item.timestamp
+        });
       }
     });
 
-    // Sort by count and take top 10
-    const sortedQuestions = Array.from(questionCounts.entries())
-      .sort(([,a], [,b]) => b.count - a.count)
-      .slice(0, 6)
-      .map(([normalizedQuestion, data]) => ({
-        question: data.original, // Use original capitalization
-        count: data.count,
-        averageConfidence: data.confidence,
-        language: data.language
-      }));
+    // Pick representative unanswered question per category
+    const representativeQuestions = Object.entries(categoryGroups)
+      .map(([category, data]) => {
+        // Pick most frequent unanswered question in this category
+        const sortedQuestions = data.questions.sort((a, b) => b.count - a.count);
+        const representative = sortedQuestions[0];
 
-    console.log(`Returning ${sortedQuestions.length} unanswered questions`);
+        // Calculate average confidence for entire category
+        const avgConfidence = data.confidenceScores.reduce((sum, c) => sum + c, 0) / data.confidenceScores.length;
+
+        return {
+          question: representative.original,
+          count: data.totalCount, // Total unanswered in category
+          averageConfidence: Math.round(avgConfidence * 100) / 100,
+          language: Array.from(data.languages).join('/'),
+          category: CATEGORY_DISPLAY_NAMES[category] || category,
+          categoryKey: category
+        };
+      })
+      .sort((a, b) => b.count - a.count) // Sort by category frequency
+      .slice(0, 6); // Top 6 categories with unanswered questions
+
+    console.log(`Returning ${representativeQuestions.length} category-representative unanswered questions`);
+    console.log('Unanswered category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
 
     return createResponse(200, {
-      questions: sortedQuestions,
-      totalUnanswered: items.length
+      questions: representativeQuestions,
+      totalUnanswered: allItems.length
     });
 
   } catch (error) {
@@ -750,33 +817,15 @@ async function getCategoryInsights() {
     const items = scanResult.Items?.map(item => unmarshall(item)) || [];
     console.log(`Found ${items.length} questions for category analysis`);
 
-    const categoryDisplayNames = {
-      'type-1-diabetes': 'Type 1 Diabetes',
-      'type-2-diabetes': 'Type 2 Diabetes',
-      'gestational-diabetes': 'Gestational Diabetes',
-      'prediabetes': 'Prediabetes',
-      'symptoms-diagnosis': 'Symptoms & Diagnosis',
-      'blood-sugar-management': 'Blood Sugar Management',
-      'insulin-medication': 'Insulin & Medication',
-      'diet-nutrition': 'Diet & Nutrition',
-      'exercise-lifestyle': 'Exercise & Lifestyle',
-      'complications': 'Complications',
-      'emergency-care': 'Emergency Care',
-      'insurance-coverage': 'Insurance & Coverage',
-      'general-information': 'General Information',
-      'non-diabetes-related': 'Non-Diabetes Related',
-      'general': 'Uncategorized'
-    };
-
     // Analyze each category
     const categoryInsights = {};
     
     items.forEach(item => {
-      const category = item.category || 'general';
+      const category = item.category || 'general-information';
       
       if (!categoryInsights[category]) {
         categoryInsights[category] = {
-          displayName: categoryDisplayNames[category] || category,
+          displayName: CATEGORY_DISPLAY_NAMES[category] || category,
           totalQuestions: 0,
           escalatedQuestions: 0,
           averageConfidence: 0,
