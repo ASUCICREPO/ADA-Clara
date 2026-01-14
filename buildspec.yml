@@ -72,7 +72,7 @@ phases:
       - echo "Region=$AWS_REGION"
       - echo ""
       - echo "=== FRONTEND DEPLOYMENT ==="
-      - cd ../frontend
+      - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
       - echo "Setting minimal environment variables for build (runtime config will be fetched from /config endpoint)..."
