@@ -805,7 +805,10 @@ async function recordIngestionJobMetadata(metadata) {
   try {
     await dynamoClient.send(new UpdateItemCommand({
       TableName: CONTENT_TRACKING_TABLE,
-      Key: marshall({ url: 'INGESTION_JOB_METADATA' }),
+      Key: marshall({
+        url: 'INGESTION_JOB_METADATA',
+        crawlTimestamp: 'LATEST' // Sort key required by table schema
+      }),
       UpdateExpression: 'SET lastIngestionJobId = :jobId, lastIngestionTime = :time, lastIngestionStatus = :status, discoveryId = :discoveryId, s3FileCount = :fileCount, contentStats = :stats',
       ExpressionAttributeValues: marshall({
         ':jobId': metadata.ingestionJobId,
