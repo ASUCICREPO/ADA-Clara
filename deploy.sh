@@ -183,10 +183,24 @@ fi
 # --- Phase 3: Create Unified CodeBuild Project ---
 print_codebuild "Phase 3: Creating Unified CodeBuild Project..."
 
+# Get current git branch before building environment variables
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ -z "$CURRENT_BRANCH" ]; then
+    print_warning "Failed to determine current git branch, defaulting to 'main'"
+    BRANCH_NAME="main"
+else
+    BRANCH_NAME="$CURRENT_BRANCH"
+    print_status "Using branch: $BRANCH_NAME"
+fi
+
 # Build environment variables for unified deployment
 ENV_VARS_ARRAY='{
     "name": "AMPLIFY_APP_ID",
     "value": "'"$AMPLIFY_APP_ID"'",
+    "type": "PLAINTEXT"
+  },{
+    "name": "BRANCH_NAME",
+    "value": "'"$BRANCH_NAME"'",
     "type": "PLAINTEXT"
   },{
     "name": "CDK_DEFAULT_REGION",
@@ -216,7 +230,7 @@ SOURCE='{
 }'
 
 ARTIFACTS='{"type":"NO_ARTIFACTS"}'
-SOURCE_VERSION="main"
+SOURCE_VERSION="$BRANCH_NAME"
 
 print_status "Creating unified CodeBuild project '$CODEBUILD_PROJECT_NAME'..."
 AWS_PAGER="" aws codebuild create-project \
