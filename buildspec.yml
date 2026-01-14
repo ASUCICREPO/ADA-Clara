@@ -149,11 +149,24 @@ phases:
       - echo "Uploading build.zip to Amplify..."
       - |
         # We're already in frontend/out from line 106, no need to cd again
-        # Upload with better error handling
-        if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
+        echo "Current directory: $(pwd)"
+        echo "Checking for build.zip..."
+        if [ ! -f "build.zip" ]; then
+          echo "[ERROR] build.zip not found in current directory"
+          ls -la
+          exit 1
+        fi
+        echo "build.zip found, size: $(du -h build.zip | cut -f1)"
+        echo "Uploading to Amplify..."
+        # Upload with verbose error output
+        CURL_OUTPUT=$(curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S -w "\nHTTP_CODE:%{http_code}" 2>&1)
+        CURL_EXIT=$?
+        if [ $CURL_EXIT -eq 0 ]; then
           echo "[SUCCESS] Build.zip uploaded successfully"
         else
           echo "[ERROR] Failed to upload build.zip to Amplify"
+          echo "Curl exit code: $CURL_EXIT"
+          echo "Curl output: $CURL_OUTPUT"
           exit 1
         fi
       - echo "Starting deployment..."
