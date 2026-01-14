@@ -771,11 +771,21 @@ export class AdaClaraUnifiedStack extends Stack {
       .replace(/\$\{ChatResponseHandlerArn\}/g, this.chatResponseHandler.functionName)
       .replace(/\$\{ChatDataProcessorArn\}/g, this.chatDataProcessor.functionName);
 
+    // Create State Machine execution role
+    // Note: Permissions are granted AFTER Lambda functions are created to avoid circular dependencies
+    const stateMachineRole = new iam.Role(this, 'ChatStateMachineRole', {
+      assumedBy: new iam.ServicePrincipal('states.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchLogsFullAccess'),
+      ],
+    });
+
     // Create Step Functions Express State Machine (low latency)
     this.chatStateMachine = new sfn.StateMachine(this, 'ChatStateMachine', {
       stateMachineName: `ada-clara-chat-flow${stackSuffix}`,
       definitionBody: sfn.DefinitionBody.fromString(stateMachineDefinition),
       stateMachineType: sfn.StateMachineType.EXPRESS,
+      role: stateMachineRole,
       logs: {
         destination: new logs.LogGroup(this, 'ChatStateMachineLogGroup', {
           logGroupName: `/aws/vendedlogs/states/ada-clara-chat-flow${stackSuffix}`,
@@ -786,11 +796,8 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Grant Step Functions permission to invoke Lambda functions
-    this.chatSessionManager.grantInvoke(this.chatStateMachine);
-    this.ragProcessor.grantInvoke(this.chatStateMachine);
-    this.chatResponseHandler.grantInvoke(this.chatStateMachine);
-    this.chatDataProcessor.grantInvoke(this.chatStateMachine);
+    // Note: Lambda invoke permissions are granted via stateMachineRole above
+    // Removed grantInvoke calls to avoid circular dependencies with HTTP API
 
     // ========== CHAT ORCHESTRATOR LAMBDA ==========
     // API Gateway entry point that starts Step Functions workflow
@@ -1078,6 +1085,18 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [
         `arn:aws:s3:::ada-clara-content*-${accountId}-${region}`,
         `arn:aws:s3:::ada-clara-content*-${accountId}-${region}/*`,
+      ],
+    }));
+
+    // State Machine Role permissions - using wildcard ARNs to avoid circular dependencies
+    stateMachineRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [
+        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-session-manager*`,
+        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-rag-processor*`,
+        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-response-handler*`,
+        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-data-processor*`,
       ],
     }));
 
