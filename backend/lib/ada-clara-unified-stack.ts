@@ -755,7 +755,7 @@ export class AdaClaraUnifiedStack extends Stack {
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
         COGNITO_DOMAIN: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
-        AWS_REGION: region,
+        // AWS_REGION is automatically provided by Lambda runtime
       },
     });
 
