@@ -108,6 +108,7 @@ phases:
   post_build:
     commands:
       - echo "Deploying frontend to Amplify..."
+      - cd frontend/out
       - echo "Creating Amplify deployment..."
       - |
         # Check for and stop any running deployments first
@@ -148,7 +149,7 @@ phases:
         fi
       - echo "Uploading build.zip to Amplify..."
       - |
-        # We're already in frontend/out from line 106, no need to cd again
+        # We're in frontend/out from line 111
         echo "Current directory: $(pwd)"
         echo "Checking for build.zip..."
         if [ ! -f "build.zip" ]; then
