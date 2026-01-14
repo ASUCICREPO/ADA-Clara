@@ -95,7 +95,7 @@ phases:
         fi
         echo "[SUCCESS] Next.js build completed successfully"
       - echo "Creating deployment package..."
-      - cd out && zip -r build.zip .
+      - zip -r out/build.zip out/
 
   post_build:
     commands:
