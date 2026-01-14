@@ -721,6 +721,7 @@ export class AdaClaraUnifiedStack extends Stack {
       role: publicApiRole,
       environment: {
         MESSAGES_TABLE: this.messagesTable.tableName,
+        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
       },
     });
 
@@ -745,9 +746,9 @@ export class AdaClaraUnifiedStack extends Stack {
         CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         MESSAGES_TABLE: this.messagesTable.tableName,
         ANALYTICS_TABLE: this.analyticsTable.tableName,
-        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         QUESTIONS_TABLE: this.questionsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
+        // Note: ESCALATION_REQUESTS_TABLE removed - escalation records now created in Chat Response Handler
         // Config endpoint variables
         // Note: API_GATEWAY_URL set to empty and will be updated by buildspec after deployment
         API_GATEWAY_URL: '',

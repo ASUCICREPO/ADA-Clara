@@ -6,11 +6,13 @@
  * - AI-powered language detection and question categorization (single Haiku call)
  * - Update session activity
  * - Record analytics events
- * - Create escalation records
- * - Handle GET endpoints (history, sessions)
+ * - Handle GET endpoints (history, sessions, config)
+ *
+ * NOTE: Escalation records are now created in Chat Response Handler (synchronous)
+ * for near-real-time availability. This Lambda only tracks the escalationSuggested flag.
  *
  * Invocation:
- * - Async from chat-handler (fire and forget)
+ * - Async from chat-response-handler (fire and forget)
  * - Sync from API Gateway for GET endpoints
  *
  * NOTE: Language detection now uses Haiku instead of Comprehend
@@ -19,8 +21,7 @@
 
 const { DynamoDBClient, PutItemCommand, ScanCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
-const crypto = require('crypto');
-const { categorizeAndDetectLanguage, detectLanguageFallback } = require('./categorization');
+const { categorizeAndDetectLanguage } = require('./categorization');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -29,9 +30,9 @@ const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west
 const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
 const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
 const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
-const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
+// Note: ESCALATION_TABLE no longer needed - escalation records created in Chat Response Handler
 
 /**
  * Main Lambda handler
@@ -101,12 +102,9 @@ async function processChatAnalytics(event) {
       escalationSuggested // Now passed from chat-handler
     } = event;
 
-    // STEP 1: Create escalation record if needed (escalation already determined by chat-handler)
-    if (escalationSuggested) {
-      await createEscalation(sessionId, 'Low confidence or complex query', userMessage);
-    }
-
-    // STEP 2: Update session activity
+    // STEP 1: Update session activity
+    // NOTE: Escalation records are now created immediately in Chat Response Handler
+    // for near-real-time availability (no longer created here)
     try {
       await updateSessionActivity(sessionId);
     } catch (error) {
@@ -182,31 +180,8 @@ async function processChatAnalytics(event) {
 // NOTE: Language detection and categorization now handled by external module
 // See ./categorization.js for implementation details
 
-/**
- * Create escalation record
- * Note: Escalation detection is now handled by chat-handler for minimal latency
- */
-async function createEscalation(sessionId, reason, questionText = null) {
-  const escalationId = `esc-${crypto.randomUUID()}`;
-
-  const escalationRecord = {
-    escalationId,
-    sessionId,
-    reason,
-    status: 'pending',
-    timestamp: new Date().toISOString(),
-    source: 'chat_escalation',
-    questionText: questionText, // Optional field for frontend display
-    ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60) // 90 days TTL
-  };
-
-  await dynamodb.send(new PutItemCommand({
-    TableName: ESCALATION_TABLE,
-    Item: marshall(escalationRecord, { removeUndefinedValues: true })
-  }));
-
-  return escalationRecord;
-}
+// NOTE: Escalation record creation moved to Chat Response Handler
+// This ensures near-real-time availability (synchronous) instead of async delay
 
 /**
  * Update session activity
