@@ -46,8 +46,9 @@ exports.handler = async (event) => {
     }
 
     // Otherwise, handle as API Gateway request (GET endpoints)
-    const path = event.path || '';
-    const method = event.httpMethod;
+    // Support both REST API (path, httpMethod) and HTTP API v2 (rawPath, requestContext.http.method)
+    const path = event.rawPath || event.path || '';
+    const method = event.requestContext?.http?.method || event.httpMethod;
 
     if (method === 'GET' && (path === '/config' || path.endsWith('/config'))) {
       return await handleConfig(event);
@@ -102,7 +103,7 @@ async function processChatAnalytics(event) {
 
     // STEP 1: Create escalation record if needed (escalation already determined by chat-handler)
     if (escalationSuggested) {
-      await createEscalation(sessionId, 'Low confidence or complex query');
+      await createEscalation(sessionId, 'Low confidence or complex query', userMessage);
     }
 
     // STEP 2: Update session activity
@@ -185,7 +186,7 @@ async function processChatAnalytics(event) {
  * Create escalation record
  * Note: Escalation detection is now handled by chat-handler for minimal latency
  */
-async function createEscalation(sessionId, reason) {
+async function createEscalation(sessionId, reason, questionText = null) {
   const escalationId = `esc-${crypto.randomUUID()}`;
 
   const escalationRecord = {
@@ -195,6 +196,7 @@ async function createEscalation(sessionId, reason) {
     status: 'pending',
     timestamp: new Date().toISOString(),
     source: 'chat_escalation',
+    questionText: questionText, // Optional field for frontend display
     ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60) // 90 days TTL
   };
 

@@ -153,12 +153,22 @@ async function processQuery(event) {
       }
     }
 
-    // STEP 3: Calculate confidence using Bedrock's relevance scores
+    // Sort sources by relevance (best first)
+    sources.sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    // STEP 3: Filter sources by minimum relevance score (0.5 threshold for quality)
+    // Only sources above this threshold will be used in RAG prompt and confidence calculation
+    const MIN_RELEVANCE_SCORE = 0.5;
+    const filteredSources = sources.filter(s => s.relevanceScore >= MIN_RELEVANCE_SCORE);
+    console.log(`Filtered to ${filteredSources.length} sources above ${MIN_RELEVANCE_SCORE} relevance (from ${sources.length} total)`);
+
+    // STEP 4: Calculate confidence using ONLY filtered sources
+    // This ensures low-quality chunks don't artificially depress confidence scores
     let totalRelevanceScore = 0;
     let validSourceCount = 0;
     let topScore = 0;
 
-    for (const source of sources) {
+    for (const source of filteredSources) {
       if (source.relevanceScore > 0) {
         totalRelevanceScore += source.relevanceScore;
         validSourceCount++;
@@ -173,23 +183,15 @@ async function processQuery(event) {
       : 0;
     const confidence = topScore > 0 ? topScore : avgConfidence;
 
-    // Sort sources by relevance (best first)
-    sources.sort((a, b) => b.relevanceScore - a.relevanceScore);
-
     // Log detailed confidence analysis
     console.log(`=== CONFIDENCE ANALYSIS ===`);
-    console.log(`Top Score: ${topScore.toFixed(3)}, Avg Score: ${avgConfidence.toFixed(3)}, Sources: ${validSourceCount}`);
+    console.log(`Top Score: ${topScore.toFixed(3)}, Avg Score: ${avgConfidence.toFixed(3)}, Filtered Sources: ${validSourceCount}`);
     console.log(`Final Confidence: ${confidence.toFixed(3)} (threshold: ${confidenceThreshold})`);
     if (validSourceCount > 0) {
-      sources.slice(0, 3).forEach((s, i) => {
+      filteredSources.slice(0, 3).forEach((s, i) => {
         console.log(`  Source ${i + 1}: ${s.relevanceScore.toFixed(3)} - ${s.title}`);
       });
     }
-
-    // STEP 4: Filter sources by minimum relevance score (0.5 threshold for quality)
-    const MIN_RELEVANCE_SCORE = 0.5;
-    const filteredSources = sources.filter(s => s.relevanceScore >= MIN_RELEVANCE_SCORE);
-    console.log(`Filtered to ${filteredSources.length} sources above ${MIN_RELEVANCE_SCORE} relevance`);
 
     // STEP 5: Generate response using Claude with filtered context
     let answer;
@@ -215,7 +217,7 @@ ${context}
 
 Pregunta: ${query}
 
-Proporciona una respuesta precisa, clara y basada únicamente en las fuentes proporcionadas. Cita las fuentes cuando sea apropiado.`
+Proporciona una respuesta precisa, clara y basada únicamente en las fuentes proporcionadas. No incluyas citas de fuentes o referencias como [Fuente 1] en tu respuesta.`
         : `You are a medical assistant specialized in diabetes. Answer the following question using ONLY the provided information. If the information is insufficient, clearly state that.
 
 Context from verified sources:
@@ -223,7 +225,7 @@ ${context}
 
 Question: ${query}
 
-Provide an accurate, clear response based solely on the provided sources. Cite sources when appropriate.`;
+Provide an accurate, clear response based solely on the provided sources. Do not include source citations or references like [Source 1] in your response.`;
 
       const invokeCommand = new InvokeModelCommand({
         modelId: GENERATION_MODEL,

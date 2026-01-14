@@ -287,24 +287,24 @@ print_status "Monitoring build progress..."
 echo ""
 
 while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
-  # Get logs
+  # Get logs (allow failures - log streaming is optional)
   if [ -z "$LAST_TOKEN" ]; then
     LOG_OUTPUT=$(AWS_PAGER="" aws logs get-log-events \
       --log-group-name "$LOG_GROUP" \
       --log-stream-name "$LOG_STREAM" \
       --start-from-head \
-      --output json 2>/dev/null)
+      --output json 2>/dev/null || echo "")
   else
     LOG_OUTPUT=$(AWS_PAGER="" aws logs get-log-events \
       --log-group-name "$LOG_GROUP" \
       --log-stream-name "$LOG_STREAM" \
       --next-token "$LAST_TOKEN" \
-      --output json 2>/dev/null)
+      --output json 2>/dev/null || echo "")
   fi
-  
-  # Filter logs to show important milestones
+
+  # Filter logs to show important milestones (wrapped in subshell to prevent pipeline failures from exiting script)
   if [ -n "$LOG_OUTPUT" ]; then
-    echo "$LOG_OUTPUT" | jq -r '.events[]?.message' 2>/dev/null | while IFS= read -r line; do
+    (echo "$LOG_OUTPUT" | jq -r '.events[]?.message' 2>/dev/null || true) | while IFS= read -r line; do
       # Skip container metadata and empty lines
       if [[ "$line" =~ ^\[Container\] ]] || [[ -z "$line" ]]; then
         continue
@@ -355,8 +355,8 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         echo -e "${GREEN}[SUCCESS]${NC} $line"
       fi
     done
-    
-    LAST_TOKEN=$(echo "$LOG_OUTPUT" | jq -r '.nextForwardToken' 2>/dev/null)
+
+    LAST_TOKEN=$(echo "$LOG_OUTPUT" | jq -r '.nextForwardToken' 2>/dev/null || echo "")
   fi
   
   # Check build status
