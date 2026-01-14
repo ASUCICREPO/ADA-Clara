@@ -294,8 +294,8 @@ async function processUrl(url) {
       Body: markdown,
       ContentType: 'text/markdown',
       Metadata: {
-        url: url.substring(0, 100),
-        title: title.substring(0, 50),
+        url: sanitizeHeaderValue(url.substring(0, 100)),
+        title: sanitizeHeaderValue(title.substring(0, 50)),
         scraped: new Date().toISOString().substring(0, 10),
         domain: TARGET_DOMAIN,
         contentHash: contentHash.substring(0, 32),
@@ -837,6 +837,20 @@ function urlToKey(url) {
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
     .toLowerCase();
+}
+
+/**
+ * Sanitize header values to only contain ASCII characters
+ * S3 metadata headers can only contain ASCII characters (not UTF-8)
+ */
+function sanitizeHeaderValue(value) {
+  if (!value) return '';
+  // Replace non-ASCII characters with their closest ASCII equivalent or remove them
+  return value
+    .normalize('NFD') // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics (accents)
+    .replace(/[^\x00-\x7F]/g, '') // Remove any remaining non-ASCII characters
+    .trim();
 }
 
 function sleep(ms) {
