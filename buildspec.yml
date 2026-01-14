@@ -110,22 +110,22 @@ phases:
       - echo "Deploying frontend to Amplify..."
       - echo "Creating Amplify deployment..."
       - |
-        # Create deployment and capture both exit code and output
+        # Check for and stop any running deployments first
+        echo "Checking for existing deployments..."
+        ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
+
+        if [ -n "$ACTIVE_JOB" ] && [ "$ACTIVE_JOB" != "None" ]; then
+          echo "[WARNING] Found active deployment job: $ACTIVE_JOB. Stopping it..."
+          aws amplify stop-job --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --job-id $ACTIVE_JOB --region $AWS_DEFAULT_REGION 2>/dev/null || true
+          echo "Waiting 5 seconds for job to stop..."
+          sleep 5
+        fi
+
+        # Now create deployment
         if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
           echo "[SUCCESS] Amplify deployment created successfully"
         else
           DEPLOYMENT_ERROR=$(cat deployment_response.json)
-          # Check if error is because deployment already exists (not a real failure)
-          if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
-            echo "[WARNING] Deployment already in progress, checking status..."
-            # Try to get the active job ID
-            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name $BRANCH_NAME --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
-            if [ -n "$ACTIVE_JOB" ]; then
-              echo "[SUCCESS] Found active deployment job: $ACTIVE_JOB"
-              echo "Complete deployment finished successfully! (Using existing deployment)"
-              exit 0
-            fi
-          fi
           echo "[ERROR] Failed to create Amplify deployment"
           cat deployment_response.json
           exit 1
@@ -147,8 +147,8 @@ phases:
           exit 1
         fi
       - echo "Uploading build.zip to Amplify..."
-      - cd frontend/out
       - |
+        # We're already in frontend/out from line 106, no need to cd again
         # Upload with better error handling
         if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
           echo "[SUCCESS] Build.zip uploaded successfully"
