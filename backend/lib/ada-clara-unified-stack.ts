@@ -655,7 +655,9 @@ export class AdaClaraUnifiedStack extends Stack {
         CONTENT_BUCKET: this.contentBucket.bucketName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
         EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        GENERATION_MODEL: 'anthropic.claude-3-7-sonnet-20250219-v1:0',
+        // Use cross-region inference profile instead of direct model ID
+        // This is required for Claude 3.7 Sonnet and newer models
+        GENERATION_MODEL: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
       },
     });
@@ -672,7 +674,8 @@ export class AdaClaraUnifiedStack extends Stack {
       ],
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0`,
+        // Use cross-region inference profile ARN instead of direct model ARN
+        `arn:aws:bedrock:us-west-2::foundation-model/us.anthropic.claude-3-7-sonnet-20250219-v1:0`,
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));

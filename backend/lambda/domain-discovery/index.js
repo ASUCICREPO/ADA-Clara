@@ -44,8 +44,8 @@ exports.handler = async (event, context) => {
     } else if (event.urls && Array.isArray(event.urls)) {
       // Direct URL processing (backward compatibility)
       return await handleDirectUrls(event.urls);
-    } else if (event.httpMethod) {
-      // API Gateway request
+    } else if (event.httpMethod || event.requestContext?.http?.method) {
+      // API Gateway request (supports both REST and HTTP API formats)
       return await handleApiRequest(event);
     }
 
@@ -623,8 +623,9 @@ async function handleDirectUrls(urls) {
  * Handle API Gateway requests
  */
 async function handleApiRequest(event) {
-  const method = event.httpMethod;
-  const path = event.path;
+  // Support both HTTP API (v2) and REST API (v1) formats
+  const method = event.requestContext?.http?.method || event.httpMethod;
+  const path = event.rawPath || event.path;
   
   if (method === 'OPTIONS') {
     return createResponse(200, '');

@@ -30,8 +30,9 @@ exports.handler = async (event) => {
   console.log('Escalation handler invoked:', JSON.stringify(redactPII(event), null, 2));
 
   try {
-    const path = event.path;
-    const method = event.httpMethod;
+    // Support both HTTP API (v2) and REST API (v1) formats
+    const path = event.rawPath || event.path;
+    const method = event.requestContext?.http?.method || event.httpMethod;
 
     // Route requests
     if (method === 'POST' && (path === '/escalation/request' || path === '/escalation')) {

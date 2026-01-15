@@ -46,14 +46,18 @@ exports.handler = async (event, context) => {
       return await handleSqsMessages(event);
     }
 
+    // Support both HTTP API (v2) and REST API (v1) formats
+    const method = event.requestContext?.http?.method || event.httpMethod;
+    const path = event.rawPath || event.path;
+
     // Handle direct invocation for testing
-    if (!event.httpMethod) {
+    if (!method) {
       console.log('Direct Lambda invocation detected');
-      
+
       if (event.action === 'health' || event.health) {
         return await handleHealthCheck();
       }
-      
+
       // Handle direct batch processing for testing
       if (event.urls && Array.isArray(event.urls)) {
         const batch = {
@@ -71,8 +75,6 @@ exports.handler = async (event, context) => {
     }
 
     // Handle HTTP API Gateway requests (for health checks)
-    const method = event.httpMethod;
-    const path = event.path;
 
     if (method === 'OPTIONS') {
       return createResponse(200, '');

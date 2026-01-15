@@ -19,8 +19,12 @@ exports.handler = async (event) => {
   console.log('Chat orchestrator invoked:', JSON.stringify(event, null, 2));
 
   try {
+    // Support both HTTP API (v2) and REST API (v1) formats
+    const path = event.rawPath || event.path;
+    const method = event.requestContext?.http?.method || event.httpMethod;
+
     // Handle health check
-    if (event.httpMethod === 'GET' && event.path.includes('/health')) {
+    if (method === 'GET' && path.includes('/health')) {
       return createResponse(200, {
         status: 'healthy',
         service: 'chat-orchestrator',
@@ -29,7 +33,7 @@ exports.handler = async (event) => {
     }
 
     // Handle OPTIONS (CORS preflight)
-    if (event.httpMethod === 'OPTIONS') {
+    if (method === 'OPTIONS') {
       return createResponse(200, '', event);
     }
 

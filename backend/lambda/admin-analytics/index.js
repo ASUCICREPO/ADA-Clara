@@ -32,8 +32,9 @@ exports.handler = async (event) => {
   console.log('Admin analytics handler invoked:', JSON.stringify(event, null, 2));
 
   try {
-    const path = event.path;
-    const method = event.httpMethod;
+    // Support both HTTP API (v2) and REST API (v1) formats
+    const path = event.rawPath || event.path;
+    const method = event.requestContext?.http?.method || event.httpMethod;
 
     // Authentication is handled by API Gateway Cognito Authorizer
     if (method === 'GET') {
