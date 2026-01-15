@@ -281,8 +281,11 @@ function classifyByKeywords(question, language = 'en') {
  */
 function detectLanguageFallback(text) {
   const spanishPatterns = [
-    '¿', '¡', 'qué', 'cómo', 'dónde', 'cuándo', 'por qué',
-    'diabetes', 'azúcar', 'insulina', 'medicamento'
+    '¿', '¡',  // Spanish punctuation
+    'qué', 'cómo', 'dónde', 'cuándo', 'por qué',  // Question words
+    'azúcar', 'insulina', 'medicamento',  // Spanish-only medical terms
+    'tengo', 'debo', 'puedo', 'necesito',  // Common Spanish verbs
+    'con diabetes', 'de diabetes'  // Spanish phrases
   ];
 
   const lowerText = text.toLowerCase();

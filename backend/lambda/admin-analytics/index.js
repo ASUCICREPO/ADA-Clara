@@ -542,6 +542,7 @@ async function getLanguageSplit() {
 /**
  * Get frequently asked questions (grouped by category)
  * Returns one representative question per category with total count for that category
+ * Excludes escalated/unanswered questions (those appear in "Unanswered Questions" section)
  */
 async function getFrequentlyAskedQuestions() {
   try {
@@ -573,11 +574,14 @@ async function getFrequentlyAskedQuestions() {
 
     console.log(`Found ${allItems.length} questions in table`);
 
-    // Group questions by category
+    // Group questions by category (exclude escalated/unanswered questions)
     const categoryGroups = {};
 
     allItems.forEach(item => {
       if (!item.question || typeof item.question !== 'string') return;
+
+      // Skip escalated questions - they appear in "Unanswered Questions" section
+      if (item.escalated === true) return;
 
       const category = item.category || 'general-information';
 

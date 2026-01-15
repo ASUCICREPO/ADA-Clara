@@ -100,7 +100,7 @@ export default function MetricCards() {
         <MetricCard
           title="Escalation Rate"
           value={formatPercentage(data.escalationRate)}
-          description="Conversations escalated to human"
+          description="Questions with form submissions"
           trend={data.trends.escalations}
           trendPositive={data.trends.escalations.startsWith('+')}
           icon={
