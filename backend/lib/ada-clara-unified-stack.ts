@@ -675,12 +675,22 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
         // Use cross-region inference profile ARN instead of direct model ARN
-        `arn:aws:bedrock:us-west-2::foundation-model/us.anthropic.claude-3-7-sonnet-20250219-v1:0`,
+        `arn:aws:bedrock:us-west-2:${accountId}:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0`,
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
 
     this.contentBucket.grantRead(this.ragProcessor);
+
+    // Grant AWS Marketplace permissions for Bedrock inference profile access
+    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aws-marketplace:ViewSubscriptions',
+        'aws-marketplace:Subscribe',
+      ],
+      resources: ['*'],
+    }));
 
     // ========== CHAT SESSION MANAGER LAMBDA (NEW) ==========
     // Handles session setup and user message storage (before RAG)
@@ -761,6 +771,27 @@ export class AdaClaraUnifiedStack extends Stack {
         COGNITO_DOMAIN: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
       },
     });
+
+    // Grant Bedrock permissions for language detection and categorization (uses Haiku)
+    this.chatDataProcessor.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:InvokeModel',
+      ],
+      resources: [
+        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+      ],
+    }));
+
+    // Grant AWS Marketplace permissions for Bedrock model access verification
+    this.chatDataProcessor.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aws-marketplace:ViewSubscriptions',
+        'aws-marketplace:Subscribe',
+      ],
+      resources: ['*'],
+    }));
 
     // ========== STEP FUNCTIONS STATE MACHINE ==========
 
@@ -1040,16 +1071,16 @@ export class AdaClaraUnifiedStack extends Stack {
     // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
     // Grant permissions AFTER all resources are created to avoid circular dependencies
 
-    // Public API Role permissions - using wildcard ARNs to avoid circular dependencies
+    // Public API Role permissions - grant access to DynamoDB tables
     publicApiRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:*'],
       resources: [
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-chat-sessions*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-messages*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-analytics*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-escalation-requests*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-questions*`,
+        this.chatSessionsTable.tableArn,
+        this.messagesTable.tableArn,
+        this.analyticsTable.tableArn,
+        this.escalationRequestsTable.tableArn,
+        this.questionsTable.tableArn,
       ],
     }));
 
@@ -1060,35 +1091,35 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [`arn:aws:states:${region}:${accountId}:stateMachine:ada-clara-chat-flow*`],
     }));
 
-    // Admin API Role permissions - using wildcard ARNs to avoid circular dependencies
+    // Admin API Role permissions - grant access to DynamoDB tables
     adminApiRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:Query', 'dynamodb:Scan', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
       resources: [
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-analytics*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-questions*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-chat-sessions*`,
-        `arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-escalation-requests*`,
+        this.analyticsTable.tableArn,
+        this.questionsTable.tableArn,
+        this.chatSessionsTable.tableArn,
+        this.escalationRequestsTable.tableArn,
       ],
     }));
 
-    // Background Jobs Role permissions - using wildcard ARNs to avoid circular dependencies
+    // Background Jobs Role permissions - grant access to content tracking table
     backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:*'],
-      resources: [`arn:aws:dynamodb:${region}:${accountId}:table/ada-clara-content-tracking*`],
+      resources: [this.contentTrackingTable.tableArn],
     }));
     backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['sqs:SendMessage', 'sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes'],
-      resources: [`arn:aws:sqs:${region}:${accountId}:ada-clara-scraping-queue*`],
+      resources: [this.scrapingQueue.queueArn],
     }));
     backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
       resources: [
-        `arn:aws:s3:::ada-clara-content*-${accountId}-${region}`,
-        `arn:aws:s3:::ada-clara-content*-${accountId}-${region}/*`,
+        this.contentBucket.bucketArn,
+        `${this.contentBucket.bucketArn}/*`,
       ],
     }));
 

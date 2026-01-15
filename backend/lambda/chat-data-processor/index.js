@@ -114,11 +114,14 @@ async function processChatAnalytics(event) {
     // STEP 3: Process question for analytics (includes AI language detection + categorization in ONE call)
     let finalLanguage = detectedLanguage;
     try {
+      // Only pass language as "known" if it's not the default from a new session
+      // This allows fallback detection to run properly when AI fails
+      const knownLanguage = isNewSession ? null : detectedLanguage;
       finalLanguage = await processQuestion(
         userMessage,
         botResponse,
         confidence,
-        detectedLanguage,
+        knownLanguage,
         sessionId,
         escalationSuggested
       );

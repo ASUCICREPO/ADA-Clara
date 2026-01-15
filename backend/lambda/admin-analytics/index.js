@@ -337,34 +337,45 @@ async function getConversationsChart() {
   try {
     console.log('Fetching conversations chart data...');
 
-    // Get all sessions first, then filter by date in memory for better performance
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: CHAT_SESSIONS_TABLE,
-      ProjectionExpression: 'startTime',
-      Limit: 1000
-    }));
+    // Get all sessions with pagination to avoid missing data
+    let allSessions = [];
+    let lastEvaluatedKey = null;
 
-    const sessions = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${sessions.length} total sessions for chart analysis`);
+    do {
+      const scanResult = await dynamodb.send(new ScanCommand({
+        TableName: CHAT_SESSIONS_TABLE,
+        ProjectionExpression: 'startTime',
+        Limit: 1000,
+        ExclusiveStartKey: lastEvaluatedKey
+      }));
+
+      allSessions = allSessions.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
+      lastEvaluatedKey = scanResult.LastEvaluatedKey;
+
+      // Safety limit to prevent excessive scanning
+      if (allSessions.length >= 5000) break;
+    } while (lastEvaluatedKey);
+
+    console.log(`Found ${allSessions.length} total sessions for chart analysis`);
 
     // Generate last 7 days of data
     const chartData = [];
     const today = new Date();
-    
+
     for (let i = 6; i >= 0; i--) {
       const targetDate = new Date(today);
       targetDate.setDate(targetDate.getDate() - i);
       const dateStr = targetDate.toISOString().split('T')[0]; // YYYY-MM-DD format
-      
+
       // Count sessions that started on this date
-      const conversationsOnDate = sessions.filter(session => {
+      const conversationsOnDate = allSessions.filter(session => {
         if (!session.startTime) return false;
-        
+
         // Extract date from startTime (handles both ISO strings and date strings)
         const sessionDate = new Date(session.startTime).toISOString().split('T')[0];
         return sessionDate === dateStr;
       }).length;
-      
+
       chartData.push({
         date: dateStr,
         conversations: conversationsOnDate
@@ -393,18 +404,29 @@ async function getLanguageSplit() {
   try {
     console.log('Fetching language split data...');
 
-    // Scan chat sessions table to get language distribution
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: CHAT_SESSIONS_TABLE,
-      ProjectionExpression: '#lang',
-      ExpressionAttributeNames: {
-        '#lang': 'language'
-      },
-      Limit: 1000
-    }));
+    // Scan chat sessions table with pagination to get language distribution
+    let allItems = [];
+    let lastEvaluatedKey = null;
 
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} chat sessions for language analysis`);
+    do {
+      const scanResult = await dynamodb.send(new ScanCommand({
+        TableName: CHAT_SESSIONS_TABLE,
+        ProjectionExpression: '#lang',
+        ExpressionAttributeNames: {
+          '#lang': 'language'
+        },
+        Limit: 1000,
+        ExclusiveStartKey: lastEvaluatedKey
+      }));
+
+      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
+      lastEvaluatedKey = scanResult.LastEvaluatedKey;
+
+      // Safety limit to prevent excessive scanning
+      if (allItems.length >= 5000) break;
+    } while (lastEvaluatedKey);
+
+    console.log(`Found ${allItems.length} chat sessions for language analysis`);
 
     // Count languages with better handling of missing/invalid values
     const languageCounts = {
@@ -413,9 +435,9 @@ async function getLanguageSplit() {
       other: 0
     };
 
-    items.forEach(item => {
+    allItems.forEach(item => {
       const language = item.language;
-      
+
       // Handle missing or invalid language values
       if (!language || typeof language !== 'string') {
         languageCounts.english++; // Default to English for missing values
@@ -431,7 +453,7 @@ async function getLanguageSplit() {
     console.log('Language distribution:', languageCounts);
 
     // Calculate percentages
-    const total = items.length;
+    const total = allItems.length;
     const englishPercent = total > 0 ? Math.round((languageCounts.english / total) * 100) : 0;
     const spanishPercent = total > 0 ? Math.round((languageCounts.spanish / total) * 100) : 0;
 
@@ -774,21 +796,32 @@ async function getEscalationRate() {
  */
 async function getOutOfScopeRate() {
   try {
-    // Get all questions to calculate out-of-scope rate
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      ProjectionExpression: 'escalated',
-      Limit: 1000
-    }));
+    // Get all questions to calculate out-of-scope rate (with pagination)
+    let allItems = [];
+    let lastEvaluatedKey = null;
 
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    const totalQuestions = items.length;
+    do {
+      const scanResult = await dynamodb.send(new ScanCommand({
+        TableName: QUESTIONS_TABLE,
+        ProjectionExpression: 'escalated',
+        Limit: 1000,
+        ExclusiveStartKey: lastEvaluatedKey
+      }));
+
+      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
+      lastEvaluatedKey = scanResult.LastEvaluatedKey;
+
+      // Safety limit to prevent excessive scanning
+      if (allItems.length >= 5000) break;
+    } while (lastEvaluatedKey);
+
+    const totalQuestions = allItems.length;
 
     if (totalQuestions === 0) return 0;
 
     // Count questions that were escalated (couldn't be adequately answered)
     // This includes both low-confidence questions and off-topic questions
-    const outOfScopeQuestions = items.filter(item =>
+    const outOfScopeQuestions = allItems.filter(item =>
       item.escalated === true
     ).length;
 
