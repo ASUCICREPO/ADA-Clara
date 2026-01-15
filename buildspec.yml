@@ -103,13 +103,9 @@ phases:
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
-      - echo "Setting environment variables for build..."
-      - echo "# Runtime configuration API base URL" > .env.local
-      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL" >> .env.local
-      - echo "Created .env.local with API_GATEWAY_URL=$API_GATEWAY_URL"
-      - cat .env.local
-      - echo "Building Next.js application..."
-      - npm run build 2>&1 | tee build.log
+      - echo "Building Next.js application with API Gateway URL..."
+      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL"
+      - NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL npm run build 2>&1 | tee build.log
       - |
         # Check for build errors in output
         if grep -qi "error" build.log && ! grep -qi "0 error" build.log; then
