@@ -103,10 +103,11 @@ phases:
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
-      - echo "Setting minimal environment variables for build (runtime config will be fetched from /config endpoint)..."
-      - echo "# Runtime configuration is fetched from /config endpoint" > .env.local
-      - echo "# Only the API base URL is needed at build time to bootstrap the config fetch" >> .env.local
+      - echo "Setting environment variables for build..."
+      - echo "# Runtime configuration API base URL" > .env.local
       - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL" >> .env.local
+      - echo "Created .env.local with API_GATEWAY_URL=$API_GATEWAY_URL"
+      - cat .env.local
       - echo "Building Next.js application..."
       - npm run build 2>&1 | tee build.log
       - |
@@ -122,35 +123,19 @@ phases:
           exit 1
         fi
         echo "[SUCCESS] Next.js build completed successfully"
-      - echo "Injecting runtime API URL into static HTML files..."
+      - echo "Verifying API URL injection in build output..."
       - |
-        # Inject the API base URL into all HTML files to ensure frontend can connect
-        # This is necessary because Next.js static exports bake env vars at build time
+        # Verify that layout.tsx properly injected the API URL during build
         cd out
-
-        # Create a temporary JavaScript snippet to inject
-        cat > inject-api-url.js << 'INJECT_EOF'
-        window.__API_BASE_URL__ = "PLACEHOLDER_API_URL";
-        INJECT_EOF
-
-        # Replace placeholder with actual API URL
-        sed -i "s|PLACEHOLDER_API_URL|$API_GATEWAY_URL|g" inject-api-url.js
-
-        # Inject into all HTML files (before closing </head> tag)
-        for html_file in $(find . -name "*.html" -type f); do
-          # Check if the file already has __API_BASE_URL__ injection
-          if ! grep -q "__API_BASE_URL__" "$html_file"; then
-            # Inject before </head> tag
-            sed -i 's|</head>|<script>'"$(cat inject-api-url.js)"'</script></head>|' "$html_file"
-          else
-            # Update existing injection
-            sed -i "s|window.__API_BASE_URL__ = .*\";|window.__API_BASE_URL__ = \"$API_GATEWAY_URL\";|g" "$html_file"
-          fi
-        done
-
-        rm inject-api-url.js
+        if grep -q "window.__API_BASE_URL__" index.html; then
+          echo "[SUCCESS] API URL was injected by Next.js build process"
+          # Show what was injected
+          grep -o 'window.__API_BASE_URL__[^;]*' index.html | head -1
+        else
+          echo "[ERROR] API URL was not injected - frontend will not work"
+          exit 1
+        fi
         cd ..
-        echo "[SUCCESS] API URL injected into static HTML files: $API_GATEWAY_URL"
       - echo "Creating deployment package..."
       - cd out
       - zip -r build.zip .
