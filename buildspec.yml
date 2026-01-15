@@ -106,9 +106,11 @@ phases:
       - echo "Generating runtime configuration file..."
       - |
         # Create runtime-config.json with all configuration values
+        # Strip trailing slash from API_GATEWAY_URL to avoid double slashes
+        API_BASE_URL_CLEAN="${API_GATEWAY_URL%/}"
         cat > public/runtime-config.json <<EOF
         {
-          "apiBaseUrl": "$API_GATEWAY_URL",
+          "apiBaseUrl": "$API_BASE_URL_CLEAN",
           "region": "$AWS_REGION",
           "cognito": {
             "userPoolId": "$USER_POOL_ID",
