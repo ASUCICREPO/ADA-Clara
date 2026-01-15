@@ -25,6 +25,41 @@ const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
 const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 // Note: CONVERSATIONS_TABLE removed - analytics now uses CHAT_SESSIONS_TABLE instead
 
+// Lambda-level caching configuration
+// Cache persists across warm Lambda invocations (global scope)
+const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+// Cache storage (persists across invocations in same Lambda container)
+const cache = {
+  metrics: { data: null, timestamp: null },
+  conversationsChart: { data: null, timestamp: null },
+  languageSplit: { data: null, timestamp: null },
+  faq: { data: null, timestamp: null },
+  unanswered: { data: null, timestamp: null }
+  // NOTE: Escalation requests are NOT cached - they must be real-time
+};
+
+/**
+ * Check if cached data is still valid
+ */
+function isCacheValid(cacheEntry) {
+  if (!cacheEntry.data || !cacheEntry.timestamp) {
+    return false;
+  }
+  const age = Date.now() - cacheEntry.timestamp;
+  return age < CACHE_TTL_MS;
+}
+
+/**
+ * Update cache entry
+ */
+function updateCache(cacheKey, data) {
+  cache[cacheKey] = {
+    data: data,
+    timestamp: Date.now()
+  };
+}
+
 /**
  * Main Lambda handler
  */
@@ -245,7 +280,13 @@ async function getQuestionAnalytics() {
  */
 async function getMetrics() {
   try {
-    console.log('Fetching dashboard metrics...');
+    // Check cache first
+    if (isCacheValid(cache.metrics)) {
+      console.log('Returning cached metrics (age: ' + Math.round((Date.now() - cache.metrics.timestamp) / 1000) + 's)');
+      return createResponse(200, cache.metrics.data);
+    }
+
+    console.log('Cache miss - fetching fresh metrics...');
 
     // Get total questions (more accurate than sessions for conversation activity)
     const totalQuestions = await getTotalQuestions();
@@ -314,12 +355,17 @@ async function getMetrics() {
 
     console.log('Dashboard metrics:', metrics);
 
-    return createResponse(200, {
+    const responseData = {
       totalConversations: metrics.totalConversations,
       escalationRate: metrics.escalationRate,
       outOfScopeRate: metrics.outOfScopeRate,
       trends: metrics.trends
-    });
+    };
+
+    // Update cache
+    updateCache('metrics', responseData);
+
+    return createResponse(200, responseData);
 
   } catch (error) {
     console.error('Error fetching metrics:', error);
@@ -335,7 +381,13 @@ async function getMetrics() {
  */
 async function getConversationsChart() {
   try {
-    console.log('Fetching conversations chart data...');
+    // Check cache first
+    if (isCacheValid(cache.conversationsChart)) {
+      console.log('Returning cached conversations chart (age: ' + Math.round((Date.now() - cache.conversationsChart.timestamp) / 1000) + 's)');
+      return createResponse(200, cache.conversationsChart.data);
+    }
+
+    console.log('Cache miss - fetching fresh conversations chart data...');
 
     // Get all sessions with pagination to avoid missing data
     let allSessions = [];
@@ -384,9 +436,12 @@ async function getConversationsChart() {
 
     console.log('Chart data:', chartData);
 
-    return createResponse(200, {
-      data: chartData
-    });
+    const responseData = { data: chartData };
+
+    // Update cache
+    updateCache('conversationsChart', responseData);
+
+    return createResponse(200, responseData);
 
   } catch (error) {
     console.error('Error fetching conversations chart:', error);
@@ -402,7 +457,13 @@ async function getConversationsChart() {
  */
 async function getLanguageSplit() {
   try {
-    console.log('Fetching language split data...');
+    // Check cache first
+    if (isCacheValid(cache.languageSplit)) {
+      console.log('Returning cached language split (age: ' + Math.round((Date.now() - cache.languageSplit.timestamp) / 1000) + 's)');
+      return createResponse(200, cache.languageSplit.data);
+    }
+
+    console.log('Cache miss - fetching fresh language split data...');
 
     // Scan chat sessions table with pagination to get language distribution
     let allItems = [];
@@ -459,10 +520,15 @@ async function getLanguageSplit() {
 
     console.log(`Language percentages: English ${englishPercent}%, Spanish ${spanishPercent}%`);
 
-    return createResponse(200, {
+    const responseData = {
       english: englishPercent,
       spanish: spanishPercent
-    });
+    };
+
+    // Update cache
+    updateCache('languageSplit', responseData);
+
+    return createResponse(200, responseData);
 
   } catch (error) {
     console.error('Error fetching language split:', error);
@@ -479,7 +545,13 @@ async function getLanguageSplit() {
  */
 async function getFrequentlyAskedQuestions() {
   try {
-    console.log('Fetching frequently asked questions by category...');
+    // Check cache first
+    if (isCacheValid(cache.faq)) {
+      console.log('Returning cached FAQ (age: ' + Math.round((Date.now() - cache.faq.timestamp) / 1000) + 's)');
+      return createResponse(200, cache.faq.data);
+    }
+
+    console.log('Cache miss - fetching fresh FAQ data...');
 
     // Scan questions table with pagination to avoid missing data
     let allItems = [];
@@ -556,9 +628,12 @@ async function getFrequentlyAskedQuestions() {
     console.log(`Returning ${representativeQuestions.length} category-representative FAQs`);
     console.log('Category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
 
-    return createResponse(200, {
-      questions: representativeQuestions
-    });
+    const responseData = { questions: representativeQuestions };
+
+    // Update cache
+    updateCache('faq', responseData);
+
+    return createResponse(200, responseData);
 
   } catch (error) {
     console.error('Error fetching frequently asked questions:', error);
@@ -575,7 +650,13 @@ async function getFrequentlyAskedQuestions() {
  */
 async function getUnansweredQuestions() {
   try {
-    console.log('Fetching unanswered questions by category...');
+    // Check cache first
+    if (isCacheValid(cache.unanswered)) {
+      console.log('Returning cached unanswered questions (age: ' + Math.round((Date.now() - cache.unanswered.timestamp) / 1000) + 's)');
+      return createResponse(200, cache.unanswered.data);
+    }
+
+    console.log('Cache miss - fetching fresh unanswered questions...');
 
     // Scan questions table for escalated questions with pagination
     let allItems = [];
@@ -667,10 +748,15 @@ async function getUnansweredQuestions() {
     console.log(`Returning ${representativeQuestions.length} category-representative unanswered questions`);
     console.log('Unanswered category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
 
-    return createResponse(200, {
+    const responseData = {
       questions: representativeQuestions,
       totalUnanswered: allItems.length
-    });
+    };
+
+    // Update cache
+    updateCache('unanswered', responseData);
+
+    return createResponse(200, responseData);
 
   } catch (error) {
     console.error('Error fetching unanswered questions:', error);
