@@ -94,8 +94,8 @@ phases:
             --query 'Environment.Variables.API_GATEWAY_URL' \
             --output text
         else
-          echo "[ERROR] Failed to update Lambda environment variables - /config endpoint will not work"
-          echo "This will cause the frontend to fail to load configuration"
+          echo "[ERROR] Failed to update Lambda environment variables"
+          echo "Lambda functions may not work correctly without proper configuration"
           exit 1
         fi
       - echo ""
@@ -103,9 +103,28 @@ phases:
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
-      - echo "Building Next.js application with API Gateway URL..."
-      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL"
-      - NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL npm run build 2>&1 | tee build.log
+      - echo "Generating runtime configuration file..."
+      - |
+        # Create runtime-config.json with all configuration values
+        cat > public/runtime-config.json <<EOF
+        {
+          "apiBaseUrl": "$API_GATEWAY_URL",
+          "region": "$AWS_REGION",
+          "cognito": {
+            "userPoolId": "$USER_POOL_ID",
+            "clientId": "$USER_POOL_CLIENT_ID",
+            "identityPoolId": "$IDENTITY_POOL_ID",
+            "domain": "$COGNITO_DOMAIN",
+            "redirectSignIn": "$FRONTEND_URL/auth/callback",
+            "redirectSignOut": "$FRONTEND_URL"
+          },
+          "version": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+        }
+        EOF
+      - echo "Generated runtime-config.json:"
+      - cat public/runtime-config.json
+      - echo "Building Next.js application..."
+      - npm run build 2>&1 | tee build.log
       - |
         # Check for build errors in output
         if grep -qi "error" build.log && ! grep -qi "0 error" build.log; then
@@ -119,16 +138,16 @@ phases:
           exit 1
         fi
         echo "[SUCCESS] Next.js build completed successfully"
-      - echo "Verifying API URL injection in build output..."
+      - echo "Verifying runtime-config.json in build output..."
       - |
-        # Verify that layout.tsx properly injected the API URL during build
+        # Verify that runtime-config.json was copied to build output
         cd out
-        if grep -q "window.__API_BASE_URL__" index.html; then
-          echo "[SUCCESS] API URL was injected by Next.js build process"
-          # Show what was injected
-          grep -o 'window.__API_BASE_URL__[^;]*' index.html | head -1
+        if [ -f "runtime-config.json" ]; then
+          echo "[SUCCESS] runtime-config.json found in build output"
+          echo "Config preview:"
+          head -5 runtime-config.json
         else
-          echo "[ERROR] API URL was not injected - frontend will not work"
+          echo "[ERROR] runtime-config.json not found in build output"
           exit 1
         fi
         cd ..

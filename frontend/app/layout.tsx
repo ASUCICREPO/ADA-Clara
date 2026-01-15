@@ -24,21 +24,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Get API base URL from environment variable (set at build time)
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* Inject API base URL as a global variable for runtime config fetching */}
-        {apiBaseUrl && (
-          <script
-            dangerouslySetInnerHTML={{
-              __html: `window.__API_BASE_URL__ = ${JSON.stringify(apiBaseUrl)};`,
-            }}
-          />
-        )}
-      </head>
+      <head />
       <body className={`${inter.variable} antialiased`} suppressHydrationWarning>
         <LanguageProvider>
           {children}
