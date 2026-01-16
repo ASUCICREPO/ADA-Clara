@@ -6,6 +6,7 @@ import TypingIndicator from './TypingIndicator';
 import WelcomeLanding from './WelcomeLanding';
 import TalkToPersonForm from './TalkToPersonForm';
 import { sendChatMessage } from '../../lib/api/chat.service';
+import { useLanguage } from '../context/LanguageContext';
 
 interface Message {
   id: string;
@@ -40,7 +41,8 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState<string>(() => getOrCreateSessionId());
   const [hasStartedChat, setHasStartedChat] = useState(false);
-  
+  const { language } = useLanguage();
+
   const [messages, setMessages] = useState<Message[]>([]);
 
   // Auto-scroll to bottom when messages change or loading state changes
@@ -76,7 +78,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
       const response = await sendChatMessage({
         message: inputValue,
         sessionId: sessionId,
-        language: 'en',
+        language: language,
       });
 
       messageIdCounter.current += 1;

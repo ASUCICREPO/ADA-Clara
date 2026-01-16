@@ -888,12 +888,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.api.addRoutes({
-      path: '/health',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('HealthIntegration', this.chatOrchestrator),
-    });
-
-    this.api.addRoutes({
       path: '/chat',
       methods: [apigatewayv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration('ChatIntegration', this.chatOrchestrator),
@@ -928,13 +922,6 @@ export class AdaClaraUnifiedStack extends Stack {
       path: '/admin',
       methods: [apigatewayv2.HttpMethod.GET],
       integration: new HttpLambdaIntegration('AdminDashboardIntegration', this.adminAnalytics),
-      authorizer: cognitoAuthorizer,
-    });
-
-    this.api.addRoutes({
-      path: '/admin/health',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('AdminHealthIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 

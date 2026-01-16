@@ -48,8 +48,6 @@ exports.handler = async (event) => {
       return await handleChatHistory(event);
     } else if (method === 'GET' && (path === '/chat/sessions' || path.endsWith('/chat/sessions'))) {
       return await handleChatSessions(event);
-    } else if (method === 'GET' && (path === '/health' || path === '/data-processor/health')) {
-      return await handleHealthCheck(event);
     } else if (method === 'OPTIONS') {
       return createResponse(200, '');
     } else {
@@ -58,8 +56,7 @@ exports.handler = async (event) => {
         availableEndpoints: [
           'GET /config',
           'GET /chat/history?sessionId=<sessionId>',
-          'GET /chat/sessions?limit=<limit>',
-          'GET /health'
+          'GET /chat/sessions?limit=<limit>'
         ]
       });
     }
@@ -350,46 +347,6 @@ async function getChatSessions(limit = 10) {
   } catch (error) {
     console.error('Failed to get chat sessions:', error);
     return [];
-  }
-}
-
-/**
- * Handle health check
- */
-async function handleHealthCheck() {
-  try {
-    const services = {};
-
-    // Test DynamoDB access
-    try {
-      await dynamodb.send(new ScanCommand({
-        TableName: SESSIONS_TABLE,
-        Limit: 1
-      }));
-      services.dynamodb = true;
-    } catch (error) {
-      services.dynamodb = false;
-    }
-
-    // Note: Comprehend no longer used - language detection now uses Haiku
-
-    const overall = services.dynamodb;
-
-    return createResponse(overall ? 200 : 503, {
-      status: overall ? 'healthy' : 'unhealthy',
-      service: 'chat-data-processor',
-      timestamp: new Date().toISOString(),
-      services
-    });
-
-  } catch (error) {
-    console.error('Health check error:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      service: 'chat-data-processor',
-      timestamp: new Date().toISOString(),
-      error: error.message || 'Unknown error'
-    });
   }
 }
 

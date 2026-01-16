@@ -39,8 +39,6 @@ exports.handler = async (event, context) => {
     // Handle different invocation types
     if (event.action === 'discover-domain') {
       return await handleDomainDiscovery(event);
-    } else if (event.action === 'health') {
-      return await handleHealthCheck();
     } else if (event.urls && Array.isArray(event.urls)) {
       // Direct URL processing (backward compatibility)
       return await handleDirectUrls(event.urls);
@@ -630,71 +628,16 @@ async function handleApiRequest(event) {
   if (method === 'OPTIONS') {
     return createResponse(200, '');
   }
-  
-  if (method === 'GET' && (path === '/health' || path === '/' || path.endsWith('/health'))) {
-    return await handleHealthCheck();
-  }
-  
+
   if (method === 'POST' && path.includes('discover')) {
     const body = JSON.parse(event.body || '{}');
     return await handleDomainDiscovery({ ...body, action: 'discover-domain' });
   }
-  
+
   return createResponse(404, {
     error: 'Endpoint not found',
-    message: 'Domain Discovery handles discovery requests and health checks'
+    message: 'Domain Discovery handles discovery requests only'
   });
-}
-
-/**
- * Handle health check
- */
-async function handleHealthCheck() {
-  try {
-    // Test SQS access
-    let sqsHealthy = false;
-    try {
-      // Just test that we can access SQS (don't actually send a message)
-      sqsHealthy = !!SCRAPING_QUEUE_URL;
-    } catch (error) {
-      console.error('SQS health check failed:', error);
-    }
-    
-    // Test external connectivity
-    let connectivityHealthy = false;
-    try {
-      await axios.get(`https://${TARGET_DOMAIN}/robots.txt`, { timeout: 5000 });
-      connectivityHealthy = true;
-    } catch (error) {
-      console.error('Connectivity health check failed:', error);
-    }
-    
-    const overall = sqsHealthy && connectivityHealthy;
-    
-    return createResponse(overall ? 200 : 503, {
-      status: overall ? 'healthy' : 'unhealthy',
-      timestamp: new Date().toISOString(),
-      service: 'domain-discovery',
-      version: '1.0.0',
-      services: {
-        sqs: sqsHealthy,
-        connectivity: connectivityHealthy
-      },
-      configuration: {
-        targetDomain: TARGET_DOMAIN,
-        maxUrlsPerBatch: MAX_URLS_PER_BATCH,
-        maxDiscoveryUrls: MAX_DISCOVERY_URLS
-      }
-    });
-    
-  } catch (error) {
-    console.error('Health check error:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      error: error.message || 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
-  }
 }
 
 /**

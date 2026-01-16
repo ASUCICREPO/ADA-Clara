@@ -1,10 +1,9 @@
 /**
  * RAG Processor Lambda
  * Consolidated single-file implementation
- * 
+ *
  * Handles:
  * - POST /query - Process RAG queries using Bedrock Knowledge Base
- * - GET /query/health - Health check
  */
 
 const { BedrockAgentRuntimeClient, RetrieveCommand } = require('@aws-sdk/client-bedrock-agent-runtime');
@@ -32,16 +31,13 @@ exports.handler = async (event) => {
     // Route requests
     if (method === 'POST' && (path === '/query' || path.endsWith('/query'))) {
       return await processQuery(event);
-    } else if (method === 'GET' && (path === '/query/health' || path === '/health')) {
-      return await healthCheck();
     } else if (method === 'OPTIONS') {
       return createResponse(200, '');
     } else {
       return createResponse(404, {
         error: 'Endpoint not found',
         availableEndpoints: [
-          'POST /query',
-          'GET /query/health'
+          'POST /query'
         ]
       });
     }
@@ -302,49 +298,6 @@ Provide an accurate, clear response based solely on the provided sources. Do not
     return createResponse(500, {
       error: 'RAG query processing failed',
       message: error.message || 'Unknown error occurred'
-    });
-  }
-}
-
-/**
- * Health check
- */
-async function healthCheck() {
-  try {
-    console.log('Performing RAG health check...');
-
-    // Test Knowledge Base access with a simple retrieve query
-    const testCommand = new RetrieveCommand({
-      knowledgeBaseId: KNOWLEDGE_BASE_ID,
-      retrievalQuery: {
-        text: 'What is diabetes?'
-      },
-      retrievalConfiguration: {
-        vectorSearchConfiguration: {
-          numberOfResults: 1
-        }
-      }
-    });
-
-    await bedrockAgent.send(testCommand);
-
-    return createResponse(200, {
-      status: 'healthy',
-      service: 'rag-processor',
-      timestamp: new Date().toISOString(),
-      knowledgeBaseId: KNOWLEDGE_BASE_ID,
-      generationModel: GENERATION_MODEL,
-      confidenceThreshold: CONFIDENCE_THRESHOLD
-    });
-
-  } catch (error) {
-    console.error('RAG health check failed:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      service: 'rag-processor',
-      timestamp: new Date().toISOString(),
-      error: error.message || 'Unknown error',
-      knowledgeBaseId: KNOWLEDGE_BASE_ID
     });
   }
 }

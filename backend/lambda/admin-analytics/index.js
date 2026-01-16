@@ -6,7 +6,6 @@
  * - GET /admin/metrics - Dashboard metrics
  * - GET /admin/conversations/chart - Conversation chart data
  * - GET /admin/language-split - Language distribution
- * - GET /admin/health - Health check
  */
 
 const { DynamoDBClient, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
@@ -101,10 +100,12 @@ async function handleGetRequest(path) {
     case '/admin/language-split':
       return await getLanguageSplit();
 
-    case '/admin/health':
     case '/admin':
-      return await getHealthCheck();
-    
+      return createResponse(404, {
+        error: 'Endpoint not found',
+        message: 'Please specify a valid admin endpoint'
+      });
+
     default:
       return createResponse(404, {
         error: 'Endpoint not found',
@@ -112,8 +113,7 @@ async function handleGetRequest(path) {
           'GET /admin/dashboard',
           'GET /admin/metrics',
           'GET /admin/conversations/chart',
-          'GET /admin/language-split',
-          'GET /admin/health'
+          'GET /admin/language-split'
         ]
       });
   }
@@ -416,45 +416,6 @@ async function getLanguageSplit() {
     return createResponse(500, {
       error: 'Failed to fetch language split',
       message: error.message || 'Unknown error'
-    });
-  }
-}
-
-/**
- * Health check
- */
-async function getHealthCheck() {
-  try {
-    // Test access to all required tables (excluding CONVERSATIONS_TABLE - not used, analytics uses CHAT_SESSIONS_TABLE)
-    const tables = [ANALYTICS_TABLE, CHAT_SESSIONS_TABLE, QUESTIONS_TABLE, ESCALATION_REQUESTS_TABLE];
-    const tableStatus = {};
-
-    for (const table of tables) {
-      try {
-        await dynamodb.send(new ScanCommand({
-          TableName: table,
-          Limit: 1
-        }));
-        tableStatus[table] = 'accessible';
-      } catch (error) {
-        tableStatus[table] = 'error: ' + error.message;
-      }
-    }
-
-    return createResponse(200, {
-      status: 'healthy',
-      service: 'admin-analytics',
-      timestamp: new Date().toISOString(),
-      tables: tableStatus
-    });
-
-  } catch (error) {
-    console.error('Health check failed:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      service: 'admin-analytics',
-      timestamp: new Date().toISOString(),
-      error: error.message || 'Unknown error'
     });
   }
 }

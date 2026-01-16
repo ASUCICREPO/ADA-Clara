@@ -54,10 +54,6 @@ exports.handler = async (event, context) => {
     if (!method) {
       console.log('Direct Lambda invocation detected');
 
-      if (event.action === 'health' || event.health) {
-        return await handleHealthCheck();
-      }
-
       // Handle direct batch processing for testing
       if (event.urls && Array.isArray(event.urls)) {
         const batch = {
@@ -74,19 +70,15 @@ exports.handler = async (event, context) => {
       }
     }
 
-    // Handle HTTP API Gateway requests (for health checks)
+    // Handle HTTP API Gateway requests
 
     if (method === 'OPTIONS') {
       return createResponse(200, '');
     }
 
-    if (method === 'GET' && (path === '/health' || path === '/' || path.endsWith('/health'))) {
-      return await handleHealthCheck();
-    }
-
     return createResponse(404, {
       error: 'Endpoint not found',
-      message: 'Content Processor handles SQS messages and health checks only'
+      message: 'Content Processor handles SQS messages only'
     });
 
   } catch (error) {
@@ -563,70 +555,6 @@ async function updateContentTracking(url, contentHash, metadata) {
     console.error(`Error updating content tracking for ${url}:`, error);
     // Don't throw - this shouldn't fail the entire processing
     // But log the error for monitoring
-  }
-}
-
-/**
- * Handle health check
- */
-async function handleHealthCheck() {
-  try {
-    // Test S3 access
-    let s3Healthy = false;
-    try {
-      await s3Client.send(new ListObjectsV2Command({
-        Bucket: CONTENT_BUCKET,
-        MaxKeys: 1
-      }));
-      s3Healthy = true;
-    } catch (error) {
-      console.error('S3 health check failed:', error);
-    }
-
-    // Test DynamoDB access
-    let dynamoHealthy = false;
-    try {
-      await dynamoClient.send(new QueryCommand({
-        TableName: CONTENT_TRACKING_TABLE,
-        KeyConditionExpression: '#url = :url',
-        ExpressionAttributeNames: {
-          '#url': 'url'
-        },
-        ExpressionAttributeValues: marshall({
-          ':url': 'health-check-test'
-        }),
-        Limit: 1
-      }));
-      dynamoHealthy = true;
-    } catch (error) {
-      console.error('DynamoDB health check failed:', error);
-    }
-
-    const overall = s3Healthy && dynamoHealthy;
-
-    return createResponse(overall ? 200 : 503, {
-      status: overall ? 'healthy' : 'unhealthy',
-      timestamp: new Date().toISOString(),
-      service: 'content-processor',
-      version: '2.0.0-simplified',
-      services: {
-        s3: s3Healthy,
-        dynamodb: dynamoHealthy
-      },
-      configuration: {
-        contentBucket: CONTENT_BUCKET,
-        targetDomain: TARGET_DOMAIN,
-        minQualityThreshold: MIN_QUALITY_THRESHOLD
-      }
-    });
-
-  } catch (error) {
-    console.error('Health check error:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      error: error.message || 'Unknown error',
-      timestamp: new Date().toISOString()
-    });
   }
 }
 
