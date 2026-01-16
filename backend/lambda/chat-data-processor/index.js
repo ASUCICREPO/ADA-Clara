@@ -3,25 +3,17 @@
  * Async analytics and data processing
  *
  * Responsibilities:
- * - AI-powered language detection and question categorization (single Haiku call)
  * - Update session activity
  * - Record analytics events
  * - Handle GET endpoints (history, sessions, config)
  *
- * NOTE: Escalation records are now created in Chat Response Handler (synchronous)
- * for near-real-time availability. This Lambda only tracks the escalationSuggested flag.
- *
  * Invocation:
  * - Async from chat-response-handler (fire and forget)
  * - Sync from API Gateway for GET endpoints
- *
- * NOTE: Language detection now uses Haiku instead of Comprehend
- * This eliminates AWS Comprehend dependency and reduces API calls
  */
 
 const { DynamoDBClient, PutItemCommand, ScanCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
-const { categorizeAndDetectLanguage } = require('./categorization');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -32,7 +24,6 @@ const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
 const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
 const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
-// Note: ESCALATION_TABLE no longer needed - escalation records created in Chat Response Handler
 
 /**
  * Main Lambda handler
@@ -94,69 +85,37 @@ async function processChatAnalytics(event) {
       userMessage,
       botResponse,
       confidence,
-      sources,
       processingTime,
-      timestamp,
-      isNewSession,
       language: detectedLanguage,
-      escalationSuggested // Now passed from chat-handler
+      escalationSuggested
     } = event;
 
-    // STEP 1: Update session activity
-    // NOTE: Escalation records are now created immediately in Chat Response Handler
-    // for near-real-time availability (no longer created here)
+    // Update session activity
     try {
       await updateSessionActivity(sessionId);
     } catch (error) {
       console.error('Failed to update session activity:', error);
     }
 
-    // STEP 3: Process question for analytics (includes AI language detection + categorization in ONE call)
-    let finalLanguage = detectedLanguage;
+    // Process question for analytics
     try {
-      // Only pass language as "known" if it's not the default from a new session
-      // This allows fallback detection to run properly when AI fails
-      const knownLanguage = isNewSession ? null : detectedLanguage;
-      finalLanguage = await processQuestion(
+      await processQuestion(
         userMessage,
         botResponse,
         confidence,
-        knownLanguage,
+        detectedLanguage,
         sessionId,
         escalationSuggested
       );
-      console.log(`AI detected language: ${finalLanguage}`);
+      console.log(`Recorded question with language: ${detectedLanguage}`);
     } catch (error) {
       console.error('Failed to process question for analytics:', error);
     }
 
-    // STEP 4: Update session with AI-detected language (for new sessions or language corrections)
-    if (isNewSession || finalLanguage !== detectedLanguage) {
-      try {
-        await dynamodb.send(new UpdateItemCommand({
-          TableName: SESSIONS_TABLE,
-          Key: marshall({
-            PK: `SESSION#${sessionId}`,
-            SK: 'METADATA'
-          }),
-          UpdateExpression: 'SET #lang = :language',
-          ExpressionAttributeNames: {
-            '#lang': 'language'
-          },
-          ExpressionAttributeValues: marshall({
-            ':language': finalLanguage
-          })
-        }));
-        console.log(`Updated session language to: ${finalLanguage}`);
-      } catch (error) {
-        console.error('Failed to update session language:', error);
-      }
-    }
-
-    // STEP 5: Record analytics with final language
+    // Record analytics
     await recordAnalytics('chat', 'message_processed', {
       sessionId,
-      language: finalLanguage,
+      language: detectedLanguage,
       confidence,
       escalated: escalationSuggested,
       processingTime
@@ -164,7 +123,6 @@ async function processChatAnalytics(event) {
 
     console.log('Chat analytics processing completed successfully');
 
-    // Return success (though no one is waiting for this)
     return {
       statusCode: 200,
       body: JSON.stringify({ success: true })
@@ -172,19 +130,12 @@ async function processChatAnalytics(event) {
 
   } catch (error) {
     console.error('Error processing chat analytics:', error);
-    // Don't fail - analytics are best-effort
     return {
       statusCode: 200,
       body: JSON.stringify({ success: false, error: error.message })
     };
   }
 }
-
-// NOTE: Language detection and categorization now handled by external module
-// See ./categorization.js for implementation details
-
-// NOTE: Escalation record creation moved to Chat Response Handler
-// This ensures near-real-time availability (synchronous) instead of async delay
 
 /**
  * Update session activity
@@ -229,37 +180,29 @@ async function recordAnalytics(category, action, data) {
 }
 
 /**
- * Process question for analytics with AI-powered categorization and language detection
+ * Process question for analytics
  */
 async function processQuestion(question, response, confidence, language, sessionId, escalated) {
   try {
-    // Get AI-powered category (and language if not already detected)
-    const { category, detectedLanguage } = await categorizeAndDetectLanguage(question, language);
-
     const questionRecord = {
       questionId: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       question,
       response,
       confidence,
-      language: detectedLanguage, // Use AI-detected language if available
+      language,
       sessionId,
       escalated,
-      category,
       timestamp: new Date().toISOString(),
       date: new Date().toISOString().split('T')[0],
-      ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60) // 1 year TTL
+      ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)
     };
 
     await dynamodb.send(new PutItemCommand({
       TableName: QUESTIONS_TABLE,
       Item: marshall(questionRecord, { removeUndefinedValues: true })
     }));
-
-    // Return detected language for session update
-    return detectedLanguage;
   } catch (error) {
     console.error('Failed to process question:', error);
-    return language; // Return original language on error
   }
 }
 
@@ -267,7 +210,7 @@ async function processQuestion(question, response, confidence, language, session
  * Handle config request - provides runtime configuration to frontend
  * This allows frontend to be built once and work across deployments
  */
-async function handleConfig(event) {
+async function handleConfig() {
   try {
     // Build config from environment variables (always up-to-date)
     const config = {
@@ -413,7 +356,7 @@ async function getChatSessions(limit = 10) {
 /**
  * Handle health check
  */
-async function handleHealthCheck(event) {
+async function handleHealthCheck() {
   try {
     const services = {};
 

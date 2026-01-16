@@ -67,7 +67,8 @@ exports.handler = async (event) => {
     }
 
     // STEP 3: Get or create session
-    const session = await getOrCreateSession(event.sessionId, event.userInfo, existingSession);
+    const language = event.language || 'en';
+    const session = await getOrCreateSession(event.sessionId, event.userInfo, language, existingSession);
     isNewSession = !existingSession;
 
     // STEP 4: Store user message
@@ -98,15 +99,14 @@ exports.handler = async (event) => {
 
 /**
  * Get existing session or create new one
- * No language detection here - handled async by chat-data-processor
  */
-async function getOrCreateSession(sessionId, userInfo, existingSession = null) {
+async function getOrCreateSession(sessionId, userInfo, language, existingSession = null) {
   // If existingSession provided (already fetched), use it
   if (existingSession) {
     return {
       sessionId: existingSession.sessionId,
       startTime: existingSession.startTime,
-      language: existingSession.language || 'en', // Default to English
+      language: existingSession.language || 'en',
       escalated: existingSession.escalated,
       messageCount: existingSession.messageCount,
       lastActivity: existingSession.lastActivity,
@@ -115,17 +115,17 @@ async function getOrCreateSession(sessionId, userInfo, existingSession = null) {
     };
   }
 
-  // Create new session with default language (will be updated async)
+  // Create new session
   const newSessionId = sessionId || `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   const newSession = {
     sessionId: newSessionId,
     startTime: new Date().toISOString(),
-    language: 'en', // Default - will be updated by chat-data-processor
+    language,
     escalated: false,
     messageCount: 0,
     lastActivity: new Date().toISOString(),
     userInfo,
-    ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days TTL
+    ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
   };
 
   // Store with PK/SK pattern

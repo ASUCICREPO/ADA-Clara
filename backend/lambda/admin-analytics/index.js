@@ -1,19 +1,16 @@
 /**
  * Admin Analytics Lambda
  * Consolidated single-file implementation
- * 
+ *
  * Handles:
  * - GET /admin/metrics - Dashboard metrics
  * - GET /admin/conversations/chart - Conversation chart data
  * - GET /admin/language-split - Language distribution
- * - GET /admin/frequently-asked-questions - FAQ analysis
- * - GET /admin/unanswered-questions - Unanswered questions
  * - GET /admin/health - Health check
  */
 
 const { DynamoDBClient, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
 const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
-const { CATEGORY_DISPLAY_NAMES } = require('./constants');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -23,20 +20,15 @@ const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
 const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
 const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
 const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
-// Note: CONVERSATIONS_TABLE removed - analytics now uses CHAT_SESSIONS_TABLE instead
 
 // Lambda-level caching configuration
-// Cache persists across warm Lambda invocations (global scope)
 const CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 
 // Cache storage (persists across invocations in same Lambda container)
 const cache = {
   metrics: { data: null, timestamp: null },
   conversationsChart: { data: null, timestamp: null },
-  languageSplit: { data: null, timestamp: null },
-  faq: { data: null, timestamp: null },
-  unanswered: { data: null, timestamp: null }
-  // NOTE: Escalation requests are NOT cached - they must be real-time
+  languageSplit: { data: null, timestamp: null }
 };
 
 /**
@@ -108,19 +100,7 @@ async function handleGetRequest(path) {
     
     case '/admin/language-split':
       return await getLanguageSplit();
-    
-    case '/admin/frequently-asked-questions':
-      return await getFrequentlyAskedQuestions();
-    
-    case '/admin/unanswered-questions':
-      return await getUnansweredQuestions();
-    
-    case '/admin/question-analytics':
-      return await getQuestionAnalytics();
-    
-    case '/admin/category-insights':
-      return await getCategoryInsights();
-    
+
     case '/admin/health':
     case '/admin':
       return await getHealthCheck();
@@ -133,10 +113,6 @@ async function handleGetRequest(path) {
           'GET /admin/metrics',
           'GET /admin/conversations/chart',
           'GET /admin/language-split',
-          'GET /admin/frequently-asked-questions',
-          'GET /admin/unanswered-questions',
-          'GET /admin/question-analytics',
-          'GET /admin/category-insights',
           'GET /admin/health'
         ]
       });
@@ -151,27 +127,21 @@ async function getDashboardData() {
     console.log('Fetching comprehensive dashboard data...');
 
     // Get all dashboard components
-    const [metricsResponse, chartResponse, languageResponse, faqResponse, unansweredResponse] = await Promise.all([
+    const [metricsResponse, chartResponse, languageResponse] = await Promise.all([
       getMetrics(),
-      getConversationsChart(), 
-      getLanguageSplit(),
-      getFrequentlyAskedQuestions(),
-      getUnansweredQuestions()
+      getConversationsChart(),
+      getLanguageSplit()
     ]);
 
     // Extract data from responses
-    const metrics = JSON.parse(metricsResponse.body); // Metrics are now returned directly
+    const metrics = JSON.parse(metricsResponse.body);
     const conversationsChart = JSON.parse(chartResponse.body);
     const languageSplit = JSON.parse(languageResponse.body);
-    const frequentlyAskedQuestions = JSON.parse(faqResponse.body).questions;
-    const unansweredQuestions = JSON.parse(unansweredResponse.body).questions;
 
     const dashboardData = {
       metrics,
       conversationsChart,
       languageSplit,
-      frequentlyAskedQuestions,
-      unansweredQuestions,
       lastUpdated: new Date().toISOString()
     };
 
@@ -181,95 +151,6 @@ async function getDashboardData() {
     console.error('Error fetching dashboard data:', error);
     return createResponse(500, {
       error: 'Failed to fetch dashboard data',
-      message: error.message || 'Unknown error'
-    });
-  }
-}
-
-/**
- * Get question analytics
- */
-async function getQuestionAnalytics() {
-  try {
-    console.log('Fetching question analytics...');
-
-    // Get all questions from questions table
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      Limit: 1000
-    }));
-
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} questions for analytics`);
-
-    // Calculate analytics with proper null handling
-    const totalQuestions = items.length;
-    const answeredQuestions = items.filter(item => item.escalated !== true).length;
-    const unansweredQuestions = items.filter(item => item.escalated === true).length;
-    
-    // Calculate average confidence with null checks
-    const confidenceScores = items
-      .filter(item => typeof item.confidence === 'number' && !isNaN(item.confidence))
-      .map(item => item.confidence);
-    const averageConfidence = confidenceScores.length > 0 
-      ? confidenceScores.reduce((sum, score) => sum + score, 0) / confidenceScores.length 
-      : 0;
-
-    // Calculate confidence distribution (aligned with chat processor 0.75 escalation threshold)
-    // Confidence scores are Bedrock KB relevance scores (cosine similarity)
-    const confidenceDistribution = {
-      high: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.80).length,    // High: 80%+ (excellent match)
-      medium: items.filter(item => typeof item.confidence === 'number' && item.confidence >= 0.75 && item.confidence < 0.80).length, // Medium: 75-79% (good match)
-      low: items.filter(item => typeof item.confidence === 'number' && item.confidence < 0.75).length        // Low: <75% (escalated)
-    };
-
-    // Get top categories with better display names
-    const categoryCounts = {};
-
-    items.forEach(item => {
-      const category = (item.category && typeof item.category === 'string') ? item.category : 'general-information';
-      categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-    });
-
-    const topCategories = Object.entries(categoryCounts)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 10) // Show top 10 categories instead of 5
-      .map(([category, count]) => ({
-        category: CATEGORY_DISPLAY_NAMES[category] || category,
-        categoryKey: category,
-        count
-      }));
-
-    // Language breakdown
-    const languageBreakdown = {};
-    items.forEach(item => {
-      const language = (item.language && typeof item.language === 'string') ? item.language : 'en';
-      languageBreakdown[language] = (languageBreakdown[language] || 0) + 1;
-    });
-
-    const analytics = {
-      totalQuestions,
-      answeredQuestions,
-      unansweredQuestions,
-      averageConfidence: Math.round(averageConfidence * 100) / 100,
-      topCategories,
-      confidenceDistribution,
-      languageBreakdown,
-      dataQuality: {
-        questionsWithConfidence: confidenceScores.length,
-        questionsWithCategory: items.filter(item => item.category).length,
-        questionsWithLanguage: items.filter(item => item.language).length
-      }
-    };
-
-    console.log('Question analytics:', analytics);
-
-    return createResponse(200, analytics);
-
-  } catch (error) {
-    console.error('Error fetching question analytics:', error);
-    return createResponse(500, {
-      error: 'Failed to fetch question analytics',
       message: error.message || 'Unknown error'
     });
   }
@@ -540,238 +421,6 @@ async function getLanguageSplit() {
 }
 
 /**
- * Get frequently asked questions (grouped by category)
- * Returns one representative question per category with total count for that category
- * Excludes escalated/unanswered questions (those appear in "Unanswered Questions" section)
- */
-async function getFrequentlyAskedQuestions() {
-  try {
-    // Check cache first
-    if (isCacheValid(cache.faq)) {
-      console.log('Returning cached FAQ (age: ' + Math.round((Date.now() - cache.faq.timestamp) / 1000) + 's)');
-      return createResponse(200, cache.faq.data);
-    }
-
-    console.log('Cache miss - fetching fresh FAQ data...');
-
-    // Scan questions table with pagination to avoid missing data
-    let allItems = [];
-    let lastEvaluatedKey = null;
-
-    do {
-      const scanResult = await dynamodb.send(new ScanCommand({
-        TableName: QUESTIONS_TABLE,
-        Limit: 1000,
-        ExclusiveStartKey: lastEvaluatedKey
-      }));
-
-      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
-      lastEvaluatedKey = scanResult.LastEvaluatedKey;
-
-      // Safety limit to prevent excessive scanning
-      if (allItems.length >= 5000) break;
-    } while (lastEvaluatedKey);
-
-    console.log(`Found ${allItems.length} questions in table`);
-
-    // Group questions by category (exclude escalated/unanswered questions)
-    const categoryGroups = {};
-
-    allItems.forEach(item => {
-      if (!item.question || typeof item.question !== 'string') return;
-
-      // Skip escalated questions - they appear in "Unanswered Questions" section
-      if (item.escalated === true) return;
-
-      const category = item.category || 'general-information';
-
-      if (!categoryGroups[category]) {
-        categoryGroups[category] = {
-          questions: [],
-          totalCount: 0
-        };
-      }
-
-      categoryGroups[category].totalCount++;
-
-      // Track individual questions within category for representative selection
-      const normalizedQuestion = item.question.trim().toLowerCase();
-      const existingQuestion = categoryGroups[category].questions.find(
-        q => q.normalized === normalizedQuestion
-      );
-
-      if (existingQuestion) {
-        existingQuestion.count++;
-      } else {
-        categoryGroups[category].questions.push({
-          normalized: normalizedQuestion,
-          original: item.question.trim(),
-          count: 1,
-          timestamp: item.timestamp
-        });
-      }
-    });
-
-    // For each category, pick most frequent question as representative
-    const representativeQuestions = Object.entries(categoryGroups)
-      .map(([category, data]) => {
-        // Sort questions within category by count (most frequent first)
-        const sortedQuestions = data.questions.sort((a, b) => b.count - a.count);
-        const representative = sortedQuestions[0]; // Most frequent question in category
-
-        return {
-          question: representative.original,
-          count: data.totalCount, // Total questions in this category
-          category: CATEGORY_DISPLAY_NAMES[category] || category,
-          categoryKey: category
-        };
-      })
-      .sort((a, b) => b.count - a.count) // Sort categories by total question count
-      .slice(0, 6); // Top 6 categories
-
-    console.log(`Returning ${representativeQuestions.length} category-representative FAQs`);
-    console.log('Category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
-
-    const responseData = { questions: representativeQuestions };
-
-    // Update cache
-    updateCache('faq', responseData);
-
-    return createResponse(200, responseData);
-
-  } catch (error) {
-    console.error('Error fetching frequently asked questions:', error);
-    return createResponse(500, {
-      error: 'Failed to fetch frequently asked questions',
-      message: error.message || 'Unknown error'
-    });
-  }
-}
-
-/**
- * Get unanswered questions (grouped by category)
- * Returns one representative unanswered question per category with total count for that category
- */
-async function getUnansweredQuestions() {
-  try {
-    // Check cache first
-    if (isCacheValid(cache.unanswered)) {
-      console.log('Returning cached unanswered questions (age: ' + Math.round((Date.now() - cache.unanswered.timestamp) / 1000) + 's)');
-      return createResponse(200, cache.unanswered.data);
-    }
-
-    console.log('Cache miss - fetching fresh unanswered questions...');
-
-    // Scan questions table for escalated questions with pagination
-    let allItems = [];
-    let lastEvaluatedKey = null;
-
-    do {
-      const scanResult = await dynamodb.send(new ScanCommand({
-        TableName: QUESTIONS_TABLE,
-        FilterExpression: 'escalated = :escalated',
-        ExpressionAttributeValues: marshall({
-          ':escalated': true
-        }),
-        Limit: 500,
-        ExclusiveStartKey: lastEvaluatedKey
-      }));
-
-      allItems = allItems.concat(scanResult.Items?.map(item => unmarshall(item)) || []);
-      lastEvaluatedKey = scanResult.LastEvaluatedKey;
-
-      // Safety limit
-      if (allItems.length >= 2000) break;
-    } while (lastEvaluatedKey);
-
-    console.log(`Found ${allItems.length} unanswered questions`);
-
-    // Group by category
-    const categoryGroups = {};
-
-    allItems.forEach(item => {
-      if (!item.question || typeof item.question !== 'string') return;
-
-      const category = item.category || 'general-information';
-
-      if (!categoryGroups[category]) {
-        categoryGroups[category] = {
-          questions: [],
-          totalCount: 0,
-          confidenceScores: [],
-          languages: new Set()
-        };
-      }
-
-      categoryGroups[category].totalCount++;
-      categoryGroups[category].confidenceScores.push(item.confidence || 0);
-      if (item.language) categoryGroups[category].languages.add(item.language);
-
-      // Track individual questions within category
-      const normalizedQuestion = item.question.trim().toLowerCase();
-      const existingQuestion = categoryGroups[category].questions.find(
-        q => q.normalized === normalizedQuestion
-      );
-
-      if (existingQuestion) {
-        existingQuestion.count++;
-        existingQuestion.confidenceScores.push(item.confidence || 0);
-      } else {
-        categoryGroups[category].questions.push({
-          normalized: normalizedQuestion,
-          original: item.question.trim(),
-          count: 1,
-          confidenceScores: [item.confidence || 0],
-          timestamp: item.timestamp
-        });
-      }
-    });
-
-    // Pick representative unanswered question per category
-    const representativeQuestions = Object.entries(categoryGroups)
-      .map(([category, data]) => {
-        // Pick most frequent unanswered question in this category
-        const sortedQuestions = data.questions.sort((a, b) => b.count - a.count);
-        const representative = sortedQuestions[0];
-
-        // Calculate average confidence for entire category
-        const avgConfidence = data.confidenceScores.reduce((sum, c) => sum + c, 0) / data.confidenceScores.length;
-
-        return {
-          question: representative.original,
-          count: data.totalCount, // Total unanswered in category
-          averageConfidence: Math.round(avgConfidence * 100) / 100,
-          language: Array.from(data.languages).join('/'),
-          category: CATEGORY_DISPLAY_NAMES[category] || category,
-          categoryKey: category
-        };
-      })
-      .sort((a, b) => b.count - a.count) // Sort by category frequency
-      .slice(0, 6); // Top 6 categories with unanswered questions
-
-    console.log(`Returning ${representativeQuestions.length} category-representative unanswered questions`);
-    console.log('Unanswered category breakdown:', representativeQuestions.map(q => `${q.category}: ${q.count}`).join(', '));
-
-    const responseData = {
-      questions: representativeQuestions,
-      totalUnanswered: allItems.length
-    };
-
-    // Update cache
-    updateCache('unanswered', responseData);
-
-    return createResponse(200, responseData);
-
-  } catch (error) {
-    console.error('Error fetching unanswered questions:', error);
-    return createResponse(500, {
-      error: 'Failed to fetch unanswered questions',
-      message: error.message || 'Unknown error'
-    });
-  }
-}
-
-/**
  * Health check
  */
 async function getHealthCheck() {
@@ -922,108 +571,6 @@ async function getOutOfScopeRate() {
   } catch (error) {
     console.error('Error calculating out of scope rate:', error);
     return 0;
-  }
-}
-
-/**
- * Get detailed category insights
- */
-async function getCategoryInsights() {
-  try {
-    console.log('Fetching category insights...');
-
-    // Get all questions from questions table
-    const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      Limit: 1000
-    }));
-
-    const items = scanResult.Items?.map(item => unmarshall(item)) || [];
-    console.log(`Found ${items.length} questions for category analysis`);
-
-    // Analyze each category
-    const categoryInsights = {};
-    
-    items.forEach(item => {
-      const category = item.category || 'general-information';
-      
-      if (!categoryInsights[category]) {
-        categoryInsights[category] = {
-          displayName: CATEGORY_DISPLAY_NAMES[category] || category,
-          totalQuestions: 0,
-          escalatedQuestions: 0,
-          averageConfidence: 0,
-          confidenceScores: [],
-          languages: { en: 0, es: 0, other: 0 },
-          sampleQuestions: []
-        };
-      }
-      
-      const insight = categoryInsights[category];
-      insight.totalQuestions++;
-      
-      if (item.escalated === true) {
-        insight.escalatedQuestions++;
-      }
-      
-      if (typeof item.confidence === 'number') {
-        insight.confidenceScores.push(item.confidence);
-      }
-      
-      // Track languages
-      const lang = item.language || 'en';
-      if (lang === 'en') insight.languages.en++;
-      else if (lang === 'es') insight.languages.es++;
-      else insight.languages.other++;
-      
-      // Collect sample questions (up to 3 per category)
-      if (insight.sampleQuestions.length < 3 && item.question) {
-        insight.sampleQuestions.push({
-          question: item.question,
-          confidence: item.confidence,
-          escalated: item.escalated
-        });
-      }
-    });
-
-    // Calculate final metrics for each category
-    const processedInsights = Object.entries(categoryInsights)
-      .map(([categoryKey, insight]) => {
-        const avgConfidence = insight.confidenceScores.length > 0
-          ? insight.confidenceScores.reduce((sum, score) => sum + score, 0) / insight.confidenceScores.length
-          : 0;
-        
-        const escalationRate = insight.totalQuestions > 0
-          ? Math.round((insight.escalatedQuestions / insight.totalQuestions) * 100)
-          : 0;
-
-        return {
-          categoryKey,
-          displayName: insight.displayName,
-          totalQuestions: insight.totalQuestions,
-          escalatedQuestions: insight.escalatedQuestions,
-          escalationRate,
-          averageConfidence: Math.round(avgConfidence * 100) / 100,
-          languages: insight.languages,
-          sampleQuestions: insight.sampleQuestions
-        };
-      })
-      .sort((a, b) => b.totalQuestions - a.totalQuestions); // Sort by question count
-
-    console.log(`Returning insights for ${processedInsights.length} categories`);
-
-    return createResponse(200, {
-      categoryInsights: processedInsights,
-      totalCategories: processedInsights.length,
-      totalQuestions: items.length
-    });
-
-  } catch (error) {
-    console.error('Error fetching category insights:', error);
-    return createResponse(500, {
-      error: 'Failed to fetch category insights',
-      message: error.message || 'Unknown error'
-    });
   }
 }
 

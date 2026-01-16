@@ -9,13 +9,10 @@ import {
   getConversationChart,
   getLanguageSplit,
   getEscalationRequests,
-  getFrequentlyAskedQuestions,
-  getUnansweredQuestions,
   type AdminMetrics,
   type ConversationChartData,
   type LanguageSplit,
   type EscalationRequestsResponse,
-  type FAQResponse,
 } from '../../../lib/api/admin.service';
 
 export function useAdminMetrics() {
@@ -178,76 +175,6 @@ export function useEscalationRequests(page: number = 1, limit: number = 10, sear
       clearInterval(interval);
     };
   }, [page, limit, search]);
-
-  return { data, loading, error };
-}
-
-export function useFrequentlyAskedQuestions() {
-  const [data, setData] = useState<FAQResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchData(skipLoading = false) {
-      try {
-        if (!skipLoading) {
-          setLoading(true);
-        }
-        setError(null);
-        const faq = await getFrequentlyAskedQuestions();
-        setData(faq);
-      } catch (err) {
-        console.error('Error fetching FAQ:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load FAQ');
-      } finally {
-        if (!skipLoading) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchData();
-    
-    // Refresh data every 30 seconds for real-time updates (without showing loading state)
-    const interval = setInterval(() => fetchData(true), 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
-
-  return { data, loading, error };
-}
-
-export function useUnansweredQuestions() {
-  const [data, setData] = useState<FAQResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchData(skipLoading = false) {
-      try {
-        if (!skipLoading) {
-          setLoading(true);
-        }
-        setError(null);
-        const questions = await getUnansweredQuestions();
-        setData(questions);
-      } catch (err) {
-        console.error('Error fetching unanswered questions:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load unanswered questions');
-      } finally {
-        if (!skipLoading) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchData();
-    
-    // Refresh data every 30 seconds for real-time updates (without showing loading state)
-    const interval = setInterval(() => fetchData(true), 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
 
   return { data, loading, error };
 }

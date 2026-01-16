@@ -142,20 +142,6 @@ export class AdaClaraUnifiedStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    // Add CategoryIndex GSI for querying questions by category
-    this.questionsTable.addGlobalSecondaryIndex({
-      indexName: 'CategoryIndex',
-      partitionKey: { name: 'category', type: dynamodb.AttributeType.STRING },
-    });
-
-    // Add UnansweredIndex GSI for querying unanswered questions by date
-    this.questionsTable.addGlobalSecondaryIndex({
-      indexName: 'UnansweredIndex',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-    });
-
-
-
     this.escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
       tableName: `ada-clara-escalation-requests${stackSuffix}`,
       partitionKey: { name: 'escalationId', type: dynamodb.AttributeType.STRING },
@@ -772,27 +758,6 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Grant Bedrock permissions for language detection and categorization (uses Haiku)
-    this.chatDataProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'bedrock:InvokeModel',
-      ],
-      resources: [
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
-      ],
-    }));
-
-    // Grant AWS Marketplace permissions for Bedrock model access verification
-    this.chatDataProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'aws-marketplace:ViewSubscriptions',
-        'aws-marketplace:Subscribe',
-      ],
-      resources: ['*'],
-    }));
-
     // ========== STEP FUNCTIONS STATE MACHINE ==========
 
     // Load state machine definition from file
@@ -981,20 +946,6 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     this.api.addRoutes({
-      path: '/admin/question-analytics',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('QuestionAnalyticsIntegration', this.adminAnalytics),
-      authorizer: cognitoAuthorizer,
-    });
-
-    this.api.addRoutes({
-      path: '/admin/category-insights',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('CategoryInsightsIntegration', this.adminAnalytics),
-      authorizer: cognitoAuthorizer,
-    });
-
-    this.api.addRoutes({
       path: '/admin/metrics',
       methods: [apigatewayv2.HttpMethod.GET],
       integration: new HttpLambdaIntegration('MetricsIntegration', this.adminAnalytics),
@@ -1012,20 +963,6 @@ export class AdaClaraUnifiedStack extends Stack {
       path: '/admin/language-split',
       methods: [apigatewayv2.HttpMethod.GET],
       integration: new HttpLambdaIntegration('LanguageSplitIntegration', this.adminAnalytics),
-      authorizer: cognitoAuthorizer,
-    });
-
-    this.api.addRoutes({
-      path: '/admin/frequently-asked-questions',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('FAQIntegration', this.adminAnalytics),
-      authorizer: cognitoAuthorizer,
-    });
-
-    this.api.addRoutes({
-      path: '/admin/unanswered-questions',
-      methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('UnansweredQuestionsIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
