@@ -37,6 +37,9 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
 
+  // Consolidated data table (replaces chat-sessions, analytics, messages, questions)
+  public readonly dataTable: dynamodb.Table;
+
   // Cognito
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
@@ -164,6 +167,34 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // ========== CONSOLIDATED DATA TABLE ==========
+    // Consolidates chat-sessions, messages, analytics, and questions into single table
+    // Using flexible PK/SK pattern for efficient queries
+    this.dataTable = new dynamodb.Table(this, 'DataTable', {
+      tableName: `ada-clara-data-table${stackSuffix}`,
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // GSI for time-based analytics queries
+    this.dataTable.addGlobalSecondaryIndex({
+      indexName: 'TimestampIndex',
+      partitionKey: { name: 'EntityType', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Optional: GSI for admin lookups by sessionId
+    this.dataTable.addGlobalSecondaryIndex({
+      indexName: 'SessionIndex',
+      partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     // ========== COGNITO AUTH ==========
@@ -696,8 +727,7 @@ export class AdaClaraUnifiedStack extends Stack {
       logGroup: chatSessionManagerLogGroup,
       role: publicApiRole,
       environment: {
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        MESSAGES_TABLE: this.messagesTable.tableName,
+        DATA_TABLE: this.dataTable.tableName,
       },
     });
 
@@ -719,8 +749,8 @@ export class AdaClaraUnifiedStack extends Stack {
       logGroup: chatResponseHandlerLogGroup,
       role: publicApiRole,
       environment: {
-        MESSAGES_TABLE: this.messagesTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        DATA_TABLE: this.dataTable.tableName,
       },
     });
 
@@ -742,10 +772,7 @@ export class AdaClaraUnifiedStack extends Stack {
       logGroup: chatDataProcessorLogGroup,
       role: publicApiRole,
       environment: {
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        MESSAGES_TABLE: this.messagesTable.tableName,
-        ANALYTICS_TABLE: this.analyticsTable.tableName,
-        QUESTIONS_TABLE: this.questionsTable.tableName,
+        DATA_TABLE: this.dataTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
         // Note: ESCALATION_REQUESTS_TABLE removed - escalation records now created in Chat Response Handler
         // Config endpoint variables
@@ -865,11 +892,8 @@ export class AdaClaraUnifiedStack extends Stack {
       logGroup: adminAnalyticsLogGroup,
       role: adminApiRole,
       environment: {
-        ANALYTICS_TABLE: this.analyticsTable.tableName,
-        QUESTIONS_TABLE: this.questionsTable.tableName,
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
-        // Note: CONVERSATIONS_TABLE removed - analytics uses CHAT_SESSIONS_TABLE instead
+        DATA_TABLE: this.dataTable.tableName,
       },
     });
 
@@ -1000,11 +1024,10 @@ export class AdaClaraUnifiedStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:*'],
       resources: [
-        this.chatSessionsTable.tableArn,
-        this.messagesTable.tableArn,
-        this.analyticsTable.tableArn,
         this.escalationRequestsTable.tableArn,
-        this.questionsTable.tableArn,
+        `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
     }));
 
@@ -1020,10 +1043,10 @@ export class AdaClaraUnifiedStack extends Stack {
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:Query', 'dynamodb:Scan', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
       resources: [
-        this.analyticsTable.tableArn,
-        this.questionsTable.tableArn,
-        this.chatSessionsTable.tableArn,
         this.escalationRequestsTable.tableArn,
+        `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
     }));
 

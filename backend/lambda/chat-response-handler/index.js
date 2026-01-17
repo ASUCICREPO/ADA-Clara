@@ -19,7 +19,7 @@ const crypto = require('crypto');
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
-const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
+const DATA_TABLE = process.env.DATA_TABLE; // Consolidated data table
 const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 
 /**
@@ -118,23 +118,28 @@ exports.handler = async (event) => {
  * Store bot response
  */
 async function storeBotMessage(sessionId, content, confidence, sources, processingTime) {
+  const timestampStr = new Date().toISOString();
   const botMessage = {
     messageId: `msg-${Date.now()}-bot`,
     sessionId,
     content,
     sender: 'bot',
-    timestamp: new Date().toISOString(),
+    timestamp: timestampStr,
     confidence,
     sources,
     processingTime
   };
 
+  // Store in consolidated data table with PK/SK pattern
   await dynamodb.send(new PutItemCommand({
-    TableName: MESSAGES_TABLE,
+    TableName: DATA_TABLE,
     Item: marshall({
-      conversationId: sessionId,
-      timestamp: new Date().toISOString(),
-      ...botMessage
+      PK: `SESSION#${sessionId}`,
+      SK: `MESSAGE#${timestampStr}#BOT`,
+      EntityType: 'MESSAGE',
+      timestamp: timestampStr,
+      ...botMessage,
+      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
     }, { removeUndefinedValues: true })
   }));
 

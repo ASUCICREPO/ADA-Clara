@@ -15,9 +15,7 @@ const { unmarshall, marshall } = require('@aws-sdk/util-dynamodb');
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables - No fallbacks for table names (must be set by CDK)
-const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
-const CHAT_SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
-const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
+const DATA_TABLE = process.env.DATA_TABLE; // Consolidated data table
 const ESCALATION_REQUESTS_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 
 // Lambda-level caching configuration
@@ -276,7 +274,12 @@ async function getConversationsChart() {
 
     do {
       const scanResult = await dynamodb.send(new ScanCommand({
-        TableName: CHAT_SESSIONS_TABLE,
+        TableName: DATA_TABLE,
+        FilterExpression: 'EntityType = :entityType AND SK = :sk',
+        ExpressionAttributeValues: marshall({
+          ':entityType': 'SESSION',
+          ':sk': 'METADATA'
+        }),
         ProjectionExpression: 'startTime',
         Limit: 1000,
         ExclusiveStartKey: lastEvaluatedKey
@@ -346,13 +349,18 @@ async function getLanguageSplit() {
 
     console.log('Cache miss - fetching fresh language split data...');
 
-    // Scan chat sessions table with pagination to get language distribution
+    // Scan data table with pagination to get language distribution from sessions
     let allItems = [];
     let lastEvaluatedKey = null;
 
     do {
       const scanResult = await dynamodb.send(new ScanCommand({
-        TableName: CHAT_SESSIONS_TABLE,
+        TableName: DATA_TABLE,
+        FilterExpression: 'EntityType = :entityType AND SK = :sk',
+        ExpressionAttributeValues: marshall({
+          ':entityType': 'SESSION',
+          ':sk': 'METADATA'
+        }),
         ProjectionExpression: '#lang',
         ExpressionAttributeNames: {
           '#lang': 'language'
@@ -426,7 +434,12 @@ async function getLanguageSplit() {
 async function getConversationCount() {
   try {
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: CHAT_SESSIONS_TABLE,
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType AND SK = :sk',
+      ExpressionAttributeValues: marshall({
+        ':entityType': 'SESSION',
+        ':sk': 'METADATA'
+      }),
       Select: 'COUNT'
     }));
     return scanResult.Count || 0;
@@ -442,7 +455,11 @@ async function getConversationCount() {
 async function getTotalQuestions() {
   try {
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType',
+      ExpressionAttributeValues: marshall({
+        ':entityType': 'QUESTION'
+      }),
       Select: 'COUNT'
     }));
     return scanResult.Count || 0;
@@ -502,7 +519,11 @@ async function getOutOfScopeRate() {
 
     do {
       const scanResult = await dynamodb.send(new ScanCommand({
-        TableName: QUESTIONS_TABLE,
+        TableName: DATA_TABLE,
+        FilterExpression: 'EntityType = :entityType',
+        ExpressionAttributeValues: marshall({
+          ':entityType': 'QUESTION'
+        }),
         ProjectionExpression: 'escalated',
         Limit: 1000,
         ExclusiveStartKey: lastEvaluatedKey
@@ -589,9 +610,11 @@ function calculateWeekOverWeekTrend(currentValue, previousValue, invertSign = fa
 async function getConversationCountForPeriod(startTime, endTime) {
   try {
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: CHAT_SESSIONS_TABLE,
-      FilterExpression: 'startTime BETWEEN :start AND :end',
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType AND SK = :sk AND startTime BETWEEN :start AND :end',
       ExpressionAttributeValues: marshall({
+        ':entityType': 'SESSION',
+        ':sk': 'METADATA',
         ':start': new Date(startTime).toISOString(),
         ':end': new Date(endTime).toISOString()
       }),
@@ -615,12 +638,13 @@ async function getEscalationRateForPeriod(startTime, endTime) {
   try {
     // Get total questions in period
     const questionsScan = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      FilterExpression: '#ts BETWEEN :start AND :end',
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType AND #ts BETWEEN :start AND :end',
       ExpressionAttributeNames: {
         '#ts': 'timestamp'
       },
       ExpressionAttributeValues: marshall({
+        ':entityType': 'QUESTION',
         ':start': new Date(startTime).toISOString(),
         ':end': new Date(endTime).toISOString()
       }),
@@ -667,12 +691,13 @@ async function getOutOfScopeRateForPeriod(startTime, endTime) {
   try {
     // Get all questions in period
     const scanResult = await dynamodb.send(new ScanCommand({
-      TableName: QUESTIONS_TABLE,
-      FilterExpression: '#ts BETWEEN :start AND :end',
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType AND #ts BETWEEN :start AND :end',
       ExpressionAttributeNames: {
         '#ts': 'timestamp'
       },
       ExpressionAttributeValues: marshall({
+        ':entityType': 'QUESTION',
         ':start': new Date(startTime).toISOString(),
         ':end': new Date(endTime).toISOString()
       }),

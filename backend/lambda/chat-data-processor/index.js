@@ -12,17 +12,14 @@
  * - Sync from API Gateway for GET endpoints
  */
 
-const { DynamoDBClient, PutItemCommand, ScanCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
+const { DynamoDBClient, PutItemCommand, ScanCommand, QueryCommand, UpdateItemCommand } = require('@aws-sdk/client-dynamodb');
 const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 
 // Initialize AWS clients
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
-const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
-const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
-const ANALYTICS_TABLE = process.env.ANALYTICS_TABLE;
-const QUESTIONS_TABLE = process.env.QUESTIONS_TABLE;
+const DATA_TABLE = process.env.DATA_TABLE; // Consolidated data table
 const FRONTEND_URL = process.env.FRONTEND_URL || '';
 
 /**
@@ -139,7 +136,7 @@ async function processChatAnalytics(event) {
  */
 async function updateSessionActivity(sessionId) {
   await dynamodb.send(new UpdateItemCommand({
-    TableName: SESSIONS_TABLE,
+    TableName: DATA_TABLE,
     Key: marshall({
       PK: `SESSION#${sessionId}`,
       SK: 'METADATA'
@@ -157,10 +154,12 @@ async function updateSessionActivity(sessionId) {
  */
 async function recordAnalytics(category, action, data) {
   try {
+    const timestampStr = new Date().toISOString();
     const analyticsRecord = {
       PK: `ANALYTICS#${category}`,
       SK: `${action}#${Date.now()}`,
-      timestamp: new Date().toISOString(),
+      EntityType: 'ANALYTICS',
+      timestamp: timestampStr,
       category,
       action,
       data,
@@ -168,7 +167,7 @@ async function recordAnalytics(category, action, data) {
     };
 
     await dynamodb.send(new PutItemCommand({
-      TableName: ANALYTICS_TABLE,
+      TableName: DATA_TABLE,
       Item: marshall(analyticsRecord, { removeUndefinedValues: true })
     }));
   } catch (error) {
@@ -181,21 +180,28 @@ async function recordAnalytics(category, action, data) {
  */
 async function processQuestion(question, response, confidence, language, sessionId, escalated) {
   try {
+    const timestampStr = new Date().toISOString();
+    const date = timestampStr.split('T')[0];
+    const questionId = `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
     const questionRecord = {
-      questionId: `q-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      PK: `QUESTION#${date}`,
+      SK: `${timestampStr}#${questionId}`,
+      EntityType: 'QUESTION',
+      questionId,
       question,
       response,
       confidence,
       language,
       sessionId,
       escalated,
-      timestamp: new Date().toISOString(),
-      date: new Date().toISOString().split('T')[0],
+      timestamp: timestampStr,
+      date,
       ttl: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60)
     };
 
     await dynamodb.send(new PutItemCommand({
-      TableName: QUESTIONS_TABLE,
+      TableName: DATA_TABLE,
       Item: marshall(questionRecord, { removeUndefinedValues: true })
     }));
   } catch (error) {
@@ -307,16 +313,20 @@ async function handleChatSessions(event) {
  */
 async function getChatHistory(sessionId) {
   try {
-    const result = await dynamodb.send(new ScanCommand({
-      TableName: MESSAGES_TABLE,
-      FilterExpression: 'conversationId = :sessionId',
+    // Use Query instead of Scan for much better performance
+    // Query by PK=SESSION#sessionId and filter SK to only get messages
+    const result = await dynamodb.send(new QueryCommand({
+      TableName: DATA_TABLE,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
       ExpressionAttributeValues: marshall({
-        ':sessionId': sessionId
+        ':pk': `SESSION#${sessionId}`,
+        ':sk': 'MESSAGE#'
       }),
       Limit: 100
     }));
 
     const messages = result.Items?.map(item => unmarshall(item)) || [];
+    // Messages are already sorted by timestamp in SK (MESSAGE#timestamp#...)
     messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
     return messages;
@@ -331,11 +341,13 @@ async function getChatHistory(sessionId) {
  */
 async function getChatSessions(limit = 10) {
   try {
+    // Use Scan to get all sessions (can be optimized with GSI if needed)
     const result = await dynamodb.send(new ScanCommand({
-      TableName: SESSIONS_TABLE,
-      FilterExpression: 'begins_with(PK, :pk)',
+      TableName: DATA_TABLE,
+      FilterExpression: 'EntityType = :entityType AND SK = :sk',
       ExpressionAttributeValues: marshall({
-        ':pk': 'SESSION#'
+        ':entityType': 'SESSION',
+        ':sk': 'METADATA'
       }),
       Limit: limit
     }));

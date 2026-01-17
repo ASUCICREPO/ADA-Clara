@@ -18,8 +18,7 @@ const { marshall, unmarshall } = require('@aws-sdk/util-dynamodb');
 const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
-const SESSIONS_TABLE = process.env.CHAT_SESSIONS_TABLE;
-const MESSAGES_TABLE = process.env.MESSAGES_TABLE;
+const DATA_TABLE = process.env.DATA_TABLE; // Consolidated data table
 
 /**
  * Main Lambda handler
@@ -50,7 +49,7 @@ exports.handler = async (event) => {
     if (event.sessionId) {
       try {
         const result = await dynamodb.send(new GetItemCommand({
-          TableName: SESSIONS_TABLE,
+          TableName: DATA_TABLE,
           Key: marshall({
             PK: `SESSION#${event.sessionId}`,
             SK: 'METADATA'
@@ -128,12 +127,14 @@ async function getOrCreateSession(sessionId, userInfo, language, existingSession
     ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
   };
 
-  // Store with PK/SK pattern
+  // Store with PK/SK pattern in consolidated data table
   await dynamodb.send(new PutItemCommand({
-    TableName: SESSIONS_TABLE,
+    TableName: DATA_TABLE,
     Item: marshall({
       PK: `SESSION#${newSessionId}`,
       SK: 'METADATA',
+      EntityType: 'SESSION',
+      timestamp: newSession.startTime,
       ...newSession
     }, { removeUndefinedValues: true })
   }));
@@ -145,21 +146,26 @@ async function getOrCreateSession(sessionId, userInfo, language, existingSession
  * Store user message
  */
 async function storeUserMessage(sessionId, content, timestamp) {
+  const timestampStr = timestamp.toISOString();
   const userMessage = {
     messageId: `msg-${Date.now()}-user`,
     sessionId,
     content,
     sender: 'user',
-    timestamp: timestamp.toISOString(),
+    timestamp: timestampStr,
     processingTime: 0
   };
 
+  // Store in consolidated data table with PK/SK pattern
   await dynamodb.send(new PutItemCommand({
-    TableName: MESSAGES_TABLE,
+    TableName: DATA_TABLE,
     Item: marshall({
-      conversationId: sessionId,
-      timestamp: timestamp.toISOString(),
-      ...userMessage
+      PK: `SESSION#${sessionId}`,
+      SK: `MESSAGE#${timestampStr}#USER`,
+      EntityType: 'MESSAGE',
+      timestamp: timestampStr,
+      ...userMessage,
+      ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
     }, { removeUndefinedValues: true })
   }));
 
