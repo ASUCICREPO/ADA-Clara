@@ -38,7 +38,7 @@ phases:
           echo "CDK already bootstrapped, skipping..."
         else
           echo "Bootstrapping CDK for the first time..."
-          cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+          cdk bootstrap --require-approval never
         fi
 
   build:
