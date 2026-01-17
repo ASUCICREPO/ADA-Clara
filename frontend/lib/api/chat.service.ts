@@ -72,7 +72,7 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
  */
 export async function getChatHistory(sessionId: string): Promise<ChatHistoryResponse> {
   const config = await getConfig();
-  
+
   try {
     const response = await fetch(`${config.apiBaseUrl}/chat/history?sessionId=${encodeURIComponent(sessionId)}`, {
       method: 'GET',
@@ -91,24 +91,6 @@ export async function getChatHistory(sessionId: string): Promise<ChatHistoryResp
   } catch (error) {
     console.error('Chat history API error:', error);
     throw error;
-  }
-}
-
-/**
- * Health check for the API
- */
-export async function checkApiHealth(): Promise<boolean> {
-  const config = await getConfig();
-  
-  try {
-    const response = await fetch(`${config.apiBaseUrl}/health`, {
-      method: 'GET',
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error('Health check error:', error);
-    return false;
   }
 }
 

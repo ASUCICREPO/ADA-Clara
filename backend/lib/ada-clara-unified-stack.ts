@@ -3,7 +3,6 @@ import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -18,8 +17,6 @@ import { CfnKnowledgeBase, CfnDataSource } from 'aws-cdk-lib/aws-bedrock';
 import * as amplify from 'aws-cdk-lib/aws-amplify';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
-import * as fs from 'fs';
 
 /**
  * Unified Stack for ADA Clara
@@ -29,11 +26,6 @@ import * as fs from 'fs';
  */
 export class AdaClaraUnifiedStack extends Stack {
   // DynamoDB Tables
-  public readonly chatSessionsTable: dynamodb.Table;
-  public readonly analyticsTable: dynamodb.Table;
-  public readonly messagesTable: dynamodb.Table;
-  public readonly questionsTable: dynamodb.Table;
-
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
 
@@ -47,15 +39,12 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly identityPool: cognito.CfnIdentityPool;
 
   // Lambda Functions
-  public readonly chatSessionManager: lambda.Function;
-  public readonly chatResponseHandler: lambda.Function;
-  public readonly chatDataProcessor: lambda.Function;
+  public readonly chatHandler: lambda.Function;
+  public readonly analyticsProcessor: lambda.Function;
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
-  public readonly ragProcessor: lambda.Function;
   public readonly domainDiscoveryFunction: lambda.Function;
   public readonly contentProcessorFunction: lambda.Function;
-  public readonly chatOrchestrator: lambda.Function;
 
   // SQS Queue for Web Scraper
   public readonly scrapingQueue: sqs.Queue;
@@ -71,9 +60,6 @@ export class AdaClaraUnifiedStack extends Stack {
 
   // EventBridge
   public readonly webScraperScheduleRule: events.Rule;
-
-  // Step Functions
-  public readonly chatStateMachine: sfn.StateMachine;
 
   // API Gateway (HTTP API v2)
   public readonly api: apigatewayv2.HttpApi;
@@ -110,41 +96,6 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
 
     // ========== DYNAMODB TABLES ==========
-    this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
-      tableName: `ada-clara-chat-sessions${stackSuffix}`,
-      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.analyticsTable = new dynamodb.Table(this, 'AnalyticsTable', {
-      tableName: `ada-clara-analytics${stackSuffix}`,
-      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
-      tableName: `ada-clara-messages${stackSuffix}`,
-      partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.questionsTable = new dynamodb.Table(this, 'QuestionsTable', {
-      tableName: `ada-clara-questions${stackSuffix}`,
-      partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
     this.escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
       tableName: `ada-clara-escalation-requests${stackSuffix}`,
       partitionKey: { name: 'escalationId', type: dynamodb.AttributeType.STRING },
@@ -258,9 +209,17 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-      ],
+      inlinePolicies: {
+        ApiGatewayAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['execute-api:Invoke'],
+              resources: ['*'], // Will be scoped to specific API after it's created
+            }),
+          ],
+        }),
+      },
     });
 
     const unauthenticatedRole = new iam.Role(this, 'CognitoUnauthenticatedRole', {
@@ -276,9 +235,17 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-      ],
+      inlinePolicies: {
+        ApiGatewayAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['execute-api:Invoke'],
+              resources: ['*'], // Will be scoped to specific API after it's created
+            }),
+          ],
+        }),
+      },
     });
 
     // Attach roles to Identity Pool
@@ -649,135 +616,27 @@ export class AdaClaraUnifiedStack extends Stack {
       }
     );
 
-    // RAG Processor Lambda (created before chat processor to reference its function name)
-    // Create log group for RAG processor function
-    const ragProcessorLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
+    // ========== ANALYTICS PROCESSOR LAMBDA ==========
+    // Async analytics and data processing (renamed from chat-data-processor)
+    const analyticsProcessorLogGroup = new logs.LogGroup(this, 'AnalyticsProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-analytics-processor${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
-      functionName: `ada-clara-rag-processor${stackSuffix}`,
+    this.analyticsProcessor = new lambda.Function(this, 'AnalyticsProcessor', {
+      functionName: `ada-clara-analytics-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/rag-processor'),
-      timeout: Duration.minutes(5),
-      memorySize: 1024,
-      logGroup: ragProcessorLogGroup,
-      role: backgroundJobsRole,
-      environment: {
-        VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
-        VECTOR_INDEX: this.vectorIndex.indexName,
-        CONTENT_BUCKET: this.contentBucket.bucketName,
-        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        // Use cross-region inference profile instead of direct model ID
-        // This is required for Claude 3.7 Sonnet and newer models
-        GENERATION_MODEL: 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
-        CONFIDENCE_THRESHOLD: '0.75',
-      },
-    });
-
-    // Grant Bedrock permissions
-    // Grant access to the Knowledge Base created by this stack
-    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'bedrock:InvokeModel',
-        'bedrock:InvokeModelWithResponseStream',
-        'bedrock:RetrieveAndGenerate',
-        'bedrock:Retrieve',
-      ],
-      resources: [
-        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        // Use cross-region inference profile ARN instead of direct model ARN
-        `arn:aws:bedrock:us-west-2:${accountId}:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0`,
-        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
-      ],
-    }));
-
-    this.contentBucket.grantRead(this.ragProcessor);
-
-    // Grant AWS Marketplace permissions for Bedrock inference profile access
-    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'aws-marketplace:ViewSubscriptions',
-        'aws-marketplace:Subscribe',
-      ],
-      resources: ['*'],
-    }));
-
-    // ========== CHAT SESSION MANAGER LAMBDA (NEW) ==========
-    // Handles session setup and user message storage (before RAG)
-    const chatSessionManagerLogGroup = new logs.LogGroup(this, 'ChatSessionManagerLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-session-manager${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.chatSessionManager = new lambda.Function(this, 'ChatSessionManager', {
-      functionName: `ada-clara-chat-session-manager${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_24_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-session-manager'),
-      timeout: Duration.seconds(30),
+      code: lambda.Code.fromAsset('lambda/analytics-processor'),
+      timeout: Duration.seconds(60),
       memorySize: 512,
-      logGroup: chatSessionManagerLogGroup,
-      role: publicApiRole,
-      environment: {
-        DATA_TABLE: this.dataTable.tableName,
-      },
-    });
-
-    // ========== CHAT RESPONSE HANDLER LAMBDA (NEW) ==========
-    // Handles response processing and escalation (after RAG)
-    const chatResponseHandlerLogGroup = new logs.LogGroup(this, 'ChatResponseHandlerLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-response-handler${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.chatResponseHandler = new lambda.Function(this, 'ChatResponseHandler', {
-      functionName: `ada-clara-chat-response-handler${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_24_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-response-handler'),
-      timeout: Duration.seconds(30),
-      memorySize: 512,
-      logGroup: chatResponseHandlerLogGroup,
-      role: publicApiRole,
-      environment: {
-        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
-        DATA_TABLE: this.dataTable.tableName,
-      },
-    });
-
-    // ========== CHAT DATA PROCESSOR LAMBDA (NEW) ==========
-    // Async analytics and data processing
-    const chatDataProcessorLogGroup = new logs.LogGroup(this, 'ChatDataProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-data-processor${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.chatDataProcessor = new lambda.Function(this, 'ChatDataProcessor', {
-      functionName: `ada-clara-chat-data-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_24_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-data-processor'),
-      timeout: Duration.seconds(60), // Longer timeout for analytics processing
-      memorySize: 512,
-      logGroup: chatDataProcessorLogGroup,
+      logGroup: analyticsProcessorLogGroup,
       role: publicApiRole,
       environment: {
         DATA_TABLE: this.dataTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
-        // Note: ESCALATION_REQUESTS_TABLE removed - escalation records now created in Chat Response Handler
-        // Config endpoint variables
-        // Note: API_GATEWAY_URL set to empty and will be updated by buildspec after deployment
-        API_GATEWAY_URL: '',
+        API_GATEWAY_URL: this.api.url || '',
         USER_POOL_ID: this.userPool.userPoolId,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
@@ -785,73 +644,59 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // ========== STEP FUNCTIONS STATE MACHINE ==========
-
-    // Load state machine definition from file
-    const stateMachineDefinitionPath = 'stepfunctions/chat-flow.asl.json';
-    let stateMachineDefinition = fs.readFileSync(stateMachineDefinitionPath, 'utf-8');
-
-    // Substitute ARN variables
-    stateMachineDefinition = stateMachineDefinition
-      .replace(/\$\{ChatSessionManagerArn\}/g, this.chatSessionManager.functionName)
-      .replace(/\$\{RagProcessorArn\}/g, this.ragProcessor.functionName)
-      .replace(/\$\{ChatResponseHandlerArn\}/g, this.chatResponseHandler.functionName)
-      .replace(/\$\{ChatDataProcessorArn\}/g, this.chatDataProcessor.functionName);
-
-    // Create State Machine execution role
-    // Note: Permissions are granted AFTER Lambda functions are created to avoid circular dependencies
-    const stateMachineRole = new iam.Role(this, 'ChatStateMachineRole', {
-      assumedBy: new iam.ServicePrincipal('states.amazonaws.com'),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchLogsFullAccess'),
-      ],
-    });
-
-    // Create Step Functions Express State Machine (low latency)
-    this.chatStateMachine = new sfn.StateMachine(this, 'ChatStateMachine', {
-      stateMachineName: `ada-clara-chat-flow${stackSuffix}`,
-      definitionBody: sfn.DefinitionBody.fromString(stateMachineDefinition),
-      stateMachineType: sfn.StateMachineType.EXPRESS,
-      role: stateMachineRole,
-      logs: {
-        destination: new logs.LogGroup(this, 'ChatStateMachineLogGroup', {
-          logGroupName: `/aws/vendedlogs/states/ada-clara-chat-flow${stackSuffix}`,
-          retention: logs.RetentionDays.ONE_WEEK,
-          removalPolicy: RemovalPolicy.DESTROY,
-        }),
-        level: sfn.LogLevel.ALL,
-      },
-    });
-
-    // Note: Lambda invoke permissions are granted via stateMachineRole above
-    // Removed grantInvoke calls to avoid circular dependencies with HTTP API
-
-    // ========== CHAT ORCHESTRATOR LAMBDA ==========
-    // API Gateway entry point that starts Step Functions workflow
-    const chatOrchestratorLogGroup = new logs.LogGroup(this, 'ChatOrchestratorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-orchestrator${stackSuffix}`,
+    // ========== CHAT HANDLER LAMBDA ==========
+    // Unified chat processing (replaces orchestrator + session-manager + rag-processor + response-handler)
+    const chatHandlerLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-handler${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.chatOrchestrator = new lambda.Function(this, 'ChatOrchestrator', {
-      functionName: `ada-clara-chat-orchestrator${stackSuffix}`,
+    this.chatHandler = new lambda.Function(this, 'ChatHandler', {
+      functionName: `ada-clara-chat-handler${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-orchestrator'),
-      timeout: Duration.minutes(5), // Match Step Functions Express timeout
-      memorySize: 256,
-      logGroup: chatOrchestratorLogGroup,
+      code: lambda.Code.fromAsset('lambda/chat-handler'),
+      timeout: Duration.minutes(5), // For Claude invocation
+      memorySize: 1536, // More memory for AWS SDK + Bedrock
+      logGroup: chatHandlerLogGroup,
       role: publicApiRole,
       environment: {
-        STATE_MACHINE_ARN: this.chatStateMachine.stateMachineArn,
-        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
+        DATA_TABLE: this.dataTable.tableName,
+        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
+        GENERATION_MODEL: 'anthropic.claude-3-5-haiku-20241022-v1:0',
+        CONFIDENCE_THRESHOLD: '0.75',
+        ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
       },
     });
 
-    // Note: Step Functions permissions are granted via publicApiRole.addToPolicy below
-    // Removed grantStartSyncExecution to avoid circular dependency
-    // The role already has states:StartSyncExecution permission via wildcard ARN
+    // Set analytics processor ARN after both functions are created
+    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_ARN', this.analyticsProcessor.functionArn);
+
+    // Grant Bedrock permissions
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'bedrock:InvokeModel',
+        'bedrock:Retrieve',
+      ],
+      resources: [
+        `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
+        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0`,
+        `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
+      ],
+    }));
+
+    // Grant permission to invoke analytics processor
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [this.analyticsProcessor.functionArn],
+    }));
+
+    // Grant S3 read access
+    this.contentBucket.grantRead(this.chatHandler);
 
     // Create log group for escalation handler
     const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
@@ -908,37 +753,31 @@ export class AdaClaraUnifiedStack extends Stack {
     this.api.addRoutes({
       path: '/config',
       methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('ConfigIntegration', this.chatDataProcessor),
+      integration: new HttpLambdaIntegration('ConfigIntegration', this.analyticsProcessor),
     });
 
     this.api.addRoutes({
       path: '/chat',
       methods: [apigatewayv2.HttpMethod.POST],
-      integration: new HttpLambdaIntegration('ChatIntegration', this.chatOrchestrator),
+      integration: new HttpLambdaIntegration('ChatIntegration', this.chatHandler),
     });
 
     this.api.addRoutes({
       path: '/chat/history',
       methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('ChatHistoryIntegration', this.chatDataProcessor),
+      integration: new HttpLambdaIntegration('ChatHistoryIntegration', this.analyticsProcessor),
     });
 
     this.api.addRoutes({
       path: '/chat/sessions',
       methods: [apigatewayv2.HttpMethod.GET],
-      integration: new HttpLambdaIntegration('ChatSessionsIntegration', this.chatDataProcessor),
+      integration: new HttpLambdaIntegration('ChatSessionsIntegration', this.analyticsProcessor),
     });
 
     this.api.addRoutes({
       path: '/escalation/request',
       methods: [apigatewayv2.HttpMethod.POST],
       integration: new HttpLambdaIntegration('EscalationRequestIntegration', this.escalationHandler),
-    });
-
-    this.api.addRoutes({
-      path: '/query',
-      methods: [apigatewayv2.HttpMethod.POST],
-      integration: new HttpLambdaIntegration('QueryIntegration', this.ragProcessor),
     });
 
     // Admin endpoints (require Cognito JWT authentication)
@@ -1013,8 +852,8 @@ export class AdaClaraUnifiedStack extends Stack {
       authorizer: cognitoAuthorizer,
     });
 
-    // Note: RAG processor is now invoked via Step Functions (not Lambda SDK)
-    // No direct Lambda-to-Lambda invocations
+    // Note: chat-handler invokes analytics-processor asynchronously via Lambda SDK
+    // Uses InvocationType: 'Event' for fire-and-forget pattern (non-blocking)
 
     // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
     // Grant permissions AFTER all resources are created to avoid circular dependencies
@@ -1029,13 +868,6 @@ export class AdaClaraUnifiedStack extends Stack {
         this.dataTable.tableArn,
         `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
-    }));
-
-    // Grant Step Functions permissions using wildcard ARN to avoid circular dependency
-    publicApiRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['states:StartSyncExecution'],
-      resources: [`arn:aws:states:${region}:${accountId}:stateMachine:ada-clara-chat-flow*`],
     }));
 
     // Admin API Role permissions - grant access to DynamoDB tables
@@ -1067,18 +899,6 @@ export class AdaClaraUnifiedStack extends Stack {
       resources: [
         this.contentBucket.bucketArn,
         `${this.contentBucket.bucketArn}/*`,
-      ],
-    }));
-
-    // State Machine Role permissions - using wildcard ARNs to avoid circular dependencies
-    stateMachineRole.addToPolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: [
-        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-session-manager*`,
-        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-rag-processor*`,
-        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-response-handler*`,
-        `arn:aws:lambda:${region}:${accountId}:function:ada-clara-chat-data-processor*`,
       ],
     }));
 
@@ -1170,28 +990,16 @@ export class AdaClaraUnifiedStack extends Stack {
       exportName: `AdaClara-DataSourceId-${region}`,
     });
 
-    new CfnOutput(this, 'ChatStateMachineArn', {
-      value: this.chatStateMachine.stateMachineArn,
-      description: 'Step Functions State Machine ARN for Chat Flow',
-      exportName: `AdaClara-ChatStateMachineArn-${region}`,
+    new CfnOutput(this, 'ChatHandlerFunctionName', {
+      value: this.chatHandler.functionName,
+      description: 'Chat Handler Lambda Function Name (unified chat processing)',
+      exportName: `AdaClara-ChatHandlerFunction-${region}`,
     });
 
-    new CfnOutput(this, 'ChatOrchestratorFunctionName', {
-      value: this.chatOrchestrator.functionName,
-      description: 'Chat Orchestrator Lambda Function Name',
-      exportName: `AdaClara-ChatOrchestratorFunction-${region}`,
-    });
-
-    new CfnOutput(this, 'ChatSessionManagerFunctionName', {
-      value: this.chatSessionManager.functionName,
-      description: 'Chat Session Manager Lambda Function Name',
-      exportName: `AdaClara-ChatSessionManagerFunction-${region}`,
-    });
-
-    new CfnOutput(this, 'ChatResponseHandlerFunctionName', {
-      value: this.chatResponseHandler.functionName,
-      description: 'Chat Response Handler Lambda Function Name',
-      exportName: `AdaClara-ChatResponseHandlerFunction-${region}`,
+    new CfnOutput(this, 'AnalyticsProcessorFunctionName', {
+      value: this.analyticsProcessor.functionName,
+      description: 'Analytics Processor Lambda Function Name (async data processing)',
+      exportName: `AdaClara-AnalyticsProcessorFunction-${region}`,
     });
   }
 }

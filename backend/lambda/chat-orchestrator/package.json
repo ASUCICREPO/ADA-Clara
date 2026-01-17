@@ -1,9 +1,0 @@
-{
-  "name": "chat-orchestrator",
-  "version": "1.0.0",
-  "description": "API Gateway entry point for chat flow",
-  "main": "index.js",
-  "dependencies": {
-    "@aws-sdk/client-sfn": "^3.700.0"
-  }
-}

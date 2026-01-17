@@ -1,5 +1,5 @@
 /**
- * Chat Data Processor Lambda
+ * Analytics Processor Lambda
  * Async analytics and data processing
  *
  * Responsibilities:
@@ -8,7 +8,7 @@
  * - Handle GET endpoints (history, sessions, config)
  *
  * Invocation:
- * - Async from chat-response-handler (fire and forget)
+ * - Async from chat-handler (fire and forget)
  * - Sync from API Gateway for GET endpoints
  */
 
@@ -29,8 +29,8 @@ exports.handler = async (event) => {
   console.log('Chat data processor invoked:', JSON.stringify(event, null, 2));
 
   try {
-    // Check if this is an async event from chat-handler
-    if (event.eventType === 'chat_message_processed') {
+    // Check if this is an async event from chat-handler (has sessionId, userMessage, etc.)
+    if (event.sessionId && event.userMessage && !event.httpMethod && !event.requestContext) {
       return await processChatAnalytics(event);
     }
 
