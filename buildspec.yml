@@ -71,25 +71,26 @@ phases:
       - echo "User Pool ID=$USER_POOL_ID"
       - echo "Region=$AWS_REGION"
       - echo ""
-      - echo "Updating Chat Data Processor Lambda with runtime configuration..."
+      - echo "Updating Analytics Processor Lambda with runtime configuration..."
       - |
-        # Update Chat Data Processor Lambda environment variables with actual values from CloudFormation
+        # Update Analytics Processor Lambda environment variables with actual values from CloudFormation
         # This is needed because the Lambda is created with empty API_GATEWAY_URL during CDK deployment
         # Note: AWS_REGION is excluded as it's a reserved Lambda environment variable
-        echo "Environment variables being set:"
+        echo "Environment variables being set for ada-clara-analytics-processor:"
+        echo "  DATA_TABLE=ada-clara-data"
         echo "  API_GATEWAY_URL=$API_GATEWAY_URL"
         echo "  USER_POOL_ID=$USER_POOL_ID"
         echo "  COGNITO_DOMAIN=$COGNITO_DOMAIN"
         echo "  FRONTEND_URL=$FRONTEND_URL"
 
         if aws lambda update-function-configuration \
-          --function-name ada-clara-chat-data-processor \
-          --environment "Variables={CHAT_SESSIONS_TABLE=ada-clara-chat-sessions,MESSAGES_TABLE=ada-clara-messages,ANALYTICS_TABLE=ada-clara-analytics,QUESTIONS_TABLE=ada-clara-questions,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
+          --function-name ada-clara-analytics-processor \
+          --environment "Variables={DATA_TABLE=ada-clara-data,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
           --region $AWS_REGION 2>&1; then
-          echo "[SUCCESS] Chat Data Processor Lambda environment variables updated"
+          echo "[SUCCESS] Analytics Processor Lambda environment variables updated"
           echo "Verifying Lambda configuration..."
           aws lambda get-function-configuration \
-            --function-name ada-clara-chat-data-processor \
+            --function-name ada-clara-analytics-processor \
             --region $AWS_REGION \
             --query 'Environment.Variables.API_GATEWAY_URL' \
             --output text
