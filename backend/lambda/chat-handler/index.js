@@ -61,9 +61,15 @@ export const handler = async (event) => {
       });
     }
 
+    // Decode base64 body if needed (API Gateway v2 HTTP API format)
+    let bodyString = event.body;
+    if (event.isBase64Encoded) {
+      bodyString = Buffer.from(event.body, 'base64').toString('utf-8');
+    }
+
     let request;
     try {
-      request = JSON.parse(event.body);
+      request = JSON.parse(bodyString);
     } catch (parseError) {
       return createResponse(400, {
         error: 'Invalid JSON',
