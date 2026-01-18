@@ -14,15 +14,16 @@
  * Replaces: chat-orchestrator, chat-session-manager, rag-processor, chat-response-handler
  */
 
-import { DynamoDBClient, PutItemCommand, GetItemCommand } from '@aws-sdk/client-dynamodb';
-import { marshall, unmarshall } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { BedrockAgentRuntimeClient, RetrieveCommand } from '@aws-sdk/client-bedrock-agent-runtime';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import crypto from 'crypto';
 
 // Initialize AWS clients
-const dynamodb = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const dynamodbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const dynamodb = DynamoDBDocumentClient.from(dynamodbClient);
 const bedrockAgent = new BedrockAgentRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const bedrockRuntime = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-west-2' });
@@ -178,16 +179,16 @@ async function getOrCreateSession(sessionId, userInfo, language) {
   // Check if session exists
   if (sessionId) {
     try {
-      const result = await dynamodb.send(new GetItemCommand({
+      const result = await dynamodb.send(new GetCommand({
         TableName: DATA_TABLE,
-        Key: marshall({
+        Key: {
           PK: `SESSION#${sessionId}`,
           SK: 'METADATA'
-        })
+        }
       }));
 
       if (result.Item) {
-        const existingSession = unmarshall(result.Item);
+        const existingSession = result.Item;
         console.log(`Found existing session: ${sessionId}`);
         return {
           sessionId: existingSession.sessionId,
@@ -218,15 +219,15 @@ async function getOrCreateSession(sessionId, userInfo, language) {
     ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
   };
 
-  await dynamodb.send(new PutItemCommand({
+  await dynamodb.send(new PutCommand({
     TableName: DATA_TABLE,
-    Item: marshall({
+    Item: {
       PK: `SESSION#${newSessionId}`,
       SK: 'METADATA',
       EntityType: 'SESSION',
       timestamp: newSession.startTime,
       ...newSession
-    }, { removeUndefinedValues: true })
+    }
   }));
 
   console.log(`Created new session: ${newSessionId}`);
@@ -244,16 +245,16 @@ async function storeUserMessage(sessionId, content, timestamp) {
     processingTime: 0
   };
 
-  await dynamodb.send(new PutItemCommand({
+  await dynamodb.send(new PutCommand({
     TableName: DATA_TABLE,
-    Item: marshall({
+    Item: {
       PK: `SESSION#${sessionId}`,
       SK: `MESSAGE#${timestampStr}#USER`,
       EntityType: 'MESSAGE',
       timestamp: timestampStr,
       ...userMessage,
       ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
-    }, { removeUndefinedValues: true })
+    }
   }));
 
   console.log(`Stored user message: ${userMessage.messageId}`);
@@ -419,16 +420,16 @@ async function storeBotMessage(sessionId, content, confidence, sources, processi
     processingTime
   };
 
-  await dynamodb.send(new PutItemCommand({
+  await dynamodb.send(new PutCommand({
     TableName: DATA_TABLE,
-    Item: marshall({
+    Item: {
       PK: `SESSION#${sessionId}`,
       SK: `MESSAGE#${timestampStr}#BOT`,
       EntityType: 'MESSAGE',
       timestamp: timestampStr,
       ...botMessage,
       ttl: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60)
-    }, { removeUndefinedValues: true })
+    }
   }));
 
   console.log(`Stored bot message: ${botMessage.messageId}`);
@@ -510,9 +511,9 @@ async function createEscalationRecord(sessionId, confidence, questionText) {
       ttl: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60)
     };
 
-    await dynamodb.send(new PutItemCommand({
+    await dynamodb.send(new PutCommand({
       TableName: ESCALATION_TABLE,
-      Item: marshall(escalationRecord, { removeUndefinedValues: true })
+      Item: escalationRecord
     }));
 
     console.log(`Created escalation record: ${escalationId} (${reason})`);
