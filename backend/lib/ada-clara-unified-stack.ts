@@ -677,7 +677,7 @@ export class AdaClaraUnifiedStack extends Stack {
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
         // Direct Bedrock model ID (not inference profile)
         // To update model: Change this ID and the IAM policy below
-        GENERATION_MODEL: 'anthropic.claude-3-5-haiku-20241022-v1:0',
+        GENERATION_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
         ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
       },
@@ -695,7 +695,7 @@ export class AdaClaraUnifiedStack extends Stack {
       ],
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0`,
+        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
