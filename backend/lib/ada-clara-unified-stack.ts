@@ -675,9 +675,9 @@ export class AdaClaraUnifiedStack extends Stack {
         DATA_TABLE: this.dataTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        // Direct Bedrock model ID (not inference profile)
+        // Inference profile ID for Haiku 4.5 (required for cross-region inference)
         // To update model: Change this ID and the IAM policy below
-        GENERATION_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+        GENERATION_MODEL: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
       },
     });
@@ -690,8 +690,11 @@ export class AdaClaraUnifiedStack extends Stack {
         'bedrock:Retrieve',
       ],
       resources: [
+        // Embedding model for Knowledge Base (foundation model, no account ID)
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
+        // Inference profile for Haiku 4.5 (requires account ID and inference-profile type)
+        `arn:aws:bedrock:${region}:${accountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0`,
+        // Knowledge Base access
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
