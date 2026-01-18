@@ -43,8 +43,7 @@ phases:
 
   build:
     commands:
-      - echo "Deploying CDK stack..."
-      - echo "DEBUG - AMPLIFY_APP_ID environment variable value: $AMPLIFY_APP_ID"
+      - echo "Deploying CDK stack with AMPLIFY_APP_ID=$AMPLIFY_APP_ID"
       - cdk deploy --require-approval never --context environment=production --context amplifyAppId=$AMPLIFY_APP_ID
       - |
         if [ $? -ne 0 ]; then
