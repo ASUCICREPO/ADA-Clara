@@ -468,8 +468,8 @@ if [ -f "$SCRAPING_SCRIPT" ]; then
   print_status "Running web scraper trigger script: $SCRAPING_SCRIPT"
   echo ""
 
-  # Execute the scraping script
-  bash "$SCRAPING_SCRIPT"
+  # Execute the scraping script (use source for Windows/MSYS2 compatibility)
+  source "$SCRAPING_SCRIPT"
   SCRAPE_EXIT_CODE=$?
 
   if [ $SCRAPE_EXIT_CODE -eq 0 ]; then
