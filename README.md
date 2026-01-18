@@ -7,13 +7,11 @@ An AI-powered diabetes chatbot assistant that provides accurate, evidence-based 
 Watch the complete demonstration of ADA Clara:
 
 <div align="center">
-  <a href="[INSERT_DEMO_VIDEO_URL]">
+  <a href="https://drive.google.com/file/d/1mrBAhw4bXFlNrgvHk-Jm0gcBxuISawcr/preview">
     <img src="./docs/media/demo-thumbnail.png" alt="ADA Clara Demo" width="650">
   </a>
-  <p><em>Click the image above to watch the demo</em></p>
+  <p><em>Click the image above to watch the demo (opens in Google Drive)</em></p>
 </div>
-
-> **[PLACEHOLDER]** Please provide a demo video thumbnail image and save it as `docs/media/demo-thumbnail.png`, and update the video URL link above.
 
 ## Index
 
