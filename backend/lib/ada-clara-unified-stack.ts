@@ -177,12 +177,15 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Create Cognito domain with stable prefix (no stackSuffix to allow updates)
-    // Domain will be: ada-clara-auth.auth.<region>.amazoncognito.com
+    // Create Cognito domain with account-specific prefix to ensure global uniqueness
+    // Domain format: ada-clara-<account-suffix>.auth.<region>.amazoncognito.com
+    // Uses last 8 digits of account ID to keep domain name readable and unique
+    const cognitoDomainPrefix = `ada-clara-${accountId.slice(-8)}`;
+
     this.userPoolDomain = new cognito.UserPoolDomain(this, 'UserPoolDomain', {
       userPool: this.userPool,
       cognitoDomain: {
-        domainPrefix: 'ada-clara-auth',
+        domainPrefix: cognitoDomainPrefix,
       },
     });
 
@@ -665,6 +668,9 @@ export class AdaClaraUnifiedStack extends Stack {
         DATA_TABLE: this.dataTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
+        // Bedrock model ID format: provider.model-version
+        // To update model: Change this ID and the IAM policy below (line 689)
+        // Find model IDs: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html
         GENERATION_MODEL: 'anthropic.claude-3-5-haiku-20241022-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
         ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
@@ -1000,6 +1006,30 @@ export class AdaClaraUnifiedStack extends Stack {
       value: this.analyticsProcessor.functionName,
       description: 'Analytics Processor Lambda Function Name (async data processing)',
       exportName: `AdaClara-AnalyticsProcessorFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'DataTableName', {
+      value: this.dataTable.tableName,
+      description: 'Consolidated Data Table Name',
+      exportName: `AdaClara-DataTableName-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentBucketName', {
+      value: this.contentBucket.bucketName,
+      description: 'S3 Content Bucket Name for scraped content',
+      exportName: `AdaClara-ContentBucket-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentTrackingTableName', {
+      value: this.contentTrackingTable.tableName,
+      description: 'Content Tracking DynamoDB Table Name',
+      exportName: `AdaClara-ContentTrackingTable-${region}`,
+    });
+
+    new CfnOutput(this, 'EscalationRequestsTableName', {
+      value: this.escalationRequestsTable.tableName,
+      description: 'Escalation Requests DynamoDB Table Name',
+      exportName: `AdaClara-EscalationRequestsTable-${region}`,
     });
   }
 }

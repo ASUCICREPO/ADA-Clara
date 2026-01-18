@@ -24,6 +24,10 @@ fi
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 AMPLIFY_APP_NAME="AdaClara"
 CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-deployment"
+
+# IMPORTANT: If you forked this repository, update the URL below to your fork
+# Example: REPOSITORY_URL="https://github.com/YOUR-ORG/ADA-Clara.git"
+# This ensures CodeBuild pulls code from your fork instead of the original repository
 REPOSITORY_URL="https://github.com/ASUCICREPO/ADA-Clara.git"
 
 # Global variables

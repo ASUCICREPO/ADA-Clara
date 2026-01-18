@@ -73,11 +73,18 @@ phases:
       - echo ""
       - echo "Updating Analytics Processor Lambda with runtime configuration..."
       - |
+        # Extract DATA_TABLE name from CloudFormation outputs
+        DATA_TABLE=$(aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME \
+          --query 'Stacks[0].Outputs[?OutputKey==`DataTableName`].OutputValue' \
+          --output text \
+          --region $AWS_REGION)
+
         # Update Analytics Processor Lambda environment variables with actual values from CloudFormation
         # This is needed because the Lambda is created with empty API_GATEWAY_URL during CDK deployment
         # Note: AWS_REGION is excluded as it's a reserved Lambda environment variable
         echo "Environment variables being set for ada-clara-analytics-processor:"
-        echo "  DATA_TABLE=ada-clara-data"
+        echo "  DATA_TABLE=$DATA_TABLE"
         echo "  API_GATEWAY_URL=$API_GATEWAY_URL"
         echo "  USER_POOL_ID=$USER_POOL_ID"
         echo "  COGNITO_DOMAIN=$COGNITO_DOMAIN"
@@ -85,14 +92,14 @@ phases:
 
         if aws lambda update-function-configuration \
           --function-name ada-clara-analytics-processor \
-          --environment "Variables={DATA_TABLE=ada-clara-data,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
+          --environment "Variables={DATA_TABLE=$DATA_TABLE,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
           --region $AWS_REGION 2>&1; then
           echo "[SUCCESS] Analytics Processor Lambda environment variables updated"
           echo "Verifying Lambda configuration..."
           aws lambda get-function-configuration \
             --function-name ada-clara-analytics-processor \
             --region $AWS_REGION \
-            --query 'Environment.Variables.API_GATEWAY_URL' \
+            --query 'Environment.Variables.DATA_TABLE' \
             --output text
         else
           echo "[ERROR] Failed to update Lambda environment variables"
