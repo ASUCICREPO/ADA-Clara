@@ -5,7 +5,7 @@ import ChatMessage from './ChatMessage';
 import TypingIndicator from './TypingIndicator';
 import WelcomeLanding from './WelcomeLanding';
 import TalkToPersonForm from './TalkToPersonForm';
-import { sendChatMessage } from '../../lib/api/chat.service';
+import { sendChatMessage, getChatHistory } from '../../lib/api/chat.service';
 import { useLanguage } from '../context/LanguageContext';
 
 interface Message {
@@ -44,6 +44,38 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   const { language } = useLanguage();
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+
+  // Load chat history on mount if session exists
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const history = await getChatHistory(sessionId);
+
+        if (history.messages && history.messages.length > 0) {
+          // Transform backend format to frontend format
+          const transformedMessages: Message[] = history.messages.map((msg, index) => ({
+            id: msg.messageId || `${msg.sender}-${index}`,
+            type: msg.sender === 'bot' ? 'assistant' : 'user',
+            content: msg.content,
+            // Note: We don't persist showTalkToPersonButton in history
+            // Users can still use the button in the input area if needed
+          }));
+
+          setMessages(transformedMessages);
+          setHasStartedChat(true); // Show chat mode if we have history
+          messageIdCounter.current = transformedMessages.length;
+        }
+      } catch (error) {
+        console.error('Failed to load chat history:', error);
+        // Continue with empty messages - don't block the user
+      } finally {
+        setIsLoadingHistory(false);
+      }
+    };
+
+    loadHistory();
+  }, [sessionId]);
 
   // Auto-scroll to bottom when messages change or loading state changes
   const scrollToBottom = () => {
@@ -51,10 +83,10 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
   };
 
   useEffect(() => {
-    if (hasStartedChat) {
+    if (hasStartedChat && !isLoadingHistory) {
       scrollToBottom();
     }
-  }, [messages, isLoading, hasStartedChat]);
+  }, [messages, isLoading, hasStartedChat, isLoadingHistory]);
 
   const handleSend = async (inputValue: string) => {
     if (!inputValue.trim() || isLoading) return;

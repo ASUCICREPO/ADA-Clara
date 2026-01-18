@@ -27,10 +27,14 @@ export interface ChatResponse {
 export interface ChatHistoryResponse {
   sessionId: string;
   messages: Array<{
-    id: string;
-    type: 'user' | 'assistant';
+    messageId: string;
+    sessionId: string;
     content: string;
+    sender: 'user' | 'bot';
     timestamp: string;
+    confidence?: number;
+    sources?: any[];
+    processingTime?: number;
   }>;
   timestamp: string;
 }
