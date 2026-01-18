@@ -33,11 +33,17 @@ phases:
         # Set region from CodeBuild environment (AWS_DEFAULT_REGION is provided by CodeBuild)
         export AWS_REGION=${AWS_DEFAULT_REGION:-$CDK_DEFAULT_REGION}
         echo "Using AWS Region: $AWS_REGION"
-        # Check if already bootstrapped to avoid errors
-        if aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION >/dev/null 2>&1; then
-          echo "CDK already bootstrapped, skipping..."
+        # Check if already bootstrapped AND in a successful state
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NONE")
+        if [ "$STACK_STATUS" = "CREATE_COMPLETE" ] || [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+          echo "CDK already bootstrapped with status: $STACK_STATUS, skipping..."
         else
-          echo "Bootstrapping CDK for the first time..."
+          if [ "$STACK_STATUS" != "NONE" ]; then
+            echo "CDK bootstrap stack exists but in bad state: $STACK_STATUS, deleting..."
+            aws cloudformation delete-stack --stack-name CDKToolkit --region $AWS_REGION
+            aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region $AWS_REGION || true
+          fi
+          echo "Bootstrapping CDK..."
           cdk bootstrap --require-approval never
         fi
 

@@ -639,7 +639,7 @@ export class AdaClaraUnifiedStack extends Stack {
       environment: {
         DATA_TABLE: this.dataTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
-        API_GATEWAY_URL: this.api.url || '',
+        API_GATEWAY_URL: '', // Set by buildspec post-deployment to avoid circular dependency
         USER_POOL_ID: this.userPool.userPoolId,
         USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
         IDENTITY_POOL_ID: this.identityPool.ref,
