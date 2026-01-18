@@ -16,7 +16,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { BedrockAgentRuntimeClient, RetrieveCommand } from '@aws-sdk/client-bedrock-agent-runtime';
-import { BedrockRuntimeClient, InvokeModelWithResponseStreamCommand } from '@aws-sdk/client-bedrock-runtime';
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import crypto from 'crypto';
 
@@ -32,14 +32,14 @@ const DATA_TABLE = process.env.DATA_TABLE;
 const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
 const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-3-5-haiku-20241022-v1:0';
-const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.75');
+const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.70');
 const ANALYTICS_PROCESSOR_ARN = process.env.ANALYTICS_PROCESSOR_ARN;
 const MIN_RELEVANCE_SCORE = 0.65;
 // Number of chunks to retrieve from Knowledge Base
 // Higher values = more likely to find quality sources, but slower response time
 const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '10');
 // High confidence threshold - if top source exceeds this, trust it even if avg is lower
-const HIGH_CONFIDENCE_THRESHOLD = 0.85;
+const HIGH_CONFIDENCE_THRESHOLD = 0.79;
 
 /**
  * Main Lambda handler - Direct API Gateway entry point
@@ -202,10 +202,29 @@ async function getOrCreateSession(sessionId, userInfo, language) {
       if (result.Item) {
         const existingSession = result.Item;
         console.log(`Found existing session: ${sessionId}`);
+
+        // Check if language changed - if so, update the session record
+        const currentLanguage = language || 'en';
+        if (existingSession.language !== currentLanguage) {
+          console.log(`Session language changed from ${existingSession.language} to ${currentLanguage} - updating session record`);
+          try {
+            await dynamodb.send(new PutCommand({
+              TableName: DATA_TABLE,
+              Item: {
+                ...existingSession,
+                language: currentLanguage,
+                lastActivity: new Date().toISOString()
+              }
+            }));
+          } catch (updateError) {
+            console.error('Failed to update session language:', updateError);
+          }
+        }
+
         return {
           sessionId: existingSession.sessionId,
           startTime: existingSession.startTime,
-          language: existingSession.language || 'en',
+          language: currentLanguage, // Use current language from request, not stored
           escalated: existingSession.escalated,
           messageCount: existingSession.messageCount,
           lastActivity: existingSession.lastActivity,
@@ -387,6 +406,16 @@ async function processRAG(query, language, sessionId) {
       confidence = avgConfidence * sourcePenalty;
       console.log(`Applied source count penalty: ${validSourceCount}/${MIN_QUALITY_SOURCES} sources → confidence ${originalConfidence.toFixed(3)} → ${confidence.toFixed(3)}`);
     }
+
+    // Volume bonus: When we have many quality sources (>= 8), apply a small boost
+    // Rationale: 8+ relevant chunks indicates comprehensive coverage of the topic
+    const VOLUME_BONUS_THRESHOLD = 8;
+    if (validSourceCount >= VOLUME_BONUS_THRESHOLD) {
+      const volumeBonus = Math.min(0.05, (validSourceCount - VOLUME_BONUS_THRESHOLD) * 0.01);
+      const originalConfidence = confidence;
+      confidence = Math.min(1.0, confidence + volumeBonus);
+      console.log(`Applied volume bonus: ${validSourceCount} sources → confidence ${originalConfidence.toFixed(3)} → ${confidence.toFixed(3)} (+${volumeBonus.toFixed(3)})`);
+    }
   }
 
   // Log detailed confidence analysis
@@ -422,7 +451,16 @@ async function processRAG(query, language, sessionId) {
     ).join('\n\n---\n\n');
 
     const prompt = language === 'es'
-      ? `Eres un asistente médico especializado en diabetes. Responde la siguiente pregunta usando SOLO la información proporcionada. Si la información no es suficiente, indícalo claramente.
+      ? `Eres un asistente médico especializado en diabetes.
+
+IMPORTANTE: Antes de responder, evalúa si esta consulta requiere escalamiento a un humano. Si se cumple CUALQUIERA de estas condiciones, responde EXACTAMENTE con "ESCALATE_TO_HUMAN" y nada más:
+- El usuario solicita explícitamente hablar con un doctor, enfermera, persona, o humano
+- El usuario describe síntomas que requieren atención médica inmediata o urgente
+- El usuario expresa frustración severa con la experiencia del chatbot
+- El usuario solicita consejo médico personalizado más allá de información general sobre diabetes
+- El usuario menciona una emergencia médica
+
+Si NO se requiere escalamiento, responde la pregunta usando SOLO la información proporcionada. Si la información no es suficiente, indícalo claramente.
 
 Contexto de fuentes verificadas:
 ${context}
@@ -430,7 +468,16 @@ ${context}
 Pregunta: ${query}
 
 Proporciona una respuesta precisa, clara y basada únicamente en las fuentes proporcionadas. No incluyas citas de fuentes o referencias como [Fuente 1] en tu respuesta.`
-      : `You are a medical assistant specialized in diabetes. Answer the following question using ONLY the provided information. If the information is insufficient, clearly state that.
+      : `You are a medical assistant specialized in diabetes.
+
+IMPORTANT: Before answering, evaluate if this query requires escalation to a human. If ANY of these conditions are met, respond with EXACTLY "ESCALATE_TO_HUMAN" and nothing else:
+- User explicitly requests to speak to a doctor, nurse, person, or human
+- User describes symptoms requiring immediate or urgent medical attention
+- User expresses severe frustration with the chatbot experience
+- User requests personalized medical advice beyond general diabetes information
+- User mentions a medical emergency
+
+If escalation is NOT needed, answer the question using ONLY the provided information. If the information is insufficient, clearly state that.
 
 Context from verified sources:
 ${context}
@@ -439,7 +486,7 @@ Question: ${query}
 
 Provide an accurate, clear response based solely on the provided sources. Do not include source citations or references like [Source 1] in your response.`;
 
-    const invokeCommand = new InvokeModelWithResponseStreamCommand({
+    const invokeCommand = new InvokeModelCommand({
       modelId: GENERATION_MODEL,
       contentType: 'application/json',
       accept: 'application/json',
@@ -453,22 +500,24 @@ Provide an accurate, clear response based solely on the provided sources. Do not
 
     const generateResponse = await bedrockRuntime.send(invokeCommand);
 
-    // Collect streamed response chunks
-    answer = '';
-    for await (const event of generateResponse.body) {
-      if (event.chunk) {
-        const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
-        if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
-          answer += chunk.delta.text;
-        }
-      }
-    }
+    // Parse the response
+    const responseBody = JSON.parse(new TextDecoder().decode(generateResponse.body));
+    answer = responseBody.content[0].text;
 
     if (!answer) {
       answer = 'I apologize, but I could not generate a response to your question.';
     }
 
     console.log(`Generated response: ${answer.substring(0, 100)}...`);
+
+    // Check if Claude detected escalation need
+    if (answer.trim() === 'ESCALATE_TO_HUMAN') {
+      console.log('Claude detected escalation requirement - triggering semantic escalation');
+      // Force low confidence to trigger escalation logic
+      confidence = 0.0;
+      // Replace answer with empty string - will be replaced with escalation message
+      answer = '';
+    }
   }
 
   const processingTime = Date.now() - startTime;
@@ -545,8 +594,8 @@ async function checkAndHandleEscalation(sessionId, userMessage, botResponse, con
 
     // Return user-friendly escalation message
     const escalationMessage = language === 'es'
-      ? 'Permíteme conectarte con alguien que pueda ayudarte con eso.'
-      : 'Let me connect you with someone who can help you with that.';
+      ? 'Permíteme conectarte con alguien que pueda ayudarte.'
+      : 'Let me connect you with someone who can help you.';
 
     return {
       isEscalated: true,
@@ -594,9 +643,14 @@ function shouldEscalate(confidence, message) {
 async function createEscalationRecord(sessionId, confidence, questionText) {
   try {
     const escalationId = `esc-${crypto.randomUUID()}`;
-    const reason = confidence < CONFIDENCE_THRESHOLD
-      ? 'Low confidence response'
-      : 'User requested human assistance';
+    let reason;
+    if (confidence === 0.0) {
+      reason = 'Semantic escalation detection (LLM)';
+    } else if (confidence < CONFIDENCE_THRESHOLD) {
+      reason = 'Low confidence response';
+    } else {
+      reason = 'User requested human assistance';
+    }
 
     const escalationRecord = {
       escalationId,
