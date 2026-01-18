@@ -330,6 +330,56 @@ async function processUrl(url) {
 }
 
 /**
+ * Decode HTML entities to their proper characters
+ */
+function decodeHtmlEntities(text) {
+  // Create a map of common HTML entities to their characters
+  const entities = {
+    '&nbsp;': ' ',
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&apos;': "'",
+    '&rsquo;': "'",
+    '&lsquo;': "'",
+    '&rdquo;': '"',
+    '&ldquo;': '"',
+    '&mdash;': '—',
+    '&ndash;': '–',
+    '&hellip;': '…',
+    // Handle UTF-8 encoding issues (commonly seen as Â)
+    'Â': '',
+    'â€™': "'",
+    'â€œ': '"',
+    'â€': '"',
+    'â€"': '—',
+    'â€"': '–',
+    'â€¦': '…'
+  };
+
+  let result = text;
+
+  // Replace known entities
+  for (const [entity, char] of Object.entries(entities)) {
+    result = result.split(entity).join(char);
+  }
+
+  // Handle numeric entities like &#8217; (right single quotation mark)
+  result = result.replace(/&#(\d+);/g, (match, dec) => {
+    return String.fromCharCode(dec);
+  });
+
+  // Handle hex entities like &#x2019;
+  result = result.replace(/&#x([0-9a-fA-F]+);/g, (match, hex) => {
+    return String.fromCharCode(parseInt(hex, 16));
+  });
+
+  return result;
+}
+
+/**
  * Convert HTML element to markdown text with links preserved
  */
 function htmlToMarkdownText($, element) {
@@ -355,7 +405,7 @@ function htmlToMarkdownText($, element) {
     }
   });
 
-  return result.trim();
+  return decodeHtmlEntities(result.trim());
 }
 
 /**
@@ -365,7 +415,7 @@ function processHtmlToMarkdown(html, url) {
   const $ = cheerio.load(html);
 
   // Extract title
-  let title = $('title').text().trim() || $('h1').first().text().trim() || 'Diabetes Information';
+  let title = decodeHtmlEntities($('title').text().trim() || $('h1').first().text().trim() || 'Diabetes Information');
   title = title.replace(/\s+/g, ' ');
 
   // Remove unwanted elements
@@ -387,22 +437,22 @@ function processHtmlToMarkdown(html, url) {
     
     switch (tagName) {
       case 'h1':
-        markdown += `\n# ${$el.text().trim()}\n\n`;
+        markdown += `\n# ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'h2':
-        markdown += `\n## ${$el.text().trim()}\n\n`;
+        markdown += `\n## ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'h3':
-        markdown += `\n### ${$el.text().trim()}\n\n`;
+        markdown += `\n### ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'h4':
-        markdown += `\n#### ${$el.text().trim()}\n\n`;
+        markdown += `\n#### ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'h5':
-        markdown += `\n##### ${$el.text().trim()}\n\n`;
+        markdown += `\n##### ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'h6':
-        markdown += `\n###### ${$el.text().trim()}\n\n`;
+        markdown += `\n###### ${decodeHtmlEntities($el.text().trim())}\n\n`;
         break;
       case 'p':
         const pText = htmlToMarkdownText($, element);
@@ -429,7 +479,7 @@ function processHtmlToMarkdown(html, url) {
         markdown += '\n';
         break;
       case 'blockquote':
-        const quoteText = $el.text().trim();
+        const quoteText = decodeHtmlEntities($el.text().trim());
         if (quoteText) {
           markdown += `> ${quoteText}\n\n`;
         }
@@ -439,19 +489,19 @@ function processHtmlToMarkdown(html, url) {
         const rows = [];
 
         $el.find('thead tr th, thead tr td').each((j, th) => {
-          headers.push($(th).text().trim());
+          headers.push(decodeHtmlEntities($(th).text().trim()));
         });
 
         if (headers.length === 0) {
           $el.find('tbody tr').first().find('th, td').each((j, th) => {
-            headers.push($(th).text().trim());
+            headers.push(decodeHtmlEntities($(th).text().trim()));
           });
         }
 
         $el.find('tbody tr').each((j, tr) => {
           const row = [];
           $(tr).find('td').each((k, td) => {
-            row.push($(td).text().trim());
+            row.push(decodeHtmlEntities($(td).text().trim()));
           });
           if (row.length > 0) {
             rows.push(row);
