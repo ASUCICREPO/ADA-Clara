@@ -29,6 +29,7 @@ out/
 !frontend/**/*.js
 !backend/lambdas/*.js
 !backend/lambda/*/index.js
+!backend/lambda/*/*.js
 *.d.ts
 
 # TypeScript cache

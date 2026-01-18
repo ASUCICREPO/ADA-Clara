@@ -23,27 +23,52 @@ phases:
         for lambda_dir in lambda/*/; do
           if [ -f "${lambda_dir}package.json" ]; then
             echo "Installing dependencies for $(basename $lambda_dir)..."
-            (cd "$lambda_dir" && npm ci --production --silent) || echo "Warning: Failed to install dependencies for $lambda_dir"
+            if [ -f "${lambda_dir}package-lock.json" ]; then
+              (cd "$lambda_dir" && npm ci --production --silent) || echo "Warning: Failed to install dependencies for $lambda_dir"
+            else
+              echo "  No package-lock.json found, using npm install instead"
+              (cd "$lambda_dir" && npm install --production --silent) || echo "Warning: Failed to install dependencies for $lambda_dir"
+            fi
           fi
         done
       - echo "Building TypeScript..."
       - npm run build
       - echo "Bootstrapping CDK (if not already bootstrapped)..."
       - |
-        # Set region from CodeBuild environment (AWS_DEFAULT_REGION is provided by CodeBuild)
-        export AWS_REGION=${AWS_DEFAULT_REGION:-$CDK_DEFAULT_REGION}
-        echo "Using AWS Region: $AWS_REGION"
-        # Check if already bootstrapped to avoid errors
-        if aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION >/dev/null 2>&1; then
-          echo "CDK already bootstrapped, skipping..."
+        # Set region from CodeBuild environment
+        if [ -z "$AWS_DEFAULT_REGION" ]; then
+          echo "AWS_DEFAULT_REGION not set, using CDK_DEFAULT_REGION: $CDK_DEFAULT_REGION"
+          export AWS_REGION=$CDK_DEFAULT_REGION
         else
-          echo "Bootstrapping CDK for the first time..."
-          cdk bootstrap --require-approval never --context amplifyAppId=$AMPLIFY_APP_ID
+          echo "Using AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
+          export AWS_REGION=$AWS_DEFAULT_REGION
+        fi
+        echo "Using AWS Region: $AWS_REGION"
+        # Check if already bootstrapped AND in a successful state
+        STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NONE")
+        if [ "$STACK_STATUS" = "CREATE_COMPLETE" ] || [ "$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+          echo "CDK already bootstrapped with status: $STACK_STATUS, skipping..."
+        else
+          if [ "$STACK_STATUS" != "NONE" ]; then
+            echo "CDK bootstrap stack exists but in bad state: $STACK_STATUS, deleting..."
+            aws cloudformation delete-stack --stack-name CDKToolkit --region $AWS_REGION
+            aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region $AWS_REGION || true
+          fi
+          # Get AWS account ID for bucket name
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="cdk-hnb659fds-assets-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+          # Check if CDK staging bucket exists and delete it to ensure clean bootstrap
+          if aws s3api head-bucket --bucket $BUCKET_NAME --region $AWS_REGION 2>/dev/null; then
+            echo "Found existing CDK staging bucket: $BUCKET_NAME, removing..."
+            aws s3 rb s3://$BUCKET_NAME --force --region $AWS_REGION || echo "Warning: Failed to delete bucket, continuing..."
+          fi
+          echo "Bootstrapping CDK..."
+          cdk bootstrap --require-approval never
         fi
 
   build:
     commands:
-      - echo "Deploying CDK stack..."
+      - echo "Deploying CDK stack with AMPLIFY_APP_ID=$AMPLIFY_APP_ID"
       - cdk deploy --require-approval never --context environment=production --context amplifyAppId=$AMPLIFY_APP_ID
       - |
         if [ $? -ne 0 ]; then
@@ -65,26 +90,74 @@ phases:
       - export USER_POOL_CLIENT_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`UserPoolClientId`].OutputValue' --output text --region $AWS_REGION)
       - export IDENTITY_POOL_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`IdentityPoolId`].OutputValue' --output text --region $AWS_REGION)
       - export COGNITO_DOMAIN=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query 'Stacks[0].Outputs[?OutputKey==`CognitoDomain`].OutputValue' --output text --region $AWS_REGION)
-      # AMPLIFY_APP_ID is passed from deploy.sh as environment variable (created before CDK deployment)
-      - export FRONTEND_URL="https://main.${AMPLIFY_APP_ID}.amplifyapp.com"
+      # AMPLIFY_APP_ID and AMPLIFY_BRANCH are passed from deploy.sh as environment variables
+      - export FRONTEND_URL="https://${AMPLIFY_BRANCH}.${AMPLIFY_APP_ID}.amplifyapp.com"
       - echo "API Gateway URL=$API_GATEWAY_URL"
       - echo "User Pool ID=$USER_POOL_ID"
       - echo "Region=$AWS_REGION"
+      - echo ""
+      - echo "Updating Analytics Processor Lambda with runtime configuration..."
+      - |
+        # Extract DATA_TABLE name from CloudFormation outputs
+        DATA_TABLE=$(aws cloudformation describe-stacks \
+          --stack-name $STACK_NAME \
+          --query 'Stacks[0].Outputs[?OutputKey==`DataTableName`].OutputValue' \
+          --output text \
+          --region $AWS_REGION)
+
+        # Update Analytics Processor Lambda environment variables with actual values from CloudFormation
+        # This is needed because the Lambda is created with empty API_GATEWAY_URL during CDK deployment
+        # Note: AWS_REGION is excluded as it's a reserved Lambda environment variable
+        echo "Environment variables being set for ada-clara-analytics-processor:"
+        echo "  DATA_TABLE=$DATA_TABLE"
+        echo "  API_GATEWAY_URL=$API_GATEWAY_URL"
+        echo "  USER_POOL_ID=$USER_POOL_ID"
+        echo "  COGNITO_DOMAIN=$COGNITO_DOMAIN"
+        echo "  FRONTEND_URL=$FRONTEND_URL"
+
+        if aws lambda update-function-configuration \
+          --function-name ada-clara-analytics-processor \
+          --environment "Variables={DATA_TABLE=$DATA_TABLE,FRONTEND_URL=$FRONTEND_URL,API_GATEWAY_URL=$API_GATEWAY_URL,USER_POOL_ID=$USER_POOL_ID,USER_POOL_CLIENT_ID=$USER_POOL_CLIENT_ID,IDENTITY_POOL_ID=$IDENTITY_POOL_ID,COGNITO_DOMAIN=$COGNITO_DOMAIN}" \
+          --region $AWS_REGION 2>&1; then
+          echo "[SUCCESS] Analytics Processor Lambda environment variables updated"
+          echo "Verifying Lambda configuration..."
+          aws lambda get-function-configuration \
+            --function-name ada-clara-analytics-processor \
+            --region $AWS_REGION \
+            --query 'Environment.Variables.DATA_TABLE' \
+            --output text
+        else
+          echo "[ERROR] Failed to update Lambda environment variables"
+          echo "Lambda functions may not work correctly without proper configuration"
+          exit 1
+        fi
       - echo ""
       - echo "=== FRONTEND DEPLOYMENT ==="
       - cd frontend
       - echo "Installing frontend dependencies..."
       - npm ci
-      - echo "Setting environment variables for build..."
-      - echo "NEXT_PUBLIC_API_BASE_URL=$API_GATEWAY_URL" > .env.local
-      - echo "NEXT_PUBLIC_AWS_REGION=$AWS_REGION" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REGION=$AWS_REGION" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_USER_POOL_ID=$USER_POOL_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_CLIENT_ID=$USER_POOL_CLIENT_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_IDENTITY_POOL_ID=$IDENTITY_POOL_ID" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_DOMAIN=$COGNITO_DOMAIN" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_IN=$FRONTEND_URL/auth/callback" >> .env.local
-      - echo "NEXT_PUBLIC_COGNITO_REDIRECT_SIGN_OUT=$FRONTEND_URL" >> .env.local
+      - echo "Generating runtime configuration file..."
+      - |
+        # Create runtime-config.json with all configuration values
+        # Strip trailing slash from API_GATEWAY_URL to avoid double slashes
+        API_BASE_URL_CLEAN="${API_GATEWAY_URL%/}"
+        cat > public/runtime-config.json <<EOF
+        {
+          "apiBaseUrl": "$API_BASE_URL_CLEAN",
+          "region": "$AWS_REGION",
+          "cognito": {
+            "userPoolId": "$USER_POOL_ID",
+            "clientId": "$USER_POOL_CLIENT_ID",
+            "identityPoolId": "$IDENTITY_POOL_ID",
+            "domain": "$COGNITO_DOMAIN",
+            "redirectSignIn": "$FRONTEND_URL/auth/callback",
+            "redirectSignOut": "$FRONTEND_URL"
+          },
+          "version": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)"
+        }
+        EOF
+      - echo "Generated runtime-config.json:"
+      - cat public/runtime-config.json
       - echo "Building Next.js application..."
       - npm run build 2>&1 | tee build.log
       - |
@@ -100,31 +173,46 @@ phases:
           exit 1
         fi
         echo "[SUCCESS] Next.js build completed successfully"
+      - echo "Verifying runtime-config.json in build output..."
+      - |
+        # Verify that runtime-config.json was copied to build output
+        cd out
+        if [ -f "runtime-config.json" ]; then
+          echo "[SUCCESS] runtime-config.json found in build output"
+          echo "Config preview:"
+          head -5 runtime-config.json
+        else
+          echo "[ERROR] runtime-config.json not found in build output"
+          exit 1
+        fi
+        cd ..
       - echo "Creating deployment package..."
-      - cd out && zip -r build.zip .
+      - cd out
+      - zip -r build.zip .
 
   post_build:
     commands:
       - echo "Deploying frontend to Amplify..."
+      - pwd
+      - ls -la
       - echo "Creating Amplify deployment..."
-      - cd ../..
       - |
-        # Create deployment and capture both exit code and output
-        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
+        # Check for and stop any running deployments first
+        echo "Checking for existing deployments..."
+        ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
+
+        if [ -n "$ACTIVE_JOB" ] && [ "$ACTIVE_JOB" != "None" ]; then
+          echo "[WARNING] Found active deployment job: $ACTIVE_JOB. Stopping it..."
+          aws amplify stop-job --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $ACTIVE_JOB --region $AWS_DEFAULT_REGION 2>/dev/null || true
+          echo "Waiting 5 seconds for job to stop..."
+          sleep 5
+        fi
+
+        # Now create deployment
+        if aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --region $AWS_DEFAULT_REGION --output json > deployment_response.json 2>&1; then
           echo "[SUCCESS] Amplify deployment created successfully"
         else
           DEPLOYMENT_ERROR=$(cat deployment_response.json)
-          # Check if error is because deployment already exists (not a real failure)
-          if echo "$DEPLOYMENT_ERROR" | grep -q "already running\|already exists\|BadRequestException"; then
-            echo "[WARNING] Deployment already in progress, checking status..."
-            # Try to get the active job ID
-            ACTIVE_JOB=$(aws amplify list-jobs --app-id $AMPLIFY_APP_ID --branch-name main --region $AWS_DEFAULT_REGION --query 'jobSummaries[?status==`PENDING` || status==`PROVISIONING` || status==`RUNNING`].jobId' --output text 2>/dev/null | head -1)
-            if [ -n "$ACTIVE_JOB" ]; then
-              echo "[SUCCESS] Found active deployment job: $ACTIVE_JOB"
-              echo "Complete deployment finished successfully! (Using existing deployment)"
-              exit 0
-            fi
-          fi
           echo "[ERROR] Failed to create Amplify deployment"
           cat deployment_response.json
           exit 1
@@ -146,16 +234,29 @@ phases:
           exit 1
         fi
       - echo "Uploading build.zip to Amplify..."
-      - cd frontend/out
       - |
-        # Upload with better error handling
-        if curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S > /dev/null 2>&1; then
+        # We're in frontend/out from line 111
+        echo "Current directory: $(pwd)"
+        echo "Checking for build.zip..."
+        if [ ! -f "build.zip" ]; then
+          echo "[ERROR] build.zip not found in current directory"
+          ls -la
+          exit 1
+        fi
+        echo "build.zip found, size: $(du -h build.zip | cut -f1)"
+        echo "Uploading to Amplify..."
+        # Upload with verbose error output
+        CURL_OUTPUT=$(curl -X PUT -T build.zip "$UPLOAD_URL" -f -s -S -w "\nHTTP_CODE:%{http_code}" 2>&1)
+        CURL_EXIT=$?
+        if [ $CURL_EXIT -eq 0 ]; then
           echo "[SUCCESS] Build.zip uploaded successfully"
         else
           echo "[ERROR] Failed to upload build.zip to Amplify"
+          echo "Curl exit code: $CURL_EXIT"
+          echo "Curl output: $CURL_OUTPUT"
           exit 1
         fi
       - echo "Starting deployment..."
-      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name main --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
+      - aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $JOB_ID --region $AWS_DEFAULT_REGION || echo "[WARNING] Deployment start command completed (may already be running)"
       - echo "Complete deployment finished successfully!"
 

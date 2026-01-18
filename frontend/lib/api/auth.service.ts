@@ -19,11 +19,11 @@ let isInitialized = false;
  * Initialize Amplify Auth with configuration
  * This should be called once at app startup
  */
-export function initializeAuth(): void {
+export async function initializeAuth(): Promise<void> {
   if (typeof window === 'undefined') return;
   if (isInitialized) return;
-  
-  const config = getConfig();
+
+  const config = await getConfig();
   
   // Validate Cognito configuration
   if (!config.cognito.userPoolId || !config.cognito.clientId) {
@@ -132,7 +132,7 @@ export async function signIn(email: string, password: string): Promise<AuthUser>
   }
 
   if (!isInitialized) {
-    initializeAuth();
+    await initializeAuth();
   }
 
   // Check if user is already signed in - sign them out first
@@ -261,7 +261,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (typeof window === 'undefined') return null;
 
   if (!isInitialized) {
-    initializeAuth();
+    await initializeAuth();
   }
 
   try {

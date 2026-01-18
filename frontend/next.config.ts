@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Enable static export for AWS Amplify deployment (like Patent-Novelty-Assessment)
+  // Enable static export for AWS Amplify deployment
   output: 'export',
-  trailingSlash: true,
+  // Remove trailingSlash to generate index.html at root properly
+  trailingSlash: false,
   images: {
     unoptimized: true
   }

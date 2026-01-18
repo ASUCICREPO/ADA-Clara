@@ -1,0 +1,220 @@
+{
+  "Comment": "Chat flow with Step Functions orchestration (no direct Lambda-to-Lambda SDK invokes)",
+  "StartAt": "PrepareChat",
+  "States": {
+    "PrepareChat": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Setup session and store user message",
+      "Parameters": {
+        "FunctionName": "${ChatSessionManagerArn}",
+        "Payload": {
+          "message.$": "$.message",
+          "sessionId.$": "$.sessionId",
+          "userInfo.$": "$.userInfo"
+        }
+      },
+      "ResultSelector": {
+        "session.$": "$.Payload.session",
+        "userMessage.$": "$.Payload.userMessage",
+        "isNewSession.$": "$.Payload.isNewSession"
+      },
+      "ResultPath": "$.chatContext",
+      "Next": "PrepareRAGPayload",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "PrepareRAGPayload": {
+      "Type": "Pass",
+      "Comment": "Construct RAG payload from session context",
+      "Parameters": {
+        "chatContext.$": "$.chatContext",
+        "ragPayload": {
+          "query.$": "$.chatContext.userMessage.content",
+          "language.$": "$.chatContext.session.language",
+          "maxResults": 5,
+          "confidenceThreshold": 0.75
+        }
+      },
+      "Next": "CallRAG"
+    },
+    "CallRAG": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Query RAG processor for AI response",
+      "Parameters": {
+        "FunctionName": "${RagProcessorArn}",
+        "Payload": {
+          "httpMethod": "POST",
+          "path": "/query",
+          "body.$": "States.JsonToString($.ragPayload)"
+        }
+      },
+      "ResultSelector": {
+        "statusCode.$": "$.Payload.statusCode",
+        "body.$": "States.StringToJson($.Payload.body)"
+      },
+      "ResultPath": "$.ragResult",
+      "Next": "ExtractRAGResponse",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleRAGError"
+        }
+      ]
+    },
+    "ExtractRAGResponse": {
+      "Type": "Pass",
+      "Comment": "Extract RAG response data from HTTP response and map to frontend schema",
+      "Parameters": {
+        "chatContext.$": "$.chatContext",
+        "ragResponse": {
+          "message.$": "$.ragResult.body.response",
+          "confidence.$": "$.ragResult.body.confidence",
+          "sources.$": "$.ragResult.body.sources"
+        }
+      },
+      "Next": "ProcessResponse"
+    },
+    "ProcessResponse": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Store response and check escalation",
+      "Parameters": {
+        "FunctionName": "${ChatResponseHandlerArn}",
+        "Payload": {
+          "session.$": "$.chatContext.session",
+          "userMessage.$": "$.chatContext.userMessage",
+          "isNewSession.$": "$.chatContext.isNewSession",
+          "ragResponse.$": "$.ragResponse"
+        }
+      },
+      "ResultSelector": {
+        "userResponse.$": "$.Payload.userResponse",
+        "analyticsData.$": "$.Payload.analyticsData"
+      },
+      "ResultPath": "$",
+      "Next": "InvokeAnalyticsProcessor",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "HandleError"
+        }
+      ]
+    },
+    "InvokeAnalyticsProcessor": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Comment": "Async invoke chat-data-processor for analytics (fire-and-forget)",
+      "Parameters": {
+        "FunctionName": "${ChatDataProcessorArn}",
+        "InvocationType": "Event",
+        "Payload": {
+          "eventType": "chat_message_processed",
+          "sessionId.$": "$.analyticsData.sessionId",
+          "userMessage.$": "$.analyticsData.userMessage",
+          "botResponse.$": "$.analyticsData.botResponse",
+          "confidence.$": "$.analyticsData.confidence",
+          "sources.$": "$.analyticsData.sources",
+          "processingTime.$": "$.analyticsData.processingTime",
+          "timestamp.$": "$.analyticsData.timestamp",
+          "isNewSession.$": "$.analyticsData.isNewSession",
+          "language.$": "$.analyticsData.language",
+          "escalationSuggested.$": "$.analyticsData.escalationSuggested"
+        }
+      },
+      "ResultPath": "$.analyticsInvoke",
+      "Next": "ReturnResponse",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.analyticsError",
+          "Comment": "If analytics invoke fails, still return response (analytics are best-effort)",
+          "Next": "ReturnResponse"
+        }
+      ]
+    },
+    "ReturnResponse": {
+      "Type": "Pass",
+      "Comment": "Return final response to user",
+      "Parameters": {
+        "statusCode": 200,
+        "body": {
+          "message.$": "$.userResponse.message",
+          "sources.$": "$.userResponse.sources",
+          "sessionId.$": "$.userResponse.sessionId",
+          "escalated.$": "$.userResponse.escalated"
+        }
+      },
+      "End": true
+    },
+    "HandleRAGError": {
+      "Type": "Pass",
+      "Comment": "RAG processing failed - return fallback response",
+      "Parameters": {
+        "chatContext.$": "$.chatContext",
+        "ragResponse": {
+          "message": "I apologize, but I'm having trouble processing your request right now. Please try again later.",
+          "confidence": 0.3,
+          "sources": []
+        }
+      },
+      "Next": "ProcessResponse"
+    },
+    "HandleError": {
+      "Type": "Pass",
+      "Comment": "Generic error handler",
+      "Parameters": {
+        "statusCode": 500,
+        "body": {
+          "error": "Failed to process chat message",
+          "message": "An error occurred while processing your message"
+        }
+      },
+      "End": true
+    }
+  }
+}

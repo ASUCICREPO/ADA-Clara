@@ -1,11 +1,10 @@
 /**
  * Escalation Handler Lambda
  * Consolidated single-file implementation
- * 
+ *
  * Handles:
  * - POST /escalation/request - Submit escalation request
  * - GET /admin/escalation-requests - Get escalation requests for admin
- * - GET /escalation/health - Health check
  */
 
 const { DynamoDBClient, PutItemCommand, ScanCommand, QueryCommand } = require('@aws-sdk/client-dynamodb');
@@ -30,16 +29,15 @@ exports.handler = async (event) => {
   console.log('Escalation handler invoked:', JSON.stringify(redactPII(event), null, 2));
 
   try {
-    const path = event.path;
-    const method = event.httpMethod;
+    // Support both HTTP API (v2) and REST API (v1) formats
+    const path = event.rawPath || event.path;
+    const method = event.requestContext?.http?.method || event.httpMethod;
 
     // Route requests
     if (method === 'POST' && (path === '/escalation/request' || path === '/escalation')) {
       return await handleEscalationRequest(event);
     } else if (method === 'GET' && (path === '/escalation/requests' || path === '/admin/escalation-requests')) {
       return await getEscalationRequests(event);
-    } else if (method === 'GET' && (path === '/escalation/health' || path === '/escalation')) {
-      return await getHealthCheck();
     } else if (method === 'OPTIONS') {
       return createResponse(200, '');
     } else {
@@ -47,8 +45,7 @@ exports.handler = async (event) => {
         error: 'Endpoint not found',
         availableEndpoints: [
           'POST /escalation/request',
-          'GET /admin/escalation-requests',
-          'GET /escalation/health'
+          'GET /admin/escalation-requests'
         ]
       });
     }
@@ -213,7 +210,7 @@ async function getEscalationRequests(event) {
     const endIndex = startIndex + limit;
     const paginatedItems = allItems.slice(startIndex, endIndex);
 
-    // Format response
+    // Format response (match frontend schema which uses "phone" not "phoneNumber")
     const requests = paginatedItems.map(item => ({
       name: item.name || 'N/A',
       email: item.email || 'N/A',
@@ -234,34 +231,6 @@ async function getEscalationRequests(event) {
     return createResponse(500, {
       error: 'Failed to fetch escalation requests',
       message: error.message || 'Unknown error'
-    });
-  }
-}
-
-/**
- * Health check
- */
-async function getHealthCheck() {
-  try {
-    // Simple health check - verify DynamoDB table access
-    await dynamodb.send(new ScanCommand({
-      TableName: ESCALATION_TABLE,
-      Limit: 1
-    }));
-
-    return createResponse(200, {
-      status: 'healthy',
-      service: 'escalation-handler',
-      timestamp: new Date().toISOString(),
-      table: ESCALATION_TABLE
-    });
-  } catch (error) {
-    console.error('Health check failed:', error);
-    return createResponse(503, {
-      status: 'unhealthy',
-      service: 'escalation-handler',
-      timestamp: new Date().toISOString(),
-      error: error.message || 'Unknown error'
     });
   }
 }

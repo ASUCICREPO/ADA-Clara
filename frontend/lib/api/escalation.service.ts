@@ -26,7 +26,7 @@ export interface EscalationResponse {
 export async function submitEscalationRequest(
   request: EscalationRequest
 ): Promise<EscalationResponse> {
-  const config = getConfig();
+  const config = await getConfig();
   
   try {
     const response = await fetch(`${config.apiBaseUrl}/escalation/request`, {

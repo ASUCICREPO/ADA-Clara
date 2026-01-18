@@ -42,15 +42,6 @@ export interface EscalationRequestsResponse {
   total: number;
 }
 
-export interface FAQItem {
-  question: string;
-  count?: number;
-}
-
-export interface FAQResponse {
-  questions: FAQItem[];
-}
-
 /**
  * Get authentication token from Cognito
  * Uses the auth service to get the current token
@@ -72,7 +63,7 @@ async function getAuthToken(): Promise<string | null> {
  * Make an authenticated API call
  */
 async function authenticatedFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
-  const config = getConfig();
+  const config = await getConfig();
   const token = await getAuthToken();
   
   if (!token) {
@@ -182,48 +173,6 @@ export async function getEscalationRequests(page: number = 1, limit: number = 10
     return await response.json();
   } catch (error) {
     console.error('Escalation requests API error:', error);
-    throw error;
-  }
-}
-
-/**
- * Get frequently asked questions
- */
-export async function getFrequentlyAskedQuestions(): Promise<FAQResponse> {
-  try {
-    const response = await authenticatedFetch('/admin/frequently-asked-questions', {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.message || error.error || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('FAQ API error:', error);
-    throw error;
-  }
-}
-
-/**
- * Get unanswered questions
- */
-export async function getUnansweredQuestions(): Promise<FAQResponse> {
-  try {
-    const response = await authenticatedFetch('/admin/unanswered-questions', {
-      method: 'GET',
-    });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(error.message || error.error || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Unanswered questions API error:', error);
     throw error;
   }
 }

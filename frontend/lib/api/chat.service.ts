@@ -27,10 +27,14 @@ export interface ChatResponse {
 export interface ChatHistoryResponse {
   sessionId: string;
   messages: Array<{
-    id: string;
-    type: 'user' | 'assistant';
+    messageId: string;
+    sessionId: string;
     content: string;
+    sender: 'user' | 'bot';
     timestamp: string;
+    confidence?: number;
+    sources?: any[];
+    processingTime?: number;
   }>;
   timestamp: string;
 }
@@ -39,7 +43,7 @@ export interface ChatHistoryResponse {
  * Send a chat message to the API
  */
 export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
-  const config = getConfig();
+  const config = await getConfig();
   
   try {
     const response = await fetch(`${config.apiBaseUrl}/chat`, {
@@ -71,8 +75,8 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
  * Get chat history for a session
  */
 export async function getChatHistory(sessionId: string): Promise<ChatHistoryResponse> {
-  const config = getConfig();
-  
+  const config = await getConfig();
+
   try {
     const response = await fetch(`${config.apiBaseUrl}/chat/history?sessionId=${encodeURIComponent(sessionId)}`, {
       method: 'GET',
@@ -91,24 +95,6 @@ export async function getChatHistory(sessionId: string): Promise<ChatHistoryResp
   } catch (error) {
     console.error('Chat history API error:', error);
     throw error;
-  }
-}
-
-/**
- * Health check for the API
- */
-export async function checkApiHealth(): Promise<boolean> {
-  const config = getConfig();
-  
-  try {
-    const response = await fetch(`${config.apiBaseUrl}/health`, {
-      method: 'GET',
-    });
-
-    return response.ok;
-  } catch (error) {
-    console.error('Health check error:', error);
-    return false;
   }
 }
 

@@ -20,8 +20,8 @@ export default function ProtectedAdminRoute({ children }: ProtectedAdminRoutePro
     const checkAuth = async () => {
       try {
         // Initialize auth if not already initialized
-        initializeAuth();
-        
+        await initializeAuth();
+
         // Check if user is authenticated
         const authenticated = await isAuthenticated();
         

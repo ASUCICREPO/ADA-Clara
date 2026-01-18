@@ -3,7 +3,9 @@ import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import { HttpJwtAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
@@ -24,13 +26,11 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
  */
 export class AdaClaraUnifiedStack extends Stack {
   // DynamoDB Tables
-  public readonly chatSessionsTable: dynamodb.Table;
-  public readonly analyticsTable: dynamodb.Table;
-  public readonly messagesTable: dynamodb.Table;
-  public readonly questionsTable: dynamodb.Table;
-
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
+
+  // Consolidated data table (replaces chat-sessions, analytics, messages, questions)
+  public readonly dataTable: dynamodb.Table;
 
   // Cognito
   public readonly userPool: cognito.UserPool;
@@ -39,10 +39,10 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly identityPool: cognito.CfnIdentityPool;
 
   // Lambda Functions
-  public readonly chatProcessor: lambda.Function;
+  public readonly chatHandler: lambda.Function;
+  public readonly analyticsProcessor: lambda.Function;
   public readonly escalationHandler: lambda.Function;
   public readonly adminAnalytics: lambda.Function;
-  public readonly ragProcessor: lambda.Function;
   public readonly domainDiscoveryFunction: lambda.Function;
   public readonly contentProcessorFunction: lambda.Function;
 
@@ -61,8 +61,8 @@ export class AdaClaraUnifiedStack extends Stack {
   // EventBridge
   public readonly webScraperScheduleRule: events.Rule;
 
-  // API Gateway
-  public readonly api: apigateway.RestApi;
+  // API Gateway (HTTP API v2)
+  public readonly api: apigatewayv2.HttpApi;
 
   // Amplify App (created but deployment handled by buildspec)
   public readonly amplifyApp?: amplify.CfnApp;
@@ -96,55 +96,6 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`Frontend URL for CORS: ${frontendUrl}`);
 
     // ========== DYNAMODB TABLES ==========
-    this.chatSessionsTable = new dynamodb.Table(this, 'ChatSessionsTable', {
-      tableName: `ada-clara-chat-sessions${stackSuffix}`,
-      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.analyticsTable = new dynamodb.Table(this, 'AnalyticsTable', {
-      tableName: `ada-clara-analytics${stackSuffix}`,
-      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.messagesTable = new dynamodb.Table(this, 'MessagesTable', {
-      tableName: `ada-clara-messages${stackSuffix}`,
-      partitionKey: { name: 'conversationId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    this.questionsTable = new dynamodb.Table(this, 'QuestionsTable', {
-      tableName: `ada-clara-questions${stackSuffix}`,
-      partitionKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      timeToLiveAttribute: 'ttl',
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
-
-    // Add CategoryIndex GSI for querying questions by category
-    this.questionsTable.addGlobalSecondaryIndex({
-      indexName: 'CategoryIndex',
-      partitionKey: { name: 'category', type: dynamodb.AttributeType.STRING },
-    });
-
-    // Add UnansweredIndex GSI for querying unanswered questions by date
-    this.questionsTable.addGlobalSecondaryIndex({
-      indexName: 'UnansweredIndex',
-      partitionKey: { name: 'date', type: dynamodb.AttributeType.STRING },
-    });
-
-
-
     this.escalationRequestsTable = new dynamodb.Table(this, 'EscalationRequestsTable', {
       tableName: `ada-clara-escalation-requests${stackSuffix}`,
       partitionKey: { name: 'escalationId', type: dynamodb.AttributeType.STRING },
@@ -167,6 +118,34 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // ========== CONSOLIDATED DATA TABLE ==========
+    // Consolidates chat-sessions, messages, analytics, and questions into single table
+    // Using flexible PK/SK pattern for efficient queries
+    this.dataTable = new dynamodb.Table(this, 'DataTable', {
+      tableName: `ada-clara-data-table${stackSuffix}`,
+      partitionKey: { name: 'PK', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'SK', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'ttl',
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    // GSI for time-based analytics queries
+    this.dataTable.addGlobalSecondaryIndex({
+      indexName: 'TimestampIndex',
+      partitionKey: { name: 'EntityType', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // Optional: GSI for admin lookups by sessionId
+    this.dataTable.addGlobalSecondaryIndex({
+      indexName: 'SessionIndex',
+      partitionKey: { name: 'sessionId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
     });
 
     // ========== COGNITO AUTH ==========
@@ -198,12 +177,15 @@ export class AdaClaraUnifiedStack extends Stack {
       },
     });
 
-    // Create Cognito domain with stable prefix (no stackSuffix to allow updates)
-    // Domain will be: ada-clara-auth.auth.<region>.amazoncognito.com
+    // Create Cognito domain with account-specific prefix to ensure global uniqueness
+    // Domain format: ada-clara-<account-suffix>.auth.<region>.amazoncognito.com
+    // Uses last 8 digits of account ID to keep domain name readable and unique
+    const cognitoDomainPrefix = `ada-clara-${accountId.slice(-8)}`;
+
     this.userPoolDomain = new cognito.UserPoolDomain(this, 'UserPoolDomain', {
       userPool: this.userPool,
       cognitoDomain: {
-        domainPrefix: 'ada-clara-auth',
+        domainPrefix: cognitoDomainPrefix,
       },
     });
 
@@ -230,9 +212,17 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-      ],
+      inlinePolicies: {
+        ApiGatewayAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['execute-api:Invoke'],
+              resources: ['*'], // Will be scoped to specific API after it's created
+            }),
+          ],
+        }),
+      },
     });
 
     const unauthenticatedRole = new iam.Role(this, 'CognitoUnauthenticatedRole', {
@@ -248,9 +238,17 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-      ],
+      inlinePolicies: {
+        ApiGatewayAccess: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              effect: iam.Effect.ALLOW,
+              actions: ['execute-api:Invoke'],
+              resources: ['*'], // Will be scoped to specific API after it's created
+            }),
+          ],
+        }),
+      },
     });
 
     // Attach roles to Identity Pool
@@ -357,8 +355,8 @@ export class AdaClaraUnifiedStack extends Stack {
         chunkingConfiguration: {
           chunkingStrategy: 'FIXED_SIZE',
           fixedSizeChunkingConfiguration: {
-            maxTokens: 300,
-            overlapPercentage: 20,
+            maxTokens: 512,
+            overlapPercentage: 30,
           },
         },
       },
@@ -366,12 +364,15 @@ export class AdaClaraUnifiedStack extends Stack {
       dataDeletionPolicy: 'RETAIN',
     });
 
-    // ========== LAMBDA FUNCTIONS ==========
-    const lambdaExecutionRole = new iam.Role(this, 'LambdaExecutionRole', {
+    // ========== LAMBDA EXECUTION ROLES ==========
+    // Split Lambda roles by responsibility to break circular dependencies
+    // Each role has only the permissions needed for its specific Lambda functions
+
+    // Chat Handler Role - For chat endpoint Lambda
+    const chatHandlerRole = new iam.Role(this, 'ChatHandlerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
-        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonDynamoDBFullAccess'),
       ],
       inlinePolicies: {
         BedrockAccess: new iam.PolicyDocument({
@@ -381,28 +382,36 @@ export class AdaClaraUnifiedStack extends Stack {
               actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
               resources: ['arn:aws:bedrock:*::foundation-model/*'],
             }),
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['comprehend:DetectDominantLanguage', 'comprehend:DetectSentiment'],
-              resources: ['*'],
-            }),
           ],
         }),
-        SQSAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: [
-                'sqs:SendMessage',
-                'sqs:ReceiveMessage',
-                'sqs:DeleteMessage',
-                'sqs:GetQueueAttributes',
-                'sqs:GetQueueUrl'
-              ],
-              resources: ['*'], // Will be scoped by queue grants
-            }),
-          ],
-        }),
+      },
+    });
+
+    // Analytics Processor Role - For analytics Lambda
+    const analyticsProcessorRole = new iam.Role(this, 'AnalyticsProcessorRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    // Admin API Role - For admin dashboard endpoints (Cognito auth required)
+    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
+    const adminApiRole = new iam.Role(this, 'AdminApiRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+    });
+
+    // Background Jobs Role - For scheduled tasks and async processing
+    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
+    const backgroundJobsRole = new iam.Role(this, 'BackgroundJobsRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
+      inlinePolicies: {
         S3VectorsAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
@@ -412,28 +421,22 @@ export class AdaClaraUnifiedStack extends Stack {
             }),
           ],
         }),
-        BedrockAgentAccess: new iam.PolicyDocument({
+        BedrockAccess: new iam.PolicyDocument({
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream',
+                'bedrock:RetrieveAndGenerate',
+                'bedrock:Retrieve',
                 'bedrock:StartIngestionJob',
                 'bedrock:GetIngestionJob',
-                'bedrock:ListIngestionJobs'
               ],
               resources: [
+                'arn:aws:bedrock:*::foundation-model/*',
                 `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
-                `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}/*`
               ],
-            }),
-          ],
-        }),
-        LambdaInvokeAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['lambda:InvokeFunction'],
-              resources: [`arn:aws:lambda:${region}:${accountId}:function:ada-clara-*`],
             }),
           ],
         }),
@@ -487,7 +490,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(15), // Increased for comprehensive discovery
       memorySize: 1024, // Increased for XML parsing and URL processing
       logGroup: domainDiscoveryLogGroup,
-      role: lambdaExecutionRole,
+      role: backgroundJobsRole,
       environment: {
         SCRAPING_QUEUE_URL: this.scrapingQueue.queueUrl,
         CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName,
@@ -513,7 +516,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(15),
       memorySize: 1024,
       logGroup: contentProcessorLogGroup,
-      role: lambdaExecutionRole,
+      role: backgroundJobsRole,
       environment: {
         CONTENT_BUCKET: this.contentBucket.bucketName, // Use stack's content bucket
         CONTENT_TRACKING_TABLE: this.contentTrackingTable.tableName, // Use stack's content tracking table
@@ -525,16 +528,8 @@ export class AdaClaraUnifiedStack extends Stack {
       }
     });
 
-    // Grant SQS permissions
-    this.scrapingQueue.grantSendMessages(this.domainDiscoveryFunction);
-    this.scrapingQueue.grantConsumeMessages(this.contentProcessorFunction);
-
-    // Grant S3 permissions to content processor
-    this.contentBucket.grantReadWrite(this.contentProcessorFunction);
-
-    // Grant DynamoDB permissions for content tracking
-    this.contentTrackingTable.grantReadWriteData(this.domainDiscoveryFunction);
-    this.contentTrackingTable.grantReadWriteData(this.contentProcessorFunction);
+    // Note: SQS, S3, and DynamoDB permissions are now granted to backgroundJobsRole
+    // See "GRANT PERMISSIONS TO LAMBDA ROLES" section below
 
     // Grant Bedrock ingestion permissions to Content Processor for automatic KB sync
     this.contentProcessorFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -600,107 +595,134 @@ export class AdaClaraUnifiedStack extends Stack {
       : [frontendUrl, 'http://localhost:3000', 'https://localhost:3000'];
     
     console.log(`CORS Origins configured: ${JSON.stringify(corsOrigins)}`);
-    
-    this.api = new apigateway.RestApi(this, 'Api', {
-      restApiName: `ada-clara-api${stackSuffix}`,
-      description: 'ADA Clara API Gateway',
-      defaultCorsPreflightOptions: {
+
+    // ========== HTTP API (V2) ==========
+    // Using HTTP API instead of REST API to avoid circular dependency issues
+    // HTTP APIs have simpler permission models and don't create as many implicit dependencies
+    this.api = new apigatewayv2.HttpApi(this, 'HttpApi', {
+      apiName: `ada-clara-api${stackSuffix}`,
+      description: 'ADA Clara HTTP API Gateway',
+      corsPreflight: {
         allowOrigins: corsOrigins,
-        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowMethods: [
+          apigatewayv2.CorsHttpMethod.GET,
+          apigatewayv2.CorsHttpMethod.POST,
+          apigatewayv2.CorsHttpMethod.PUT,
+          apigatewayv2.CorsHttpMethod.DELETE,
+          apigatewayv2.CorsHttpMethod.OPTIONS,
+        ],
         allowHeaders: ['Content-Type', 'Authorization', 'X-Amz-Date', 'X-Api-Key'],
         allowCredentials: true,
-      },
-      deployOptions: {
-        stageName: 'prod',
-        throttlingRateLimit: 1000,
-        throttlingBurstLimit: 2000,
       },
     });
 
     // ========== COGNITO AUTHORIZER ==========
-    // Create Cognito User Pool Authorizer for admin endpoints
-    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, 'AdminCognitoAuthorizer', {
-      cognitoUserPools: [this.userPool],
-      authorizerName: `ada-clara-admin-authorizer${stackSuffix}`,
-      identitySource: 'method.request.header.Authorization',
-    });
+    // Create JWT Authorizer for Cognito User Pool (admin endpoints)
+    const cognitoAuthorizer = new HttpJwtAuthorizer('CognitoAuthorizer',
+      `https://cognito-idp.${region}.amazonaws.com/${this.userPool.userPoolId}`,
+      {
+        jwtAudience: [this.userPoolClient.userPoolClientId],
+        identitySource: ['$request.header.Authorization'],
+      }
+    );
 
-    // RAG Processor Lambda (created before chat processor to reference its function name)
-    // Create log group for RAG processor function
-    const ragProcessorLogGroup = new logs.LogGroup(this, 'RAGProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-rag-processor${stackSuffix}`,
+    // ========== ANALYTICS PROCESSOR LAMBDA ==========
+    // Async analytics and data processing (renamed from chat-data-processor)
+    const analyticsProcessorLogGroup = new logs.LogGroup(this, 'AnalyticsProcessorLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-analytics-processor${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
-    this.ragProcessor = new lambda.Function(this, 'RAGProcessor', {
-      functionName: `ada-clara-rag-processor${stackSuffix}`,
+    this.analyticsProcessor = new lambda.Function(this, 'AnalyticsProcessor', {
+      functionName: `ada-clara-analytics-processor${stackSuffix}`,
       runtime: lambda.Runtime.NODEJS_24_X,
       handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/rag-processor'),
-      timeout: Duration.minutes(5),
-      memorySize: 1024,
-      logGroup: ragProcessorLogGroup,
-      role: lambdaExecutionRole,
+      code: lambda.Code.fromAsset('lambda/analytics-processor'),
+      timeout: Duration.seconds(60),
+      memorySize: 512,
+      logGroup: analyticsProcessorLogGroup,
+      role: analyticsProcessorRole,
       environment: {
-        VECTORS_BUCKET: this.vectorsBucket.vectorBucketName,
-        VECTOR_INDEX: this.vectorIndex.indexName,
-        CONTENT_BUCKET: this.contentBucket.bucketName,
-        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        EMBEDDING_MODEL: 'amazon.titan-embed-text-v2:0',
-        GENERATION_MODEL: 'anthropic.claude-3-7-sonnet-20250219-v1:0',
-        CONFIDENCE_THRESHOLD: '0.75',
+        DATA_TABLE: this.dataTable.tableName,
+        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
+        API_GATEWAY_URL: '', // Set by buildspec post-deployment to avoid circular dependency
+        USER_POOL_ID: this.userPool.userPoolId,
+        USER_POOL_CLIENT_ID: this.userPoolClient.userPoolClientId,
+        IDENTITY_POOL_ID: this.identityPool.ref,
+        COGNITO_DOMAIN: `https://${this.userPoolDomain.domainName}.auth.${region}.amazoncognito.com`,
       },
     });
 
+    // ========== CHAT HANDLER LAMBDA ==========
+    // Unified chat processing (replaces orchestrator + session-manager + rag-processor + response-handler)
+    const chatHandlerLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
+      logGroupName: `/aws/lambda/ada-clara-chat-handler${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
+    this.chatHandler = new lambda.Function(this, 'ChatHandler', {
+      functionName: `ada-clara-chat-handler${stackSuffix}`,
+      runtime: lambda.Runtime.NODEJS_24_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('lambda/chat-handler'),
+      timeout: Duration.minutes(5), // For Claude invocation
+      memorySize: 1536, // More memory for AWS SDK + Bedrock
+      logGroup: chatHandlerLogGroup,
+      role: chatHandlerRole,
+      environment: {
+        DATA_TABLE: this.dataTable.tableName,
+        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
+        KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
+        // Direct Bedrock model ID (not inference profile)
+        // To update model: Change this ID and the IAM policy below
+        GENERATION_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+        CONFIDENCE_THRESHOLD: '0.75',
+        ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
+      },
+    });
+
+    // Set analytics processor ARN after both functions are created
+    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_ARN', this.analyticsProcessor.functionArn);
+
     // Grant Bedrock permissions
-    // Grant access to the Knowledge Base created by this stack
-    this.ragProcessor.addToRolePolicy(new iam.PolicyStatement({
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: [
         'bedrock:InvokeModel',
-        'bedrock:InvokeModelWithResponseStream',
-        'bedrock:RetrieveAndGenerate',
         'bedrock:Retrieve',
       ],
       resources: [
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0`,
+        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
 
-    this.contentBucket.grantRead(this.ragProcessor);
+    // Grant AWS Marketplace permissions (required for first-time Anthropic model access)
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aws-marketplace:ViewSubscriptions',
+        'aws-marketplace:Subscribe',
+      ],
+      resources: ['*'],
+    }));
 
-    // Create log group for chat processor
-    const chatProcessorLogGroup = new logs.LogGroup(this, 'ChatProcessorLogGroup', {
-      logGroupName: `/aws/lambda/ada-clara-chat-processor${stackSuffix}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: RemovalPolicy.DESTROY,
-    });
+    // Grant DynamoDB permissions
+    this.dataTable.grantReadWriteData(this.chatHandler);
+    this.escalationRequestsTable.grantReadWriteData(this.chatHandler);
 
-    // Chat Processor Lambda
-    this.chatProcessor = new lambda.Function(this, 'ChatProcessor', {
-      functionName: `ada-clara-chat-processor${stackSuffix}`,
-      runtime: lambda.Runtime.NODEJS_24_X,
-      handler: 'index.handler',
-      code: lambda.Code.fromAsset('lambda/chat-processor'),
-      timeout: Duration.seconds(30),
-      memorySize: 512,
-      logGroup: chatProcessorLogGroup,
-      role: lambdaExecutionRole,
-      environment: {
-        SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        MESSAGES_TABLE: this.messagesTable.tableName,
-        ANALYTICS_TABLE: this.analyticsTable.tableName,
-        ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
-        QUESTIONS_TABLE: this.questionsTable.tableName,
-        FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL to Lambda for CORS
-        // RAG_ENDPOINT and RAG_FUNCTION_NAME will be set using addEnvironment after all API Gateway methods are created
-        // Note: CONVERSATIONS_TABLE removed - not used by chat processor
-      },
-    });
+    // Grant permission to invoke analytics processor
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [this.analyticsProcessor.functionArn],
+    }));
+
+    // Grant S3 read access
+    this.contentBucket.grantRead(this.chatHandler);
 
     // Create log group for escalation handler
     const escalationHandlerLogGroup = new logs.LogGroup(this, 'EscalationHandlerLogGroup', {
@@ -717,7 +739,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: escalationHandlerLogGroup,
-      role: lambdaExecutionRole,
+      role: adminApiRole,
       environment: {
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '', // Pass frontend URL for CORS
@@ -739,149 +761,194 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 512,
       logGroup: adminAnalyticsLogGroup,
-      role: lambdaExecutionRole,
+      role: adminApiRole,
       environment: {
-        ANALYTICS_TABLE: this.analyticsTable.tableName,
-        QUESTIONS_TABLE: this.questionsTable.tableName,
-        CHAT_SESSIONS_TABLE: this.chatSessionsTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
-        // Note: CONVERSATIONS_TABLE removed - analytics uses CHAT_SESSIONS_TABLE instead
+        DATA_TABLE: this.dataTable.tableName,
       },
     });
 
-    // Grant DynamoDB permissions
-    this.chatSessionsTable.grantReadWriteData(this.chatProcessor);
-    this.messagesTable.grantReadWriteData(this.chatProcessor);
-    this.analyticsTable.grantReadWriteData(this.chatProcessor);
-    this.escalationRequestsTable.grantReadWriteData(this.escalationHandler);
-    this.escalationRequestsTable.grantReadWriteData(this.chatProcessor);
-    this.questionsTable.grantReadWriteData(this.chatProcessor);
-    this.analyticsTable.grantReadData(this.adminAnalytics);
-    // Removed: conversationsTable.grantReadData(this.adminAnalytics) - not used, analytics uses chatSessionsTable
-    this.questionsTable.grantReadData(this.adminAnalytics);
-    this.chatSessionsTable.grantReadData(this.adminAnalytics);
-    this.escalationRequestsTable.grantReadData(this.adminAnalytics);
+    // Note: DynamoDB permissions are now granted to roles, not individual Lambda functions
+    // See "GRANT PERMISSIONS TO LAMBDA ROLES" section below for role-based grants
 
-    // ========== API GATEWAY ROUTES ==========
-    // Health endpoint
-    this.api.root.addResource('health').addMethod('GET', new apigateway.LambdaIntegration(this.chatProcessor));
+    // ========== HTTP API ROUTES ==========
+    // HTTP API uses routes instead of resources/methods
+    // Routes are defined with method + path, integrations are Lambda functions
 
-    // Chat endpoints
-    const chatResource = this.api.root.addResource('chat');
-    chatResource.addMethod('POST', new apigateway.LambdaIntegration(this.chatProcessor));
-    chatResource.addMethod('GET', new apigateway.LambdaIntegration(this.chatProcessor));
+    // Public endpoints (no auth required)
+    this.api.addRoutes({
+      path: '/config',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ConfigIntegration', this.analyticsProcessor),
+    });
 
-    // Escalation endpoints
-    const escalationResource = this.api.root.addResource('escalation');
-    const escalationRequestResource = escalationResource.addResource('request');
-    escalationRequestResource.addMethod('POST', new apigateway.LambdaIntegration(this.escalationHandler));
+    this.api.addRoutes({
+      path: '/chat',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ChatIntegration', this.chatHandler),
+    });
 
-    // Admin endpoints (all require Cognito authentication)
-    const adminResource = this.api.root.addResource('admin');
-    
-    // Admin dashboard endpoint (comprehensive data)
-    adminResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+    this.api.addRoutes({
+      path: '/chat/history',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ChatHistoryIntegration', this.analyticsProcessor),
     });
-    
-    // Admin health check
-    const adminHealthResource = adminResource.addResource('health');
-    adminHealthResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/chat/sessions',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ChatSessionsIntegration', this.analyticsProcessor),
     });
-    
-    // Admin dashboard data endpoint
-    const dashboardResource = adminResource.addResource('dashboard');
-    dashboardResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
+
+    this.api.addRoutes({
+      path: '/escalation/request',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('EscalationRequestIntegration', this.escalationHandler),
     });
-    
-    // Question analytics endpoint
-    const questionAnalyticsResource = adminResource.addResource('question-analytics');
-    questionAnalyticsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    // Category insights endpoint
-    const categoryInsightsResource = adminResource.addResource('category-insights');
-    categoryInsightsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const metricsResource = adminResource.addResource('metrics');
-    metricsResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const conversationsResource = adminResource.addResource('conversations');
-    const chartResource = conversationsResource.addResource('chart');
-    chartResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const languageSplitResource = adminResource.addResource('language-split');
-    languageSplitResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const faqResource = adminResource.addResource('frequently-asked-questions');
-    faqResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const unansweredResource = adminResource.addResource('unanswered-questions');
-    unansweredResource.addMethod('GET', new apigateway.LambdaIntegration(this.adminAnalytics), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    const adminEscalationResource = adminResource.addResource('escalation-requests');
-    adminEscalationResource.addMethod('GET', new apigateway.LambdaIntegration(this.escalationHandler), {
+
+    // Admin endpoints (require Cognito JWT authentication)
+    this.api.addRoutes({
+      path: '/admin',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminDashboardIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
-    // RAG query endpoint
-    const queryResource = this.api.root.addResource('query');
-    queryResource.addMethod('POST', new apigateway.LambdaIntegration(this.ragProcessor));
-
-    // Enhanced Web Scraper endpoints (admin-only)
-    const scraperResource = this.api.root.addResource('scraper');
-    
-    // Manual domain discovery trigger
-    scraperResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    // Content processor status and health
-    const scraperStatusResource = scraperResource.addResource('status');
-    scraperStatusResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
-      authorizer: cognitoAuthorizer,
-    });
-    
-    // Domain discovery endpoint
-    const scraperDiscoverResource = scraperResource.addResource('discover');
-    scraperDiscoverResource.addMethod('POST', new apigateway.LambdaIntegration(this.domainDiscoveryFunction), {
+    this.api.addRoutes({
+      path: '/admin/dashboard',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminDashboardDataIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
-    // Content processor health check
-    const processorResource = scraperResource.addResource('processor');
-    processorResource.addMethod('GET', new apigateway.LambdaIntegration(this.contentProcessorFunction), {
+    this.api.addRoutes({
+      path: '/admin/metrics',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('MetricsIntegration', this.adminAnalytics),
       authorizer: cognitoAuthorizer,
     });
 
-    // Update chat processor environment with RAG endpoint and function name (AFTER all API Gateway methods are created)
-    // Construct API URL manually to avoid circular dependency
-    // Using Fn.join to construct URL from API Gateway ID and region avoids the circular dependency
-    // Must use Fn.join for the full URL including /query path to work correctly with CloudFormation tokens
-    const ragEndpoint = Fn.join('', [
-      'https://',
-      this.api.restApiId,
-      '.execute-api.',
-      this.region,
-      '.amazonaws.com/prod/query'
-    ]);
-    this.chatProcessor.addEnvironment('RAG_ENDPOINT', ragEndpoint);
-    this.chatProcessor.addEnvironment('RAG_FUNCTION_NAME', this.ragProcessor.functionName);
+    this.api.addRoutes({
+      path: '/admin/conversations/chart',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ConversationsChartIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/language-split',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('LanguageSplitIntegration', this.adminAnalytics),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/admin/escalation-requests',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('AdminEscalationRequestsIntegration', this.escalationHandler),
+      authorizer: cognitoAuthorizer,
+    });
+
+    // Scraper endpoints (admin-only)
+    this.api.addRoutes({
+      path: '/scraper',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ScraperTriggerIntegration', this.domainDiscoveryFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/status',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ScraperStatusIntegration', this.contentProcessorFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/discover',
+      methods: [apigatewayv2.HttpMethod.POST],
+      integration: new HttpLambdaIntegration('ScraperDiscoverIntegration', this.domainDiscoveryFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    this.api.addRoutes({
+      path: '/scraper/processor',
+      methods: [apigatewayv2.HttpMethod.GET],
+      integration: new HttpLambdaIntegration('ScraperProcessorIntegration', this.contentProcessorFunction),
+      authorizer: cognitoAuthorizer,
+    });
+
+    // Note: chat-handler invokes analytics-processor asynchronously via Lambda SDK
+    // Uses InvocationType: 'Event' for fire-and-forget pattern (non-blocking)
+
+    // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
+    // Grant permissions AFTER all resources are created to avoid circular dependencies
+
+    // Chat Handler Role permissions - grant access to DynamoDB tables, Knowledge Base, and Analytics Lambda
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:*'],
+      resources: [
+        this.escalationRequestsTable.tableArn,
+        `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
+      ],
+    }));
+
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:Retrieve'],
+      resources: [this.knowledgeBase.attrKnowledgeBaseArn],
+    }));
+
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [this.analyticsProcessor.functionArn],
+    }));
+
+    // Analytics Processor Role permissions - grant access to DynamoDB tables only
+    analyticsProcessorRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:GetItem', 'dynamodb:Query'],
+      resources: [
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
+      ],
+    }));
+
+    // Admin API Role permissions - grant access to DynamoDB tables
+    adminApiRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:Query', 'dynamodb:Scan', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+      resources: [
+        this.escalationRequestsTable.tableArn,
+        `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
+      ],
+    }));
+
+    // Background Jobs Role permissions - grant access to content tracking table
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:*'],
+      resources: [this.contentTrackingTable.tableArn],
+    }));
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['sqs:SendMessage', 'sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes'],
+      resources: [this.scrapingQueue.queueArn],
+    }));
+    backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
+      resources: [
+        this.contentBucket.bucketArn,
+        `${this.contentBucket.bucketArn}/*`,
+      ],
+    }));
 
     // ========== AMPLIFY APP ==========
     // Amplify app is created by deploy.sh script before CDK deployment
@@ -892,8 +959,8 @@ export class AdaClaraUnifiedStack extends Stack {
 
     // ========== OUTPUTS ==========
     new CfnOutput(this, 'ApiGatewayUrl', {
-      value: this.api.url,
-      description: 'API Gateway URL',
+      value: this.api.url!,  // HTTP API URL is always defined after deployment
+      description: 'HTTP API Gateway URL',
       exportName: `AdaClara-ApiGatewayUrl-${region}`,
     });
 
@@ -969,6 +1036,42 @@ export class AdaClaraUnifiedStack extends Stack {
       value: this.dataSource.attrDataSourceId,
       description: 'Bedrock Knowledge Base Data Source ID',
       exportName: `AdaClara-DataSourceId-${region}`,
+    });
+
+    new CfnOutput(this, 'ChatHandlerFunctionName', {
+      value: this.chatHandler.functionName,
+      description: 'Chat Handler Lambda Function Name (unified chat processing)',
+      exportName: `AdaClara-ChatHandlerFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'AnalyticsProcessorFunctionName', {
+      value: this.analyticsProcessor.functionName,
+      description: 'Analytics Processor Lambda Function Name (async data processing)',
+      exportName: `AdaClara-AnalyticsProcessorFunction-${region}`,
+    });
+
+    new CfnOutput(this, 'DataTableName', {
+      value: this.dataTable.tableName,
+      description: 'Consolidated Data Table Name',
+      exportName: `AdaClara-DataTableName-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentBucketName', {
+      value: this.contentBucket.bucketName,
+      description: 'S3 Content Bucket Name for scraped content',
+      exportName: `AdaClara-ContentBucket-${region}`,
+    });
+
+    new CfnOutput(this, 'ContentTrackingTableName', {
+      value: this.contentTrackingTable.tableName,
+      description: 'Content Tracking DynamoDB Table Name',
+      exportName: `AdaClara-ContentTrackingTable-${region}`,
+    });
+
+    new CfnOutput(this, 'EscalationRequestsTableName', {
+      value: this.escalationRequestsTable.tableName,
+      description: 'Escalation Requests DynamoDB Table Name',
+      exportName: `AdaClara-EscalationRequestsTable-${region}`,
     });
   }
 }

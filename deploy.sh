@@ -1,16 +1,11 @@
 #!/bin/bash
 # Complete End-to-End Deployment Pipeline for ADA Clara
 # Unified deployment for both backend and frontend
+#
+# NOTE: On Windows/MSYS2, if the script produces no output when run normally,
+# use: bash -c 'source deploy.sh' instead of: bash deploy.sh
 
 set -euo pipefail
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-NC='\033[0m' # No Color
 
 # Configuration - All dynamic, no hardcoded values
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -24,6 +19,10 @@ fi
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 AMPLIFY_APP_NAME="AdaClara"
 CODEBUILD_PROJECT_NAME="${PROJECT_NAME}-deployment"
+
+# IMPORTANT: If you forked this repository, update the URL below to your fork
+# Example: REPOSITORY_URL="https://github.com/YOUR-ORG/ADA-Clara.git"
+# This ensures CodeBuild pulls code from your fork instead of the original repository
 REPOSITORY_URL="https://github.com/ASUCICREPO/ADA-Clara.git"
 
 # Global variables
@@ -32,30 +31,30 @@ AMPLIFY_APP_ID=""
 AMPLIFY_URL=""
 ROLE_ARN=""
 
-# Function to print colored output
+# Function to print output
 print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo "[INFO] $1"
 }
 
 print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo "[SUCCESS] $1"
 }
 
 print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo "[ERROR] $1"
     exit 1
 }
 
 print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo "[WARNING] $1"
 }
 
 print_codebuild() {
-    echo -e "${PURPLE}[CODEBUILD]${NC} $1"
+    echo "[CODEBUILD] $1"
 }
 
 print_amplify() {
-    echo -e "${PURPLE}[AMPLIFY]${NC} $1"
+    echo "[AMPLIFY] $1"
 }
 
 # --- Phase 1: Create IAM Service Role ---
@@ -105,7 +104,8 @@ else
                   "cognito-identity:*",
                   "ssm:*",
                   "events:*",
-                  "s3vectors:*"
+                  "s3vectors:*",
+                  "ecr:*"
               ],
               "Resource": "*"
           },
@@ -154,6 +154,50 @@ else
         exit 1
     fi
     print_success "Amplify app created with ID: $AMPLIFY_APP_ID"
+
+    # Configure custom rewrite rules for Next.js static export
+    print_status "Configuring Amplify custom rewrite rules for Next.js..."
+    AWS_PAGER="" aws amplify update-app \
+        --app-id "$AMPLIFY_APP_ID" \
+        --custom-rules '[
+            {
+                "source": "/_next/static/<*>",
+                "target": "/_next/static/<*>",
+                "status": "200"
+            },
+            {
+                "source": "/admin",
+                "target": "/admin.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/",
+                "target": "/admin.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/login",
+                "target": "/admin/login.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/login/",
+                "target": "/admin/login.html",
+                "status": "200"
+            },
+            {
+                "source": "/<*>",
+                "target": "/index.html",
+                "status": "404-200"
+            }
+        ]' \
+        --region "$AWS_REGION" > /dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        print_success "Amplify custom rewrite rules configured"
+    else
+        print_warning "Failed to configure custom rewrite rules - frontend routing may not work correctly"
+    fi
 fi
 
 # Check if main branch exists
@@ -183,10 +227,36 @@ fi
 # --- Phase 3: Create Unified CodeBuild Project ---
 print_codebuild "Phase 3: Creating Unified CodeBuild Project..."
 
+# Get current git branch before building environment variables
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ -z "$CURRENT_BRANCH" ]; then
+    print_warning "Failed to determine current git branch, defaulting to 'main'"
+    SOURCE_BRANCH="main"
+else
+    SOURCE_BRANCH="$CURRENT_BRANCH"
+    print_status "Using source branch: $SOURCE_BRANCH"
+fi
+
+# Amplify branch is always main for production frontend hosting
+AMPLIFY_BRANCH="main"
+print_status "Deploying to Amplify branch: $AMPLIFY_BRANCH"
+
 # Build environment variables for unified deployment
 ENV_VARS_ARRAY='{
     "name": "AMPLIFY_APP_ID",
     "value": "'"$AMPLIFY_APP_ID"'",
+    "type": "PLAINTEXT"
+  },{
+    "name": "SOURCE_BRANCH",
+    "value": "'"$SOURCE_BRANCH"'",
+    "type": "PLAINTEXT"
+  },{
+    "name": "AMPLIFY_BRANCH",
+    "value": "'"$AMPLIFY_BRANCH"'",
+    "type": "PLAINTEXT"
+  },{
+    "name": "AWS_DEFAULT_REGION",
+    "value": "'"$AWS_REGION"'",
     "type": "PLAINTEXT"
   },{
     "name": "CDK_DEFAULT_REGION",
@@ -216,7 +286,7 @@ SOURCE='{
 }'
 
 ARTIFACTS='{"type":"NO_ARTIFACTS"}'
-SOURCE_VERSION="main"
+SOURCE_VERSION="$SOURCE_BRANCH"
 
 print_status "Creating unified CodeBuild project '$CODEBUILD_PROJECT_NAME'..."
 AWS_PAGER="" aws codebuild create-project \
@@ -265,24 +335,24 @@ print_status "Monitoring build progress..."
 echo ""
 
 while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
-  # Get logs
+  # Get logs (allow failures - log streaming is optional)
   if [ -z "$LAST_TOKEN" ]; then
     LOG_OUTPUT=$(AWS_PAGER="" aws logs get-log-events \
       --log-group-name "$LOG_GROUP" \
       --log-stream-name "$LOG_STREAM" \
       --start-from-head \
-      --output json 2>/dev/null)
+      --output json 2>/dev/null || echo "")
   else
     LOG_OUTPUT=$(AWS_PAGER="" aws logs get-log-events \
       --log-group-name "$LOG_GROUP" \
       --log-stream-name "$LOG_STREAM" \
       --next-token "$LAST_TOKEN" \
-      --output json 2>/dev/null)
+      --output json 2>/dev/null || echo "")
   fi
-  
-  # Filter logs to show important milestones
+
+  # Filter logs to show important milestones (wrapped in subshell to prevent pipeline failures from exiting script)
   if [ -n "$LOG_OUTPUT" ]; then
-    echo "$LOG_OUTPUT" | jq -r '.events[]?.message' 2>/dev/null | while IFS= read -r line; do
+    (echo "$LOG_OUTPUT" | jq -r '.events[]?.message' 2>/dev/null || true) | while IFS= read -r line; do
       # Skip container metadata and empty lines
       if [[ "$line" =~ ^\[Container\] ]] || [[ -z "$line" ]]; then
         continue
@@ -333,8 +403,8 @@ while [ "$BUILD_STATUS" = "IN_PROGRESS" ]; do
         echo -e "${GREEN}[SUCCESS]${NC} $line"
       fi
     done
-    
-    LAST_TOKEN=$(echo "$LOG_OUTPUT" | jq -r '.nextForwardToken' 2>/dev/null)
+
+    LAST_TOKEN=$(echo "$LOG_OUTPUT" | jq -r '.nextForwardToken' 2>/dev/null || echo "")
   fi
   
   # Check build status
@@ -418,8 +488,8 @@ if [ -f "$SCRAPING_SCRIPT" ]; then
   print_status "Running web scraper trigger script: $SCRAPING_SCRIPT"
   echo ""
 
-  # Execute the scraping script
-  bash "$SCRAPING_SCRIPT"
+  # Execute the scraping script (use source for Windows/MSYS2 compatibility)
+  source "$SCRAPING_SCRIPT"
   SCRAPE_EXIT_CODE=$?
 
   if [ $SCRAPE_EXIT_CODE -eq 0 ]; then
