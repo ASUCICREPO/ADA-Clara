@@ -166,6 +166,26 @@ else
                 "status": "200"
             },
             {
+                "source": "/admin",
+                "target": "/admin.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/",
+                "target": "/admin.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/login",
+                "target": "/admin/login.html",
+                "status": "200"
+            },
+            {
+                "source": "/admin/login/",
+                "target": "/admin/login.html",
+                "status": "200"
+            },
+            {
                 "source": "/<*>",
                 "target": "/index.html",
                 "status": "404-200"

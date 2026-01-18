@@ -36,6 +36,11 @@ const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-3-5-h
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.75');
 const ANALYTICS_PROCESSOR_ARN = process.env.ANALYTICS_PROCESSOR_ARN;
 const MIN_RELEVANCE_SCORE = 0.5;
+// Number of chunks to retrieve from Knowledge Base
+// Higher values = more likely to find quality sources, but slower response time
+const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '5');
+// High confidence threshold - if top source exceeds this, trust it even if avg is lower
+const HIGH_CONFIDENCE_THRESHOLD = 0.85;
 
 /**
  * Main Lambda handler - Direct API Gateway entry point
@@ -283,7 +288,7 @@ async function processRAG(query, language, sessionId) {
     retrievalQuery: { text: query },
     retrievalConfiguration: {
       vectorSearchConfiguration: {
-        numberOfResults: 5
+        numberOfResults: MAX_RETRIEVAL_RESULTS
       }
     }
   });
@@ -330,9 +335,54 @@ async function processRAG(query, language, sessionId) {
   }
 
   const avgConfidence = validSourceCount > 0 ? totalRelevanceScore / validSourceCount : 0;
-  const confidence = topScore > 0 ? topScore : avgConfidence;
 
-  console.log(`Confidence: ${confidence.toFixed(3)} (top: ${topScore.toFixed(3)}, avg: ${avgConfidence.toFixed(3)})`);
+  // HYBRID CONFIDENCE STRATEGY:
+  // - If we have a highly confident source (>= 0.85), use top score
+  //   Rationale: Claude can form accurate answers from one excellent source
+  // - Otherwise, use average to ensure overall context quality
+  //   Rationale: Marginal sources (0.75-0.85) need support from other good sources
+  let confidence;
+  let confidenceMethod;
+
+  if (topScore >= HIGH_CONFIDENCE_THRESHOLD) {
+    // Strong single source - trust it
+    confidence = topScore;
+    confidenceMethod = 'top_score';
+    console.log(`Using top score strategy: ${topScore.toFixed(3)} >= ${HIGH_CONFIDENCE_THRESHOLD} threshold`);
+  } else {
+    // No standout source - average quality matters
+    confidence = avgConfidence;
+    confidenceMethod = 'average';
+    console.log(`Using average score strategy: top score ${topScore.toFixed(3)} < ${HIGH_CONFIDENCE_THRESHOLD} threshold`);
+
+    // Additional quality check: If we have very few high-quality sources (< 2),
+    // apply a penalty to reflect uncertainty from limited context
+    const MIN_QUALITY_SOURCES = 2;
+    if (validSourceCount > 0 && validSourceCount < MIN_QUALITY_SOURCES) {
+      const sourcePenalty = validSourceCount / MIN_QUALITY_SOURCES;
+      const originalConfidence = confidence;
+      confidence = avgConfidence * sourcePenalty;
+      console.log(`Applied source count penalty: ${validSourceCount}/${MIN_QUALITY_SOURCES} sources → confidence ${originalConfidence.toFixed(3)} → ${confidence.toFixed(3)}`);
+    }
+  }
+
+  // Log detailed confidence analysis
+  console.log(`=== CONFIDENCE ANALYSIS ===`);
+  console.log(`Total Sources Retrieved: ${sources.length}`);
+  console.log(`Sources Above ${MIN_RELEVANCE_SCORE} Threshold: ${filteredSources.length}`);
+  console.log(`Valid Sources (score > 0): ${validSourceCount}`);
+  console.log(`Top Score: ${topScore.toFixed(3)}, Avg Score: ${avgConfidence.toFixed(3)}`);
+  console.log(`Confidence Method: ${confidenceMethod}`);
+  console.log(`Final Confidence: ${confidence.toFixed(3)} (threshold: ${CONFIDENCE_THRESHOLD})`);
+  console.log(`Will Escalate: ${confidence < CONFIDENCE_THRESHOLD ? 'YES' : 'NO'}`);
+  if (validSourceCount > 0) {
+    console.log(`Top ${Math.min(3, filteredSources.length)} Sources:`);
+    filteredSources.slice(0, 3).forEach((s, i) => {
+      console.log(`  ${i + 1}. [${s.relevanceScore.toFixed(3)}] ${s.title}`);
+    });
+  } else {
+    console.log(`WARNING: No valid sources found for query`);
+  }
 
   // STEP 4: Generate Response with Claude
   let answer;
@@ -387,13 +437,17 @@ Provide an accurate, clear response based solely on the provided sources. Do not
 
   const processingTime = Date.now() - startTime;
 
-  // Remove fullContent before returning
+  // Remove fullContent before returning (for both arrays)
   sources.forEach(source => delete source.fullContent);
+  filteredSources.forEach(source => delete source.fullContent);
 
+  // Return only the high-quality sources that were actually used in the RAG prompt
+  // These are the sources that contributed to the confidence calculation
   return {
     response: answer,
     confidence,
-    sources,
+    sources: filteredSources, // Only sources >= MIN_RELEVANCE_SCORE that were sent to Claude
+    totalSourcesRetrieved: sources.length, // Total chunks found (for debugging)
     processingTime
   };
 }
