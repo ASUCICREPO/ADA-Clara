@@ -65,11 +65,13 @@ export const handler = async (event) => {
     let bodyString = event.body;
     if (event.isBase64Encoded) {
       bodyString = Buffer.from(event.body, 'base64').toString('utf-8');
+      console.log('Decoded base64 body:', bodyString);
     }
 
     let request;
     try {
       request = JSON.parse(bodyString);
+      console.log('Parsed request:', JSON.stringify(request));
     } catch (parseError) {
       return createResponse(400, {
         error: 'Invalid JSON',

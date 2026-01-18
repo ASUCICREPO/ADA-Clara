@@ -675,9 +675,8 @@ export class AdaClaraUnifiedStack extends Stack {
         DATA_TABLE: this.dataTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        // Bedrock model ID format: provider.model-version
-        // To update model: Change this ID and the IAM policy below (line 689)
-        // Find model IDs: https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html
+        // Direct Bedrock model ID (not inference profile)
+        // To update model: Change this ID and the IAM policy below
         GENERATION_MODEL: 'anthropic.claude-3-5-haiku-20241022-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
         ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
@@ -700,6 +699,20 @@ export class AdaClaraUnifiedStack extends Stack {
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
+
+    // Grant AWS Marketplace permissions (required for first-time Anthropic model access)
+    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: [
+        'aws-marketplace:ViewSubscriptions',
+        'aws-marketplace:Subscribe',
+      ],
+      resources: ['*'],
+    }));
+
+    // Grant DynamoDB permissions
+    this.dataTable.grantReadWriteData(this.chatHandler);
+    this.escalationRequestsTable.grantReadWriteData(this.chatHandler);
 
     // Grant permission to invoke analytics processor
     this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
