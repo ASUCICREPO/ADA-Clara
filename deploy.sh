@@ -1,9 +1,6 @@
 #!/bin/bash
 # Complete End-to-End Deployment Pipeline for ADA Clara
 # Unified deployment for both backend and frontend
-#
-# NOTE: On Windows/MSYS2, if the script produces no output when run normally,
-# use: bash -c 'source deploy.sh' instead of: bash deploy.sh
 
 set -euo pipefail
 
