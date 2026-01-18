@@ -30,8 +30,14 @@ phases:
       - npm run build
       - echo "Bootstrapping CDK (if not already bootstrapped)..."
       - |
-        # Set region from CodeBuild environment (AWS_DEFAULT_REGION is provided by CodeBuild)
-        export AWS_REGION=${AWS_DEFAULT_REGION:-$CDK_DEFAULT_REGION}
+        # Set region from CodeBuild environment
+        if [ -z "$AWS_DEFAULT_REGION" ]; then
+          echo "AWS_DEFAULT_REGION not set, using CDK_DEFAULT_REGION: $CDK_DEFAULT_REGION"
+          export AWS_REGION=$CDK_DEFAULT_REGION
+        else
+          echo "Using AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION"
+          export AWS_REGION=$AWS_DEFAULT_REGION
+        fi
         echo "Using AWS Region: $AWS_REGION"
         # Check if already bootstrapped AND in a successful state
         STACK_STATUS=$(aws cloudformation describe-stacks --stack-name CDKToolkit --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "NONE")
@@ -42,6 +48,14 @@ phases:
             echo "CDK bootstrap stack exists but in bad state: $STACK_STATUS, deleting..."
             aws cloudformation delete-stack --stack-name CDKToolkit --region $AWS_REGION
             aws cloudformation wait stack-delete-complete --stack-name CDKToolkit --region $AWS_REGION || true
+          fi
+          # Get AWS account ID for bucket name
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="cdk-hnb659fds-assets-${AWS_ACCOUNT_ID}-${AWS_REGION}"
+          # Check if CDK staging bucket exists and delete it to ensure clean bootstrap
+          if aws s3api head-bucket --bucket $BUCKET_NAME --region $AWS_REGION 2>/dev/null; then
+            echo "Found existing CDK staging bucket: $BUCKET_NAME, removing..."
+            aws s3 rb s3://$BUCKET_NAME --force --region $AWS_REGION || echo "Warning: Failed to delete bucket, continuing..."
           fi
           echo "Bootstrapping CDK..."
           cdk bootstrap --require-approval never
