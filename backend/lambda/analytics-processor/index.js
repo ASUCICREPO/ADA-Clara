@@ -8,7 +8,7 @@
  * - Handle GET endpoints (history, sessions, config)
  *
  * Invocation:
- * - EventBridge events from chat-handler
+ * - Direct async Lambda invoke from chat-handler (InvocationType: 'Event')
  * - Sync from API Gateway for GET endpoints
  */
 
@@ -29,9 +29,9 @@ exports.handler = async (event) => {
   console.log('Chat data processor invoked:', JSON.stringify(event, null, 2));
 
   try {
-    // Check if this is an EventBridge event
+    // Check if this is a chat analytics event (from direct Lambda invoke)
     if (event.source === 'ada-clara.chat' && event['detail-type'] === 'ChatMessageProcessed') {
-      console.log('Processing EventBridge chat analytics event');
+      console.log('Processing chat analytics event');
       return await processChatAnalytics(event.detail);
     }
 

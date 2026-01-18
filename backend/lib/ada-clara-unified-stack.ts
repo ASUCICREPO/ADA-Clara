@@ -714,47 +714,14 @@ export class AdaClaraUnifiedStack extends Stack {
     this.escalationRequestsTable.grantReadWriteData(this.chatHandler);
 
     //=============================================================================
-    // CHAT ANALYTICS EVENT ROUTING
+    // CHAT ANALYTICS - DIRECT LAMBDA INVOCATION
     //=============================================================================
 
-    // Create custom event bus for chat analytics events
-    const chatEventBus = new events.EventBus(this, 'ChatEventBus', {
-      eventBusName: `ada-clara-chat-events${stackSuffix}`,
-    });
+    // Grant chat-handler permission to invoke analytics-processor directly (async)
+    this.analyticsProcessor.grantInvoke(this.chatHandler);
 
-    // Create DLQ for failed analytics processing
-    const analyticsDLQ = new sqs.Queue(this, 'AnalyticsDLQ', {
-      queueName: `ada-clara-analytics-dlq${stackSuffix}`,
-      retentionPeriod: Duration.days(14),
-    });
-
-    // Create EventBridge rule to route chat events to analytics processor
-    const chatAnalyticsRule = new events.Rule(this, 'ChatAnalyticsRule', {
-      ruleName: `ada-clara-chat-analytics${stackSuffix}`,
-      description: 'Route real-time chat events to analytics processor',
-      eventBus: chatEventBus,
-      eventPattern: {
-        source: ['ada-clara.chat'],
-        detailType: ['ChatMessageProcessed'],
-      },
-    });
-
-    // Add analytics processor as target with DLQ and retry configuration
-    chatAnalyticsRule.addTarget(new targets.LambdaFunction(this.analyticsProcessor, {
-      deadLetterQueue: analyticsDLQ,
-      retryAttempts: 3,
-      maxEventAge: Duration.hours(2),
-    }));
-
-    // Grant chat-handler permission to publish events to the event bus
-    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['events:PutEvents'],
-      resources: [chatEventBus.eventBusArn],
-    }));
-
-    // Add event bus name as environment variable for chat-handler
-    this.chatHandler.addEnvironment('EVENT_BUS_NAME', chatEventBus.eventBusName);
+    // Add analytics processor function name as environment variable for chat-handler
+    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_FUNCTION', this.analyticsProcessor.functionName);
 
     // Grant S3 read access
     this.contentBucket.grantRead(this.chatHandler);
