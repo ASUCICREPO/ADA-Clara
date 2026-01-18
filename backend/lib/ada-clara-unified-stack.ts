@@ -355,8 +355,8 @@ export class AdaClaraUnifiedStack extends Stack {
         chunkingConfiguration: {
           chunkingStrategy: 'FIXED_SIZE',
           fixedSizeChunkingConfiguration: {
-            maxTokens: 300,
-            overlapPercentage: 20,
+            maxTokens: 512,
+            overlapPercentage: 30,
           },
         },
       },

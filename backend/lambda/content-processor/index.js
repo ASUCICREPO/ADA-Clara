@@ -226,10 +226,10 @@ async function processUrl(url) {
     }
 
     // Process HTML to Markdown using Cheerio
-    const { title, markdown } = processHtmlToMarkdown(response.data, url);
-    
-    // Assess content quality
-    const qualityScore = assessContentQuality(markdown);
+    const { title, markdown, $, contentElement } = processHtmlToMarkdown(response.data, url);
+
+    // Assess content quality using Cheerio-based heuristics
+    const qualityScore = assessContentQuality(markdown, $, contentElement, url);
     
     // Enforce minimum quality threshold
     if (qualityScore < MIN_QUALITY_THRESHOLD) {
@@ -330,56 +330,89 @@ async function processUrl(url) {
 }
 
 /**
+ * Convert HTML element to markdown text with links preserved
+ */
+function htmlToMarkdownText($, element) {
+  let result = '';
+
+  $(element).contents().each((i, node) => {
+    if (node.type === 'text') {
+      result += $(node).text();
+    } else if (node.name === 'a') {
+      const linkText = $(node).text().trim();
+      const href = $(node).attr('href');
+      if (linkText && href) {
+        result += `[${linkText}](${href})`;
+      } else {
+        result += linkText;
+      }
+    } else if (node.name === 'strong' || node.name === 'b') {
+      result += `**${$(node).text().trim()}**`;
+    } else if (node.name === 'em' || node.name === 'i') {
+      result += `*${$(node).text().trim()}*`;
+    } else {
+      result += $(node).text();
+    }
+  });
+
+  return result.trim();
+}
+
+/**
  * Process HTML to Markdown using Cheerio
  */
 function processHtmlToMarkdown(html, url) {
   const $ = cheerio.load(html);
-  
+
   // Extract title
   let title = $('title').text().trim() || $('h1').first().text().trim() || 'Diabetes Information';
   title = title.replace(/\s+/g, ' ');
-  
+
   // Remove unwanted elements
   $('script, style, nav, header, footer, .navigation, .menu, .sidebar, .advertisement, .ad').remove();
-  
+
   // Find main content area
   let contentElement = $('main').first();
   if (contentElement.length === 0) contentElement = $('article').first();
   if (contentElement.length === 0) contentElement = $('.content, .main-content, .article-content, #content').first();
   if (contentElement.length === 0) contentElement = $('body');
-  
+
   // Start building markdown
   let markdown = `# ${title}\n\n**Source**: ${url}\n**Last Updated**: ${new Date().toISOString().split('T')[0]}\n\n`;
   
   // Process content elements
-  contentElement.find('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote').each((i, element) => {
+  contentElement.find('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote, table').each((i, element) => {
     const $el = $(element);
     const tagName = element.name || element.tagName?.toLowerCase();
     
     switch (tagName) {
       case 'h1':
-        markdown += `\n## ${$el.text().trim()}\n\n`;
+        markdown += `\n# ${$el.text().trim()}\n\n`;
         break;
       case 'h2':
-        markdown += `\n### ${$el.text().trim()}\n\n`;
+        markdown += `\n## ${$el.text().trim()}\n\n`;
         break;
       case 'h3':
-        markdown += `\n#### ${$el.text().trim()}\n\n`;
+        markdown += `\n### ${$el.text().trim()}\n\n`;
         break;
       case 'h4':
+        markdown += `\n#### ${$el.text().trim()}\n\n`;
+        break;
       case 'h5':
-      case 'h6':
         markdown += `\n##### ${$el.text().trim()}\n\n`;
         break;
+      case 'h6':
+        markdown += `\n###### ${$el.text().trim()}\n\n`;
+        break;
       case 'p':
-        const pText = $el.text().trim();
+        const pText = htmlToMarkdownText($, element);
         if (pText && pText.length > 10) {
           markdown += `${pText}\n\n`;
         }
         break;
       case 'ul':
         $el.find('li').each((j, li) => {
-          const liText = $(li).text().trim();
+          const liText = htmlToMarkdownText($, li);
           if (liText) {
             markdown += `- ${liText}\n`;
           }
@@ -388,7 +421,7 @@ function processHtmlToMarkdown(html, url) {
         break;
       case 'ol':
         $el.find('li').each((j, li) => {
-          const liText = $(li).text().trim();
+          const liText = htmlToMarkdownText($, li);
           if (liText) {
             markdown += `${j + 1}. ${liText}\n`;
           }
@@ -401,6 +434,39 @@ function processHtmlToMarkdown(html, url) {
           markdown += `> ${quoteText}\n\n`;
         }
         break;
+      case 'table':
+        const headers = [];
+        const rows = [];
+
+        $el.find('thead tr th, thead tr td').each((j, th) => {
+          headers.push($(th).text().trim());
+        });
+
+        if (headers.length === 0) {
+          $el.find('tbody tr').first().find('th, td').each((j, th) => {
+            headers.push($(th).text().trim());
+          });
+        }
+
+        $el.find('tbody tr').each((j, tr) => {
+          const row = [];
+          $(tr).find('td').each((k, td) => {
+            row.push($(td).text().trim());
+          });
+          if (row.length > 0) {
+            rows.push(row);
+          }
+        });
+
+        if (headers.length > 0 && rows.length > 0) {
+          markdown += '\n' + headers.join(' | ') + '\n';
+          markdown += headers.map(() => '---').join(' | ') + '\n';
+          rows.forEach(row => {
+            markdown += row.join(' | ') + '\n';
+          });
+          markdown += '\n';
+        }
+        break;
     }
   });
   
@@ -409,59 +475,96 @@ function processHtmlToMarkdown(html, url) {
     .replace(/\n\s*\n\s*\n/g, '\n\n') // Multiple newlines to double
     .replace(/[ \t]+/g, ' ') // Multiple spaces to single
     .trim();
-  
-  return { title, markdown };
+
+  // Return markdown along with Cheerio objects for quality assessment
+  return { title, markdown, $, contentElement };
 }
 
 /**
- * Assess content quality with simplified scoring
+ * Assess content quality using Cheerio-based heuristics
+ * Industry-standard approach for detecting boilerplate vs. substantive content
  */
-function assessContentQuality(markdown) {
-  const length = markdown.length;
-  const headerCount = (markdown.match(/^#{1,6}\s/gm) || []).length;
-  const diabetesKeywords = countDiabetesKeywords(markdown);
-  
+function assessContentQuality(markdown, $, contentElement, url) {
   let score = 0;
-  
-  // Length scoring
-  if (length > 2000) score += 30;
-  else if (length > 1000) score += 25;
-  else if (length > 500) score += 20;
-  else if (length > 200) score += 10;
-  
-  // Structure scoring
-  if (headerCount > 0) score += 20;
-  if (headerCount > 2) score += 10;
-  
-  // Diabetes relevance (most important)
-  if (diabetesKeywords > 10) score += 30;
-  else if (diabetesKeywords > 5) score += 25;
-  else if (diabetesKeywords > 2) score += 15;
-  else if (diabetesKeywords > 0) score += 10;
-  else score -= 20; // Penalty for no diabetes keywords
-  
-  // Quality penalties
-  if (length < 200) score -= 15;
-  if (diabetesKeywords === 0) score -= 10;
-  
-  return Math.max(0, Math.min(100, score));
-}
 
-/**
- * Count diabetes-related keywords
- */
-function countDiabetesKeywords(text) {
-  const keywords = [
-    'diabetes', 'diabetic', 'insulin', 'glucose', 'blood sugar',
-    'type 1', 'type 2', 'gestational', 'prediabetes', 'a1c',
-    'hypoglycemia', 'hyperglycemia', 'carbohydrate', 'treatment'
+  // === 1. LINK DENSITY ANALYSIS ===
+  // Navigation/directory pages have high link-to-text ratio
+  const linkCount = (markdown.match(/\[.*?\]\(.*?\)/g) || []).length;
+  const wordCount = markdown.split(/\s+/).length;
+  const linkDensity = wordCount > 0 ? linkCount / wordCount : 0;
+
+  if (linkDensity < 0.05) score += 20; // Minimal links = content-focused
+  else if (linkDensity < 0.15) score += 10; // Moderate links = acceptable
+  else if (linkDensity >= 0.20) score -= 20; // High links = navigation/directory
+
+  // === 2. TEXT DENSITY ANALYSIS ===
+  // Measure text vs HTML markup ratio
+  const textLength = contentElement.text().length;
+  const htmlLength = contentElement.html()?.length || 1;
+  const textDensity = textLength / htmlLength;
+
+  if (textDensity >= 0.30) score += 20; // High text density = content-rich
+  else if (textDensity >= 0.20) score += 10; // Moderate density = acceptable
+  else if (textDensity < 0.15) score -= 15; // Low density = markup-heavy/navigation
+
+  // === 3. PARAGRAPH DEPTH ANALYSIS ===
+  // Quality content has substantive paragraphs
+  const paragraphCount = contentElement.find('p').length;
+  const avgParagraphLength = paragraphCount > 0 ? wordCount / paragraphCount : 0;
+
+  if (avgParagraphLength >= 50 && avgParagraphLength <= 150) score += 20; // Well-developed content
+  else if (avgParagraphLength >= 30) score += 10; // Acceptable depth
+  else if (avgParagraphLength < 20 && paragraphCount > 0) score -= 10; // Fragmented/shallow
+
+  // === 4. STRUCTURAL INDICATORS ===
+  // Presence of content elements (not just navigation)
+  const hasBlockquotes = contentElement.find('blockquote').length > 0;
+  const hasTables = contentElement.find('table').length > 0;
+  const hasLists = contentElement.find('ul, ol').length > 0;
+  const headerCount = (markdown.match(/^#{1,6}\s/gm) || []).length;
+
+  if (paragraphCount >= 3) score += 15; // Multiple paragraphs = article content
+  if (hasBlockquotes) score += 10; // Quotes indicate educational content
+  if (hasTables) score += 10; // Tables indicate structured data
+  if (hasLists && paragraphCount > 2) score += 10; // Lists with context = guides/instructions
+  if (headerCount >= 3) score += 10; // Multiple sections = comprehensive content
+
+  // === 5. CONTENT LENGTH ===
+  if (wordCount >= 300) score += 15; // Substantive length
+  else if (wordCount >= 150) score += 5; // Minimal acceptable length
+  else if (wordCount < 100) score -= 20; // Too short = navigation/stub
+
+  // === 6. BOILERPLATE DETECTION ===
+  // Penalize common boilerplate patterns
+  const lowerText = markdown.toLowerCase();
+  const boilerplatePatterns = [
+    'skip to main content',
+    'cookie policy',
+    'terms of use',
+    'privacy policy',
+    'all rights reserved',
+    'subscribe to newsletter',
+    'sign up for',
+    'follow us on'
   ];
-  
-  const lowerText = text.toLowerCase();
-  return keywords.reduce((count, keyword) => {
-    const matches = lowerText.match(new RegExp(keyword, 'g'));
-    return count + (matches ? matches.length : 0);
-  }, 0);
+
+  let boilerplateCount = 0;
+  for (const pattern of boilerplatePatterns) {
+    if (lowerText.includes(pattern)) boilerplateCount++;
+  }
+
+  if (boilerplateCount >= 3) score -= 20; // Heavy boilerplate presence
+  else if (boilerplateCount >= 2) score -= 10;
+
+  // === 7. URL PATTERN ANALYSIS ===
+  // Non-content URL patterns
+  const nonContentPaths = ['/search', '/category', '/tag', '/author', '/page/', '/sitemap', '/index', '/archive'];
+  const hasNonContentPath = nonContentPaths.some(path => url.toLowerCase().includes(path));
+
+  if (hasNonContentPath) score -= 15;
+
+  // Normalize to 0-100 range
+  return Math.max(0, Math.min(100, score));
 }
 
 /**

@@ -1,7 +1,7 @@
 /**
  * Chat Handler Lambda - Unified Chat Processing
  *
- * Consolidates the entire chat flow into a single Lambda:
+ * Responsibilities:
  * 1. API Gateway request handling
  * 2. Session management
  * 3. User message storage
@@ -10,14 +10,13 @@
  * 6. Bot response storage
  * 7. Escalation logic
  * 8. Async analytics invocation
- *
- * Replaces: chat-orchestrator, chat-session-manager, rag-processor, chat-response-handler
+
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { BedrockAgentRuntimeClient, RetrieveCommand } from '@aws-sdk/client-bedrock-agent-runtime';
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { BedrockRuntimeClient, InvokeModelWithResponseStreamCommand } from '@aws-sdk/client-bedrock-runtime';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import crypto from 'crypto';
 
@@ -35,10 +34,10 @@ const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
 const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-3-5-haiku-20241022-v1:0';
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.75');
 const ANALYTICS_PROCESSOR_ARN = process.env.ANALYTICS_PROCESSOR_ARN;
-const MIN_RELEVANCE_SCORE = 0.5;
+const MIN_RELEVANCE_SCORE = 0.65;
 // Number of chunks to retrieve from Knowledge Base
 // Higher values = more likely to find quality sources, but slower response time
-const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '5');
+const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '10');
 // High confidence threshold - if top source exceeds this, trust it even if avg is lower
 const HIGH_CONFIDENCE_THRESHOLD = 0.85;
 
@@ -278,14 +277,38 @@ async function storeUserMessage(sessionId, content, timestamp) {
 // RAG PROCESSING (from rag-processor)
 //=============================================================================
 
+function preprocessQuery(query, language) {
+  let preprocessed = query;
+
+  // Expand common diabetes abbreviations for better semantic matching
+  preprocessed = preprocessed
+    .replace(/\bT1D\b/gi, 'Type 1 diabetes')
+    .replace(/\bT2D\b/gi, 'Type 2 diabetes')
+    .replace(/\bDM\b/gi, 'diabetes mellitus')
+    .replace(/\bBG\b/gi, 'blood glucose')
+    .replace(/\bA1C\b/gi, 'hemoglobin A1C')
+    .replace(/\bCGM\b/gi, 'continuous glucose monitor')
+    .replace(/\bFBG\b/gi, 'fasting blood glucose')
+    .replace(/\bPPG\b/gi, 'postprandial glucose');
+
+  // Add contextual prefix to improve retrieval relevance
+  const prefix = language === 'es' ? 'información sobre diabetes:' : 'diabetes information:';
+  preprocessed = `${prefix} ${preprocessed}`;
+
+  return preprocessed;
+}
+
 async function processRAG(query, language, sessionId) {
   const startTime = Date.now();
 
   // STEP 1: Retrieve from Knowledge Base
   console.log('Retrieving from Knowledge Base...');
+  const preprocessedQuery = preprocessQuery(query, language);
+  console.log(`Preprocessed query: "${preprocessedQuery}"`);
+
   const retrieveCommand = new RetrieveCommand({
     knowledgeBaseId: KNOWLEDGE_BASE_ID,
-    retrievalQuery: { text: query },
+    retrievalQuery: { text: preprocessedQuery },
     retrievalConfiguration: {
       vectorSearchConfiguration: {
         numberOfResults: MAX_RETRIEVAL_RESULTS
@@ -416,7 +439,7 @@ Question: ${query}
 
 Provide an accurate, clear response based solely on the provided sources. Do not include source citations or references like [Source 1] in your response.`;
 
-    const invokeCommand = new InvokeModelCommand({
+    const invokeCommand = new InvokeModelWithResponseStreamCommand({
       modelId: GENERATION_MODEL,
       contentType: 'application/json',
       accept: 'application/json',
@@ -429,8 +452,21 @@ Provide an accurate, clear response based solely on the provided sources. Do not
     });
 
     const generateResponse = await bedrockRuntime.send(invokeCommand);
-    const responseBody = JSON.parse(new TextDecoder().decode(generateResponse.body));
-    answer = responseBody.content[0].text || 'I apologize, but I could not generate a response to your question.';
+
+    // Collect streamed response chunks
+    answer = '';
+    for await (const event of generateResponse.body) {
+      if (event.chunk) {
+        const chunk = JSON.parse(new TextDecoder().decode(event.chunk.bytes));
+        if (chunk.type === 'content_block_delta' && chunk.delta?.text) {
+          answer += chunk.delta.text;
+        }
+      }
+    }
+
+    if (!answer) {
+      answer = 'I apologize, but I could not generate a response to your question.';
+    }
 
     console.log(`Generated response: ${answer.substring(0, 100)}...`);
   }
