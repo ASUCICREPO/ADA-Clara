@@ -679,12 +679,8 @@ export class AdaClaraUnifiedStack extends Stack {
         // To update model: Change this ID and the IAM policy below
         GENERATION_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
-        ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
       },
     });
-
-    // Set analytics processor ARN after both functions are created
-    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_ARN', this.analyticsProcessor.functionArn);
 
     // Grant Bedrock permissions
     this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
@@ -714,12 +710,48 @@ export class AdaClaraUnifiedStack extends Stack {
     this.dataTable.grantReadWriteData(this.chatHandler);
     this.escalationRequestsTable.grantReadWriteData(this.chatHandler);
 
-    // Grant permission to invoke analytics processor
+    //=============================================================================
+    // CHAT ANALYTICS EVENT ROUTING
+    //=============================================================================
+
+    // Create custom event bus for chat analytics events
+    const chatEventBus = new events.EventBus(this, 'ChatEventBus', {
+      eventBusName: `ada-clara-chat-events${stackSuffix}`,
+    });
+
+    // Create DLQ for failed analytics processing
+    const analyticsDLQ = new sqs.Queue(this, 'AnalyticsDLQ', {
+      queueName: `ada-clara-analytics-dlq${stackSuffix}`,
+      retentionPeriod: Duration.days(14),
+    });
+
+    // Create EventBridge rule to route chat events to analytics processor
+    const chatAnalyticsRule = new events.Rule(this, 'ChatAnalyticsRule', {
+      ruleName: `ada-clara-chat-analytics${stackSuffix}`,
+      description: 'Route real-time chat events to analytics processor',
+      eventBus: chatEventBus,
+      eventPattern: {
+        source: ['ada-clara.chat'],
+        detailType: ['ChatMessageProcessed'],
+      },
+    });
+
+    // Add analytics processor as target with DLQ and retry configuration
+    chatAnalyticsRule.addTarget(new targets.LambdaFunction(this.analyticsProcessor, {
+      deadLetterQueue: analyticsDLQ,
+      retryAttempts: 3,
+      maxEventAge: Duration.hours(2),
+    }));
+
+    // Grant chat-handler permission to publish events to the event bus
     this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: [this.analyticsProcessor.functionArn],
+      actions: ['events:PutEvents'],
+      resources: [chatEventBus.eventBusArn],
     }));
+
+    // Add event bus name as environment variable for chat-handler
+    this.chatHandler.addEnvironment('EVENT_BUS_NAME', chatEventBus.eventBusName);
 
     // Grant S3 read access
     this.contentBucket.grantRead(this.chatHandler);

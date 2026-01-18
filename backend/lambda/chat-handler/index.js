@@ -17,7 +17,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { BedrockAgentRuntimeClient, RetrieveCommand } from '@aws-sdk/client-bedrock-agent-runtime';
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
-import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
+import { EventBridgeClient, PutEventsCommand } from '@aws-sdk/client-eventbridge';
 import crypto from 'crypto';
 
 // Initialize AWS clients
@@ -25,7 +25,7 @@ const dynamodbClient = new DynamoDBClient({ region: process.env.AWS_REGION || 'u
 const dynamodb = DynamoDBDocumentClient.from(dynamodbClient);
 const bedrockAgent = new BedrockAgentRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 const bedrockRuntime = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-west-2' });
-const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-west-2' });
+const eventBridge = new EventBridgeClient({ region: process.env.AWS_REGION || 'us-west-2' });
 
 // Environment variables
 const DATA_TABLE = process.env.DATA_TABLE;
@@ -33,7 +33,7 @@ const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
 const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-haiku-4-5-20251001-v1:0';
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.70');
-const ANALYTICS_PROCESSOR_ARN = process.env.ANALYTICS_PROCESSOR_ARN;
+const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || 'default';
 const MIN_RELEVANCE_SCORE = 0.65;
 // Number of chunks to retrieve from Knowledge Base
 // Higher values = more likely to find quality sources, but slower response time
@@ -682,17 +682,25 @@ async function createEscalationRecord(sessionId, confidence, questionText) {
 
 async function invokeAnalyticsAsync(analyticsData) {
   try {
-    const command = new InvokeCommand({
-      FunctionName: ANALYTICS_PROCESSOR_ARN,
-      InvocationType: 'Event', // Fire-and-forget
-      Payload: JSON.stringify(analyticsData)
+    const command = new PutEventsCommand({
+      Entries: [{
+        Source: 'ada-clara.chat',
+        DetailType: 'ChatMessageProcessed',
+        Detail: JSON.stringify(analyticsData),
+        EventBusName: EVENT_BUS_NAME,
+      }]
     });
 
-    await lambdaClient.send(command);
-    console.log('Analytics processor invoked asynchronously');
+    const response = await eventBridge.send(command);
+
+    if (response.FailedEntryCount > 0) {
+      console.error('Failed to publish some analytics events:', response.Entries);
+    } else {
+      console.log('Analytics event published successfully to EventBridge');
+    }
   } catch (error) {
     // Log but don't throw - analytics is non-blocking
-    console.error('Failed to invoke analytics processor (non-blocking):', error);
+    console.error('Failed to publish analytics event (non-blocking):', error);
   }
 }
 
