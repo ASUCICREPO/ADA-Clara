@@ -9,6 +9,7 @@ export default function EscalationRequestsTable() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
 
   // Debounce search input to avoid too many API calls
   useEffect(() => {
@@ -32,6 +33,12 @@ export default function EscalationRequestsTable() {
       setCurrentPage(page);
       // Keep search query when changing pages (server-side search)
     }
+  };
+
+  // Truncate text for display
+  const truncateText = (text: string, maxLength: number = 40) => {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
   };
 
   return (
@@ -106,13 +113,14 @@ export default function EscalationRequestsTable() {
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Email</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Phone</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>ZIP Code</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Question</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Date & Time</th>
               </tr>
             </thead>
             <tbody>
               {filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
                     No escalation requests found
                   </td>
                 </tr>
@@ -123,6 +131,42 @@ export default function EscalationRequestsTable() {
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.email}</td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.phone || '-'}</td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.zipCode || '-'}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px', maxWidth: '250px' }}>
+                      {item.questionText ? (
+                        item.questionText.length > 40 ? (
+                          <button
+                            onClick={() => setExpandedQuestion(expandedQuestion === `${index}-${item.questionText}` ? null : `${index}-${item.questionText}`)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              color: '#020617',
+                              fontSize: '14px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                            }}
+                          >
+                            <span>{truncateText(item.questionText)}</span>
+                            <svg 
+                              width="14" 
+                              height="14" 
+                              viewBox="0 0 24 24" 
+                              fill="none" 
+                              stroke="#a6192e" 
+                              strokeWidth="2"
+                              style={{ flexShrink: 0 }}
+                            >
+                              <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                            </svg>
+                          </button>
+                        ) : (
+                          item.questionText
+                        )
+                      ) : '-'}
+                    </td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.dateTime}</td>
                   </tr>
                 ))
@@ -200,7 +244,69 @@ export default function EscalationRequestsTable() {
           Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, data.total)} of {data.total} requests
         </div>
       )}
+
+      {/* Question Modal */}
+      {expandedQuestion && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setExpandedQuestion(null)}
+        >
+          <div 
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '15px',
+              padding: '24px',
+              maxWidth: '500px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ color: '#a6192e', fontSize: '16px', fontWeight: 600, margin: 0 }}>Question Details</h3>
+              <button
+                onClick={() => setExpandedQuestion(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p style={{ 
+              color: '#020617', 
+              fontSize: '14px', 
+              lineHeight: '24px',
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {expandedQuestion.split('-').slice(1).join('-')}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

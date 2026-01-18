@@ -31,9 +31,9 @@ const lambdaClient = new LambdaClient({ region: process.env.AWS_REGION || 'us-we
 const DATA_TABLE = process.env.DATA_TABLE;
 const ESCALATION_TABLE = process.env.ESCALATION_REQUESTS_TABLE;
 const KNOWLEDGE_BASE_ID = process.env.KNOWLEDGE_BASE_ID;
-const GENERATION_MODEL = process.env.GENERATION_MODEL || 'anthropic.claude-haiku-4-5-20251001-v1:0';
+const GENERATION_MODEL = process.env.GENERATION_MODEL || 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.70');
-const ANALYTICS_PROCESSOR_ARN = process.env.ANALYTICS_PROCESSOR_ARN;
+const ANALYTICS_PROCESSOR_FUNCTION = process.env.ANALYTICS_PROCESSOR_FUNCTION;
 const MIN_RELEVANCE_SCORE = 0.65;
 // Number of chunks to retrieve from Knowledge Base
 // Higher values = more likely to find quality sources, but slower response time
@@ -345,8 +345,11 @@ async function processRAG(query, language, sessionId) {
   for (const result of retrievalResults) {
     if (result.content?.text && result.location?.s3Location?.uri) {
       const relevanceScore = result.score || 0;
+      // Extract original URL from markdown content (format: **Source**: https://...)
+      const originalUrl = extractOriginalUrlFromContent(result.content.text);
+      console.log(`Source extraction: S3 URI=${result.location.s3Location.uri}, Original URL=${originalUrl || 'NOT FOUND'}`);
       sources.push({
-        url: result.location.s3Location.uri,
+        url: originalUrl || result.location.s3Location.uri,
         title: extractTitleFromUri(result.location.s3Location.uri),
         excerpt: result.content.text.length > 200
           ? result.content.text.substring(0, 200) + '...'
@@ -542,11 +545,30 @@ function extractTitleFromUri(uri) {
     const filename = uri.split('/').pop() || 'Unknown Source';
     return filename
       .replace(/\.txt$/, '')
+      .replace(/\.md$/, '')
       .replace(/https?-/, '')
       .replace(/-/g, ' ')
       .replace(/\b\w/g, l => l.toUpperCase());
   } catch (error) {
     return 'Diabetes Information';
+  }
+}
+
+/**
+ * Extract original URL from markdown content
+ * The content processor embeds the source URL in format: **Source**: https://...
+ */
+function extractOriginalUrlFromContent(content) {
+  try {
+    // Match pattern: **Source**: https://... (until newline or end)
+    const sourceMatch = content.match(/\*\*Source\*\*:\s*(https?:\/\/[^\s\n]+)/);
+    if (sourceMatch && sourceMatch[1]) {
+      return sourceMatch[1].trim();
+    }
+    return null;
+  } catch (error) {
+    console.error('Error extracting original URL:', error);
+    return null;
   }
 }
 
@@ -677,19 +699,37 @@ async function createEscalationRecord(sessionId, confidence, questionText) {
 }
 
 //=============================================================================
-// ASYNC ANALYTICS INVOCATION
+// ASYNC ANALYTICS INVOCATION (Direct Lambda Invoke)
 //=============================================================================
 
 async function invokeAnalyticsAsync(analyticsData) {
   try {
+    // Skip if analytics processor function is not configured
+    if (!ANALYTICS_PROCESSOR_FUNCTION) {
+      console.log('Analytics processor function not configured, skipping analytics');
+      return;
+    }
+
+    // Use InvocationType 'Event' for async fire-and-forget invocation
+    // This returns immediately without waiting for the function to complete
     const command = new InvokeCommand({
-      FunctionName: ANALYTICS_PROCESSOR_ARN,
-      InvocationType: 'Event', // Fire-and-forget
-      Payload: JSON.stringify(analyticsData)
+      FunctionName: ANALYTICS_PROCESSOR_FUNCTION,
+      InvocationType: 'Event', // Async - fire and forget
+      Payload: JSON.stringify({
+        source: 'ada-clara.chat',
+        'detail-type': 'ChatMessageProcessed',
+        detail: analyticsData
+      })
     });
 
-    await lambdaClient.send(command);
-    console.log('Analytics processor invoked asynchronously');
+    const response = await lambdaClient.send(command);
+
+    // Status 202 indicates successful async invocation
+    if (response.StatusCode === 202) {
+      console.log('Analytics processor invoked successfully (async)');
+    } else {
+      console.warn(`Analytics invocation returned unexpected status: ${response.StatusCode}`);
+    }
   } catch (error) {
     // Log but don't throw - analytics is non-blocking
     console.error('Failed to invoke analytics processor (non-blocking):', error);

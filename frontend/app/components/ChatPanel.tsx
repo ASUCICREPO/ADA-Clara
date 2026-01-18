@@ -8,11 +8,19 @@ import TalkToPersonForm from './TalkToPersonForm';
 import { sendChatMessage, getChatHistory } from '../../lib/api/chat.service';
 import { useLanguage } from '../context/LanguageContext';
 
+interface ChatSource {
+  url: string;
+  title: string;
+  excerpt?: string;
+  relevanceScore?: number;
+}
+
 interface Message {
   id: string;
   type: 'user' | 'assistant';
   content: string;
   showTalkToPersonButton?: boolean;
+  sources?: ChatSource[];
 }
 
 export interface ChatPanelHandle {
@@ -45,6 +53,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [lastUserQuestion, setLastUserQuestion] = useState<string>('');
 
   // Load chat history on mount if session exists
   useEffect(() => {
@@ -103,6 +112,9 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
       content: inputValue,
     };
 
+    // Track the last user question for escalation
+    setLastUserQuestion(inputValue);
+
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
@@ -119,6 +131,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
         type: 'assistant',
         content: response.message,
         showTalkToPersonButton: response.escalated === true,
+        sources: response.sources,
       };
       
       setMessages((prev) => [...prev, assistantMessage]);
@@ -181,6 +194,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
               <ChatMessage
                 type={message.type}
                 content={message.content}
+                sources={message.sources}
               />
               {message.showTalkToPersonButton && (
                 <div className="flex justify-center" style={{ marginTop: '16px' }}>
@@ -206,6 +220,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
         isOpen={showTalkToPersonForm}
         onClose={() => setShowTalkToPersonForm(false)}
         onSubmit={handleFormSubmit}
+        questionText={lastUserQuestion}
       />
     </>
   );

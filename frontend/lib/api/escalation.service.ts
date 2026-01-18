@@ -10,6 +10,7 @@ export interface EscalationRequest {
   email: string;
   phoneNumber?: string;
   zipCode?: string;
+  questionText?: string;
 }
 
 export interface EscalationResponse {
@@ -39,6 +40,7 @@ export async function submitEscalationRequest(
         email: request.email,
         phoneNumber: request.phoneNumber || undefined,
         zipCode: request.zipCode || undefined,
+        questionText: request.questionText || undefined,
         escalationType: 'submit', // Mark as submitted via Submit button
       }),
     });

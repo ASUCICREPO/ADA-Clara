@@ -8,7 +8,7 @@
  * - Handle GET endpoints (history, sessions, config)
  *
  * Invocation:
- * - Async from chat-handler (fire and forget)
+ * - Direct async Lambda invoke from chat-handler (InvocationType: 'Event')
  * - Sync from API Gateway for GET endpoints
  */
 
@@ -29,12 +29,13 @@ exports.handler = async (event) => {
   console.log('Chat data processor invoked:', JSON.stringify(event, null, 2));
 
   try {
-    // Check if this is an async event from chat-handler (has sessionId, userMessage, etc.)
-    if (event.sessionId && event.userMessage && !event.httpMethod && !event.requestContext) {
-      return await processChatAnalytics(event);
+    // Check if this is a chat analytics event (from direct Lambda invoke)
+    if (event.source === 'ada-clara.chat' && event['detail-type'] === 'ChatMessageProcessed') {
+      console.log('Processing chat analytics event');
+      return await processChatAnalytics(event.detail);
     }
 
-    // Otherwise, handle as API Gateway request (GET endpoints)
+    // Handle as API Gateway request (GET endpoints)
     // Support both REST API (path, httpMethod) and HTTP API v2 (rawPath, requestContext.http.method)
     const path = event.rawPath || event.path || '';
     const method = event.requestContext?.http?.method || event.httpMethod;

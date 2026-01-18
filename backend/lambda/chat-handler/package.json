@@ -12,7 +12,7 @@
     "@aws-sdk/lib-dynamodb": "^3.958.0",
     "@aws-sdk/client-bedrock-agent-runtime": "^3.958.0",
     "@aws-sdk/client-bedrock-runtime": "^3.958.0",
-    "@aws-sdk/client-lambda": "^3.958.0"
+    "@aws-sdk/client-eventbridge": "^3.958.0"
   },
   "engines": {
     "node": ">=24.0.0"

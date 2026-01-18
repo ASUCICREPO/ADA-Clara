@@ -675,16 +675,12 @@ export class AdaClaraUnifiedStack extends Stack {
         DATA_TABLE: this.dataTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
         KNOWLEDGE_BASE_ID: this.knowledgeBase.attrKnowledgeBaseId,
-        // Direct Bedrock model ID (not inference profile)
+        // Inference profile ID for Haiku 4.5 (required for cross-region inference)
         // To update model: Change this ID and the IAM policy below
-        GENERATION_MODEL: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+        GENERATION_MODEL: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
         CONFIDENCE_THRESHOLD: '0.75',
-        ANALYTICS_PROCESSOR_ARN: '', // Will be set after analytics processor is created
       },
     });
-
-    // Set analytics processor ARN after both functions are created
-    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_ARN', this.analyticsProcessor.functionArn);
 
     // Grant Bedrock permissions
     this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
@@ -694,8 +690,11 @@ export class AdaClaraUnifiedStack extends Stack {
         'bedrock:Retrieve',
       ],
       resources: [
+        // Embedding model for Knowledge Base (foundation model, no account ID)
         `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
-        `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0`,
+        // Inference profile for Haiku 4.5 (requires account ID and inference-profile type)
+        `arn:aws:bedrock:${region}:${accountId}:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0`,
+        // Knowledge Base access
         `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
       ],
     }));
@@ -714,12 +713,15 @@ export class AdaClaraUnifiedStack extends Stack {
     this.dataTable.grantReadWriteData(this.chatHandler);
     this.escalationRequestsTable.grantReadWriteData(this.chatHandler);
 
-    // Grant permission to invoke analytics processor
-    this.chatHandler.addToRolePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      actions: ['lambda:InvokeFunction'],
-      resources: [this.analyticsProcessor.functionArn],
-    }));
+    //=============================================================================
+    // CHAT ANALYTICS - DIRECT LAMBDA INVOCATION
+    //=============================================================================
+
+    // Grant chat-handler permission to invoke analytics-processor directly (async)
+    this.analyticsProcessor.grantInvoke(this.chatHandler);
+
+    // Add analytics processor function name as environment variable for chat-handler
+    this.chatHandler.addEnvironment('ANALYTICS_PROCESSOR_FUNCTION', this.analyticsProcessor.functionName);
 
     // Grant S3 read access
     this.contentBucket.grantRead(this.chatHandler);

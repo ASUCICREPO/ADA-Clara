@@ -109,6 +109,7 @@ async function handleEscalationRequest(event) {
       email: sanitizeInput(request.email).toLowerCase(),
       phoneNumber: request.phoneNumber ? sanitizeInput(request.phoneNumber) : undefined,
       zipCode: request.zipCode ? sanitizeInput(request.zipCode) : undefined,
+      questionText: request.questionText ? sanitizeInput(request.questionText) : undefined,
       dateTime: now.toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -216,7 +217,8 @@ async function getEscalationRequests(event) {
       email: item.email || 'N/A',
       phone: item.phoneNumber || 'N/A',
       zipCode: item.zipCode || 'N/A',
-      dateTime: item.dateTime || 'N/A'
+      dateTime: item.dateTime || 'N/A',
+      questionText: item.questionText || null
     }));
 
     console.log(`Returning ${requests.length} requests for page ${page}, total: ${allItems.length}`);
