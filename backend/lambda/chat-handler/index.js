@@ -347,6 +347,7 @@ async function processRAG(query, language, sessionId) {
       const relevanceScore = result.score || 0;
       // Extract original URL from markdown content (format: **Source**: https://...)
       const originalUrl = extractOriginalUrlFromContent(result.content.text);
+      console.log(`Source extraction: S3 URI=${result.location.s3Location.uri}, Original URL=${originalUrl || 'NOT FOUND'}`);
       sources.push({
         url: originalUrl || result.location.s3Location.uri,
         title: extractTitleFromUri(result.location.s3Location.uri),

@@ -8,11 +8,19 @@ import TalkToPersonForm from './TalkToPersonForm';
 import { sendChatMessage, getChatHistory } from '../../lib/api/chat.service';
 import { useLanguage } from '../context/LanguageContext';
 
+interface ChatSource {
+  url: string;
+  title: string;
+  excerpt?: string;
+  relevanceScore?: number;
+}
+
 interface Message {
   id: string;
   type: 'user' | 'assistant';
   content: string;
   showTalkToPersonButton?: boolean;
+  sources?: ChatSource[];
 }
 
 export interface ChatPanelHandle {
@@ -123,6 +131,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
         type: 'assistant',
         content: response.message,
         showTalkToPersonButton: response.escalated === true,
+        sources: response.sources,
       };
       
       setMessages((prev) => [...prev, assistantMessage]);
@@ -185,6 +194,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
               <ChatMessage
                 type={message.type}
                 content={message.content}
+                sources={message.sources}
               />
               {message.showTalkToPersonButton && (
                 <div className="flex justify-center" style={{ marginTop: '16px' }}>

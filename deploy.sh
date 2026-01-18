@@ -57,6 +57,12 @@ print_amplify() {
     echo "[AMPLIFY] $1"
 }
 
+# Color codes for log output (optional - graceful fallback if terminal doesn't support)
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
 # --- Phase 1: Create IAM Service Role ---
 print_status "Phase 1: Creating IAM Service Role..."
 
