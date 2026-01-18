@@ -368,9 +368,8 @@ export class AdaClaraUnifiedStack extends Stack {
     // Split Lambda roles by responsibility to break circular dependencies
     // Each role has only the permissions needed for its specific Lambda functions
 
-    // Public API Role - For chat endpoints (no Cognito auth required)
-    // Note: Permissions are granted AFTER resources are created to avoid circular dependencies
-    const publicApiRole = new iam.Role(this, 'PublicApiRole', {
+    // Chat Handler Role - For chat endpoint Lambda
+    const chatHandlerRole = new iam.Role(this, 'ChatHandlerRole', {
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
@@ -386,6 +385,14 @@ export class AdaClaraUnifiedStack extends Stack {
           ],
         }),
       },
+    });
+
+    // Analytics Processor Role - For analytics Lambda
+    const analyticsProcessorRole = new iam.Role(this, 'AnalyticsProcessorRole', {
+      assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('service-role/AWSLambdaBasicExecutionRole'),
+      ],
     });
 
     // Admin API Role - For admin dashboard endpoints (Cognito auth required)
@@ -635,7 +642,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.seconds(60),
       memorySize: 512,
       logGroup: analyticsProcessorLogGroup,
-      role: publicApiRole,
+      role: analyticsProcessorRole,
       environment: {
         DATA_TABLE: this.dataTable.tableName,
         FRONTEND_URL: frontendUrl !== '*' ? frontendUrl : '',
@@ -663,7 +670,7 @@ export class AdaClaraUnifiedStack extends Stack {
       timeout: Duration.minutes(5), // For Claude invocation
       memorySize: 1536, // More memory for AWS SDK + Bedrock
       logGroup: chatHandlerLogGroup,
-      role: publicApiRole,
+      role: chatHandlerRole,
       environment: {
         DATA_TABLE: this.dataTable.tableName,
         ESCALATION_REQUESTS_TABLE: this.escalationRequestsTable.tableName,
@@ -864,13 +871,35 @@ export class AdaClaraUnifiedStack extends Stack {
     // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
     // Grant permissions AFTER all resources are created to avoid circular dependencies
 
-    // Public API Role permissions - grant access to DynamoDB tables
-    publicApiRole.addToPolicy(new iam.PolicyStatement({
+    // Chat Handler Role permissions - grant access to DynamoDB tables, Knowledge Base, and Analytics Lambda
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
       actions: ['dynamodb:*'],
       resources: [
         this.escalationRequestsTable.tableArn,
         `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
+        this.dataTable.tableArn,
+        `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
+      ],
+    }));
+
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['bedrock:Retrieve'],
+      resources: [this.knowledgeBase.attrKnowledgeBaseArn],
+    }));
+
+    chatHandlerRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['lambda:InvokeFunction'],
+      resources: [this.analyticsProcessor.functionArn],
+    }));
+
+    // Analytics Processor Role permissions - grant access to DynamoDB tables only
+    analyticsProcessorRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:GetItem', 'dynamodb:Query'],
+      resources: [
         this.dataTable.tableArn,
         `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
