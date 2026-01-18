@@ -106,13 +106,14 @@ export default function EscalationRequestsTable() {
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Email</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Phone</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>ZIP Code</th>
+                <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Question</th>
                 <th style={{ textAlign: 'left', color: '#a6192e', fontSize: '14px', fontWeight: 500, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', backgroundColor: 'white' }}>Date & Time</th>
               </tr>
             </thead>
             <tbody>
               {filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#64748b' }}>
                     No escalation requests found
                   </td>
                 </tr>
@@ -123,6 +124,7 @@ export default function EscalationRequestsTable() {
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.email}</td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.phone || '-'}</td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.zipCode || '-'}</td>
+                    <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px', maxWidth: '250px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.questionText || ''}>{item.questionText || '-'}</td>
                     <td style={{ color: '#020617', fontSize: '14px', fontWeight: 400, padding: '12px 16px', borderBottom: '1px solid #e2e8f0', lineHeight: '20px' }}>{item.dateTime}</td>
                   </tr>
                 ))

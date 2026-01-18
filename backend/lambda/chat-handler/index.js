@@ -345,8 +345,10 @@ async function processRAG(query, language, sessionId) {
   for (const result of retrievalResults) {
     if (result.content?.text && result.location?.s3Location?.uri) {
       const relevanceScore = result.score || 0;
+      // Extract original URL from markdown content (format: **Source**: https://...)
+      const originalUrl = extractOriginalUrlFromContent(result.content.text);
       sources.push({
-        url: result.location.s3Location.uri,
+        url: originalUrl || result.location.s3Location.uri,
         title: extractTitleFromUri(result.location.s3Location.uri),
         excerpt: result.content.text.length > 200
           ? result.content.text.substring(0, 200) + '...'
@@ -542,11 +544,30 @@ function extractTitleFromUri(uri) {
     const filename = uri.split('/').pop() || 'Unknown Source';
     return filename
       .replace(/\.txt$/, '')
+      .replace(/\.md$/, '')
       .replace(/https?-/, '')
       .replace(/-/g, ' ')
       .replace(/\b\w/g, l => l.toUpperCase());
   } catch (error) {
     return 'Diabetes Information';
+  }
+}
+
+/**
+ * Extract original URL from markdown content
+ * The content processor embeds the source URL in format: **Source**: https://...
+ */
+function extractOriginalUrlFromContent(content) {
+  try {
+    // Match pattern: **Source**: https://... (until newline or end)
+    const sourceMatch = content.match(/\*\*Source\*\*:\s*(https?:\/\/[^\s\n]+)/);
+    if (sourceMatch && sourceMatch[1]) {
+      return sourceMatch[1].trim();
+    }
+    return null;
+  } catch (error) {
+    console.error('Error extracting original URL:', error);
+    return null;
   }
 }
 

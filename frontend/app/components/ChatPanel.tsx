@@ -45,6 +45,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [lastUserQuestion, setLastUserQuestion] = useState<string>('');
 
   // Load chat history on mount if session exists
   useEffect(() => {
@@ -102,6 +103,9 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
       type: 'user',
       content: inputValue,
     };
+
+    // Track the last user question for escalation
+    setLastUserQuestion(inputValue);
 
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
@@ -206,6 +210,7 @@ const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {
         isOpen={showTalkToPersonForm}
         onClose={() => setShowTalkToPersonForm(false)}
         onSubmit={handleFormSubmit}
+        questionText={lastUserQuestion}
       />
     </>
   );

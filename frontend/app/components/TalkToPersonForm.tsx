@@ -7,6 +7,7 @@ interface TalkToPersonFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (data: FormData) => void;
+  questionText?: string;
 }
 
 interface FormData {
@@ -16,7 +17,7 @@ interface FormData {
   zipCode: string;
 }
 
-export default function TalkToPersonForm({ isOpen, onClose, onSubmit }: TalkToPersonFormProps) {
+export default function TalkToPersonForm({ isOpen, onClose, onSubmit, questionText }: TalkToPersonFormProps) {
   const [formData, setFormData] = useState<FormData>({
     name: '',
     email: '',
@@ -53,6 +54,7 @@ export default function TalkToPersonForm({ isOpen, onClose, onSubmit }: TalkToPe
         email: formData.email,
         phoneNumber: formData.phoneNumber || undefined,
         zipCode: formData.zipCode || undefined,
+        questionText: questionText || undefined,
       });
 
       if (result.success) {

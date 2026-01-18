@@ -35,6 +35,7 @@ export interface EscalationRequestItem {
   phone: string;
   zipCode: string;
   dateTime: string;
+  questionText?: string | null;
 }
 
 export interface EscalationRequestsResponse {
