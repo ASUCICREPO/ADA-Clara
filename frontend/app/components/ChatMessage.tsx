@@ -125,7 +125,7 @@ export default function ChatMessage({ type, content, sender = 'Clara', sources }
                     fontSize: '20px', 
                     fontWeight: 700, 
                     color: '#0f172a',
-                    marginTop: '20px',
+                    marginTop: '0',
                     marginBottom: '12px',
                     paddingBottom: '8px',
                     borderBottom: '2px solid rgba(166, 25, 46, 0.1)',
@@ -170,7 +170,7 @@ export default function ChatMessage({ type, content, sender = 'Clara', sources }
                   <p style={{ 
                     fontSize: '14.5px',
                     color: '#334155',
-                    marginTop: '10px',
+                    marginTop: '0',
                     marginBottom: '10px',
                     lineHeight: '1.75',
                   }}>
