@@ -151,8 +151,8 @@ async function discoverUrls() {
     seedUrls.forEach(url => allUrls.add(url));
     console.log(`Added ${seedUrls.length} seed URLs`);
     
-    // Source 3: Navigation discovery (if we have time/resources)
-    // This could be added later for more comprehensive discovery
+    // Source 3: Navigation discovery
+    // Could be added later for more comprehensive discovery
     
   } catch (error) {
     console.error('Error during URL discovery:', error);

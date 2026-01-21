@@ -1,6 +1,5 @@
 /**
  * Escalation Handler Lambda
- * Consolidated single-file implementation
  *
  * Handles:
  * - POST /escalation/request - Submit escalation request
@@ -176,7 +175,6 @@ async function getEscalationRequests(event) {
     }
 
     // Use GSI to query only form_submit escalations, sorted by timestamp
-    // This is much more efficient than scanning the entire table
     const queryResult = await dynamodb.send(new QueryCommand({
       TableName: ESCALATION_TABLE,
       IndexName: 'SourceIndex',
@@ -263,7 +261,7 @@ function validateEscalationRequest(request) {
     return { valid: false, message: 'Please provide a valid email address' };
   }
 
-  // Validate optional phone number format if provided (like original)
+  // Validate optional phone number format if provided
   if (request.phoneNumber && request.phoneNumber.trim().length > 0) {
     if (request.phoneNumber.trim().length > 20) {
       return { valid: false, message: 'Phone number must be 20 characters or less' };
@@ -271,19 +269,19 @@ function validateEscalationRequest(request) {
     const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
     const cleanPhone = request.phoneNumber.replace(/[\s\-\(\)\.]/g, '');
     if (!phoneRegex.test(cleanPhone)) {
-      // Don't fail validation, just log warning like original
+      // Don't fail validation, just log warning
       console.warn('Invalid phone number format provided:', '***-***-' + request.phoneNumber.slice(-4));
     }
   }
 
-  // Validate optional zip code format if provided (like original)
+  // Validate optional zip code format if provided
   if (request.zipCode && request.zipCode.trim().length > 0) {
     if (request.zipCode.trim().length > 10) {
       return { valid: false, message: 'ZIP code must be 10 characters or less' };
     }
     const zipRegex = /^\d{5}(-\d{4})?$/;
     if (!zipRegex.test(request.zipCode.trim())) {
-      // Don't fail validation, just log warning like original
+      // Don't fail validation, just log warning
       console.warn('Invalid zip code format provided:', request.zipCode);
     }
   }

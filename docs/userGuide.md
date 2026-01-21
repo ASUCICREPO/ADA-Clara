@@ -19,11 +19,32 @@ ADA Clara is an AI-powered chatbot assistant that provides accurate, evidence-ba
 ADA Clara is designed to help users get reliable diabetes information quickly and easily. Users can ask questions in multiple languages, receive answers with source citations, and access an escalation form when they need to speak with a healthcare professional.
 
 ### Key Features
-- **AI-Powered Responses**: Get accurate answers using Amazon Bedrock and Claude Sonnet 3
+- **AI-Powered Responses**: Get accurate answers using Amazon Bedrock with Claude Haiku 4.5
 - **Multi-Language Support**: Select your preferred language (English or Spanish) using the language switcher
 - **Source Citations**: Every answer includes links to the source content from diabetes.org
 - **Escalation Support**: Easy access to submit a form to speak with a healthcare professional
 - **Admin Dashboard**: Analytics and insights for administrators (requires login)
+- **Persistent Chat History**: Your conversation history is saved for 30 days with up to 100 messages per session
+
+### System Capabilities
+
+**AI Model**: Claude Haiku 4.5 via AWS Bedrock for fast, efficient responses
+
+**Knowledge Base**: 1,200+ pages from diabetes.org
+- Updated weekly via automated web scraping (Sundays at 2 AM UTC)
+- Content quality assessment ensures reliable information
+- All sources are verified diabetes.org URLs
+
+**Chat Features**:
+- Message history: Last 100 messages per session
+- Session persistence: 30 days
+- Character limit: 5,000 characters per message
+- Automatic language detection
+
+**Escalation System**:
+- Automatic escalation when confidence < 70%
+- Manual escalation via "Talk to a person" button
+- Rate limiting: 3 submissions per email per 60 minutes
 
 ---
 
@@ -84,13 +105,14 @@ If you need to speak with a healthcare professional, you can:
 2. Or use the escalation form that appears when the chatbot suggests escalation
 
 Fill out the escalation form with:
-- Your name
-- Email address
-- Phone number
-- Your question or concern
-- Any additional details
+- Your name (required)
+- Email address (required)
+- Phone number (optional)
+- ZIP code (optional)
 
-Submit the form, and your request will be sent to the support team.
+Your recent question will be automatically included in the form. Submit the form, and your request will be sent to the support team.
+
+**Note**: The escalation form has rate limiting (3 submissions per email per 60 minutes) to prevent spam.
 
 ---
 
@@ -141,11 +163,15 @@ The system will provide information about blood glucose monitoring, target range
 
 - **Use Follow-up Questions**: Build on previous answers with follow-up questions to get more detailed information.
 
-- **Check Sources**: Always review the source citations to access the full content from diabetes.org for comprehensive information.
+- **Check Sources**: Always review the source citations to access the full content from diabetes.org for comprehensive information. All sources are verified diabetes.org URLs (internal S3 references are filtered out).
 
 - **Language Support**: The system automatically detects your language, but you can also use the language switcher in the header to change the interface language.
 
 - **Escalation for Complex Issues**: For personal medical questions or complex situations, use the escalation form to speak with a healthcare professional.
+
+- **Character Limits**: Keep your questions under 5000 characters for optimal processing.
+
+- **Persistent History**: Your chat history automatically saves and reloads when you return, persisting for 30 days with up to 100 messages.
 
 ---
 
@@ -161,10 +187,23 @@ The system will provide information about blood glucose monitoring, target range
 **A:** All responses are based on content from the American Diabetes Association (diabetes.org), which is a trusted source for diabetes information. The system uses AI to retrieve and present this information, but always includes source citations so you can verify the information.
 
 ### Q: Can I save my conversation?
-**A:** Your conversation is stored in your browser session. If you refresh the page, you may lose your conversation history. For important information, copy the responses or use the source links to bookmark relevant pages.
+**A:** Yes! Your conversation history is automatically saved for 30 days and will reload when you return. The system maintains up to 100 messages per session. Your session is tied to a unique session ID stored in your browser. For important information, you can still copy responses or use the source links to bookmark relevant pages.
 
 ### Q: How do I access the admin dashboard?
 **A:** The admin dashboard is available at `/admin` and requires authentication. Contact your administrator for access credentials.
+
+### Q: How do I become an admin user?
+**A:** Admin accounts must be created by a system administrator through AWS Cognito:
+
+1. Navigate to the [AWS Cognito Console](https://console.aws.amazon.com/cognito/)
+2. Select the ADA Clara User Pool
+3. Click "Create user" and provide:
+   - Email address (used for login)
+   - Temporary password
+4. On first login at `/admin/login`, you'll be prompted to change your password
+5. Password must meet requirements: minimum 8 characters, uppercase, lowercase, number, and special character
+
+If you need admin access, contact your AWS account administrator to create a Cognito user for you.
 
 ---
 

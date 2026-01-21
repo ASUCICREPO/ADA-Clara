@@ -29,7 +29,7 @@ export class AdaClaraUnifiedStack extends Stack {
   public readonly escalationRequestsTable: dynamodb.Table;
   public readonly contentTrackingTable: dynamodb.Table;
 
-  // Consolidated data table (replaces chat-sessions, analytics, messages, questions)
+  // Consolidated data table
   public readonly dataTable: dynamodb.Table;
 
   // Cognito
@@ -121,7 +121,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // ========== CONSOLIDATED DATA TABLE ==========
-    // Consolidates chat-sessions, messages, analytics, and questions into single table
+    // Chat-sessions, messages, analytics, and questions in single table
     // Using flexible PK/SK pattern for efficient queries
     this.dataTable = new dynamodb.Table(this, 'DataTable', {
       tableName: `ada-clara-data-table${stackSuffix}`,
@@ -276,7 +276,7 @@ export class AdaClaraUnifiedStack extends Stack {
 
     this.vectorIndex = new Index(this, 'VectorIndex', {
       vectorBucketName: this.vectorsBucket.vectorBucketName,
-      indexName: `ada-clara-index${stackSuffix}`, // Clean index name
+      indexName: `ada-clara-index${stackSuffix}`,
       dimension: 1024, // Titan v2 embedding dimensions
       distanceMetric: 'cosine',
       dataType: 'float32',
@@ -597,8 +597,6 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`CORS Origins configured: ${JSON.stringify(corsOrigins)}`);
 
     // ========== HTTP API (V2) ==========
-    // Using HTTP API instead of REST API to avoid circular dependency issues
-    // HTTP APIs have simpler permission models and don't create as many implicit dependencies
     this.api = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `ada-clara-api${stackSuffix}`,
       description: 'ADA Clara HTTP API Gateway',
@@ -655,7 +653,7 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // ========== CHAT HANDLER LAMBDA ==========
-    // Unified chat processing (replaces orchestrator + session-manager + rag-processor + response-handler)
+    // Unified chat processing
     const chatHandlerLogGroup = new logs.LogGroup(this, 'ChatHandlerLogGroup', {
       logGroupName: `/aws/lambda/ada-clara-chat-handler${stackSuffix}`,
       retention: logs.RetentionDays.ONE_WEEK,
@@ -678,7 +676,7 @@ export class AdaClaraUnifiedStack extends Stack {
         // Inference profile ID for Haiku 4.5 (required for cross-region inference)
         // To update model: Change this ID and the IAM policy below
         GENERATION_MODEL: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
-        CONFIDENCE_THRESHOLD: '0.75',
+        CONFIDENCE_THRESHOLD: '0.70',
       },
     });
 
@@ -769,9 +767,6 @@ export class AdaClaraUnifiedStack extends Stack {
         DATA_TABLE: this.dataTable.tableName,
       },
     });
-
-    // Note: DynamoDB permissions are now granted to roles, not individual Lambda functions
-    // See "GRANT PERMISSIONS TO LAMBDA ROLES" section below for role-based grants
 
     // ========== HTTP API ROUTES ==========
     // HTTP API uses routes instead of resources/methods

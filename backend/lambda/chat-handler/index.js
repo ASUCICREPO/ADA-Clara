@@ -37,7 +37,7 @@ const ANALYTICS_PROCESSOR_FUNCTION = process.env.ANALYTICS_PROCESSOR_FUNCTION;
 const MIN_RELEVANCE_SCORE = 0.65;
 // Number of chunks to retrieve from Knowledge Base
 // Higher values = more likely to find quality sources, but slower response time
-const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '10');
+const MAX_RETRIEVAL_RESULTS = parseInt(process.env.MAX_RETRIEVAL_RESULTS || '5');
 // High confidence threshold - if top source exceeds this, trust it even if avg is lower
 const HIGH_CONFIDENCE_THRESHOLD = 0.79;
 
@@ -184,7 +184,7 @@ async function processChatFlow(request) {
 }
 
 //=============================================================================
-// SESSION MANAGEMENT (from chat-session-manager)
+// SESSION MANAGEMENT
 //=============================================================================
 
 async function getOrCreateSession(sessionId, userInfo, language) {
@@ -293,7 +293,7 @@ async function storeUserMessage(sessionId, content, timestamp) {
 }
 
 //=============================================================================
-// RAG PROCESSING (from rag-processor)
+// RAG PROCESSING
 //=============================================================================
 
 function preprocessQuery(query, language) {
@@ -382,10 +382,10 @@ async function processRAG(query, language, sessionId) {
   const avgConfidence = validSourceCount > 0 ? totalRelevanceScore / validSourceCount : 0;
 
   // HYBRID CONFIDENCE STRATEGY:
-  // - If we have a highly confident source (>= 0.85), use top score
+  // - If we have a highly confident source (>= 0.79), use top score
   //   Rationale: Claude can form accurate answers from one excellent source
   // - Otherwise, use average to ensure overall context quality
-  //   Rationale: Marginal sources (0.75-0.85) need support from other good sources
+  //   Rationale: Marginal sources (0.65-0.79) need support from other good sources
   let confidence;
   let confidenceMethod;
 
@@ -410,9 +410,9 @@ async function processRAG(query, language, sessionId) {
       console.log(`Applied source count penalty: ${validSourceCount}/${MIN_QUALITY_SOURCES} sources → confidence ${originalConfidence.toFixed(3)} → ${confidence.toFixed(3)}`);
     }
 
-    // Volume bonus: When we have many quality sources (>= 8), apply a small boost
+    // Volume bonus: When we have many quality sources (>= 4), apply a small boost
     // Rationale: 8+ relevant chunks indicates comprehensive coverage of the topic
-    const VOLUME_BONUS_THRESHOLD = 8;
+    const VOLUME_BONUS_THRESHOLD = 4;
     if (validSourceCount >= VOLUME_BONUS_THRESHOLD) {
       const volumeBonus = Math.min(0.05, (validSourceCount - VOLUME_BONUS_THRESHOLD) * 0.01);
       const originalConfidence = confidence;
@@ -573,7 +573,7 @@ function extractOriginalUrlFromContent(content) {
 }
 
 //=============================================================================
-// RESPONSE STORAGE & ESCALATION (from chat-response-handler)
+// RESPONSE STORAGE & ESCALATION
 //=============================================================================
 
 async function storeBotMessage(sessionId, content, confidence, sources, processingTime) {

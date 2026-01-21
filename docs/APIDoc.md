@@ -6,28 +6,28 @@ This document provides comprehensive API documentation for ADA Clara.
 
 ## Overview
 
-The ADA Clara API provides endpoints for chat interactions, admin analytics, escalation management, and knowledge base queries. The API is built on AWS API Gateway with Lambda backend functions, supporting CORS for web applications and Cognito authentication for admin endpoints.
+The ADA Clara API provides endpoints for chat interactions, admin analytics, escalation management, content scraping, and knowledge base management. The API is built on AWS API Gateway (HTTP API) with Lambda backend functions, supporting CORS for web applications and Cognito authentication for admin endpoints.
 
 ---
 
 ## Base URL
 
 ```
-https://[API_ID].execute-api.[REGION].amazonaws.com/prod/
+https://[API_ID].execute-api.[REGION].amazonaws.com/
 ```
 
 **Example:**
 ```
-https://abc123xyz.execute-api.us-west-2.amazonaws.com/prod/
+https://mbx87iv2z8.execute-api.us-west-2.amazonaws.com/
 ```
 
-> **Note**: Replace `[API_ID]` and `[REGION]` with your actual API Gateway endpoint after deployment. The stage is always `prod`.
+> **Note**: Replace `[API_ID]` and `[REGION]` with your actual API Gateway endpoint after deployment. This API uses the default stage (no `/prod/` prefix).
 
 ---
 
 ## Authentication
 
-Public endpoints (chat, health) do not require authentication. Admin endpoints require Cognito authentication via API Gateway authorizer.
+Public endpoints (chat, escalation, config, scraper) do not require authentication. Admin endpoints require Cognito authentication via API Gateway authorizer.
 
 ### Headers Required
 | Header | Description | Required |
@@ -71,15 +71,17 @@ Endpoints for user chat interactions, message processing, and conversation manag
 ```json
 {
   "message": "string - AI-generated response text",
+  "sessionId": "string - Session ID for this conversation",
   "sources": [
     {
       "url": "string - Source URL from diabetes.org",
       "title": "string - Source page title",
-      "excerpt": "string - Relevant excerpt from source"
+      "excerpt": "string - Relevant excerpt from source",
+      "relevanceScore": "number - Relevance score (0-1)"
     }
   ],
-  "sessionId": "string - Session ID for this conversation",
-  "escalated": "boolean - Whether the conversation was escalated"
+  "escalated": "boolean - Whether the conversation was escalated",
+  "confidence": "number - Confidence score (0-1)"
 }
 ```
 
@@ -87,15 +89,17 @@ Endpoints for user chat interactions, message processing, and conversation manag
 ```json
 {
   "message": "Type 2 diabetes symptoms include increased thirst, frequent urination, fatigue, and blurred vision...",
+  "sessionId": "session-1234567890-abc",
   "sources": [
     {
       "url": "https://diabetes.org/about-diabetes/type-2",
       "title": "Type 2 Diabetes",
-      "excerpt": "Common symptoms of type 2 diabetes include..."
+      "excerpt": "Common symptoms of type 2 diabetes include...",
+      "relevanceScore": 0.85
     }
   ],
-  "sessionId": "session-1234567890-abc",
-  "escalated": false
+  "escalated": false,
+  "confidence": 0.85
 }
 ```
 
@@ -168,22 +172,18 @@ GET /chat/history?sessionId=session-1234567890-abc
 
 ---
 
-#### GET /health — Health Check
+#### GET /config — Get Configuration
 
-- **Purpose**: Check API health and service status.
+- **Purpose**: Retrieve system configuration and settings.
 
 - **Authentication**: Not required
 
 - **Response**:
 ```json
 {
-  "message": "ADA Clara API is working!",
-  "timestamp": "string (ISO 8601)",
-  "status": "healthy" | "unhealthy",
-  "services": {
-    "dynamodb": "healthy" | "unhealthy",
-    "bedrock": "healthy" | "unhealthy"
-  }
+  "confidenceThreshold": "number - Confidence threshold for escalation",
+  "supportedLanguages": ["string - Language codes"],
+  "apiVersion": "string"
 }
 ```
 
@@ -241,39 +241,121 @@ Endpoints for managing escalation requests when users need to speak with a healt
 
 ---
 
-#### GET /escalation/requests — Get Escalation Requests
+## 3) Content Management Endpoints
 
-- **Purpose**: Retrieve escalation requests (admin use).
+Endpoints for managing web scraping, content discovery, and knowledge base updates.
 
-- **Authentication**: Cognito required
+---
 
-- **Query parameters**:
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `limit` | number | No | Maximum number of requests to return (default: 50) |
-| `status` | string | No | Filter by status (pending, resolved, etc.) |
+#### POST /scraper — Trigger Content Scraping
+
+- **Purpose**: Manually trigger content scraping for specific URLs.
+
+- **Authentication**: Not required (should be restricted in production)
+
+- **Request body**:
+```json
+{
+  "url": "string - URL to scrape",
+  "depth": "number (optional) - Crawl depth"
+}
+```
 
 - **Response**:
 ```json
 {
-  "requests": [
-    {
-      "requestId": "string",
-      "name": "string",
-      "email": "string",
-      "question": "string",
-      "timestamp": "string (ISO 8601)",
-      "status": "string"
-    }
-  ]
+  "message": "Scraping job started",
+  "jobId": "string"
 }
 ```
 
 ---
 
-## 3) Admin Endpoints
+#### GET /scraper/status — Get Scraper Status
+
+- **Purpose**: Check the status of scraping jobs.
+
+- **Authentication**: Not required (should be restricted in production)
+
+- **Query parameters**:
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `jobId` | string | No | Specific job ID to check status |
+
+- **Response**:
+```json
+{
+  "status": "running" | "completed" | "failed",
+  "jobId": "string",
+  "progress": "number (percentage)"
+}
+```
+
+---
+
+#### POST /scraper/discover — Discover Domains
+
+- **Purpose**: Discover and validate new domains for content scraping.
+
+- **Authentication**: Not required (should be restricted in production)
+
+- **Request body**:
+```json
+{
+  "seedUrl": "string - Starting URL for domain discovery"
+}
+```
+
+- **Response**:
+```json
+{
+  "message": "Domain discovery started",
+  "discoveredDomains": ["string - List of discovered domains"]
+}
+```
+
+---
+
+#### GET /scraper/processor — Get Processor Status
+
+- **Purpose**: Check content processor status and statistics.
+
+- **Authentication**: Not required (should be restricted in production)
+
+- **Response**:
+```json
+{
+  "status": "idle" | "processing",
+  "processedCount": "number",
+  "lastProcessed": "string (ISO 8601)"
+}
+```
+
+---
+
+## 4) Admin Endpoints
 
 Endpoints for admin dashboard analytics and metrics. All admin endpoints require Cognito authentication.
+
+---
+
+#### GET /admin — Get Admin Home Data
+
+- **Purpose**: Retrieve admin home page data (redirects or provides summary).
+
+- **Authentication**: Cognito required
+
+- **Response**:
+```json
+{
+  "message": "Admin home",
+  "links": {
+    "dashboard": "/admin/dashboard",
+    "escalations": "/admin/escalation-requests",
+    "metrics": "/admin/metrics"
+  }
+}
+```
 
 ---
 
@@ -288,40 +370,37 @@ Endpoints for admin dashboard analytics and metrics. All admin endpoints require
 {
   "metrics": {
     "totalConversations": "number",
-    "totalMessages": "number",
     "escalationRate": "number (percentage)",
-    "outOfScopeRate": "number (percentage)"
+    "outOfScopeRate": "number (percentage)",
+    "trends": {
+      "conversations": "string (e.g., +12%)",
+      "escalations": "string",
+      "outOfScope": "string"
+    }
   },
   "conversationsChart": {
-    "labels": ["string - Date labels"],
-    "data": ["number - Conversation counts"]
+    "data": [
+      {
+        "date": "string (YYYY-MM-DD)",
+        "conversations": "number"
+      }
+    ]
   },
   "languageSplit": {
-    "en": "number (percentage)",
-    "es": "number (percentage)"
+    "english": "number (percentage)",
+    "spanish": "number (percentage)"
   },
-  "frequentlyAskedQuestions": [
-    {
-      "question": "string",
-      "count": "number",
-      "category": "string"
-    }
-  ],
-  "unansweredQuestions": [
-    {
-      "question": "string",
-      "unansweredRate": "number (percentage)",
-      "category": "string"
-    }
-  ]
+  "lastUpdated": "string (ISO 8601)"
 }
 ```
+
+> **Note**: This endpoint combines data from `/admin/metrics`, `/admin/conversations/chart`, and `/admin/language-split`.
 
 ---
 
 #### GET /admin/metrics — Get Metrics Only
 
-- **Purpose**: Retrieve only the key metrics (conversations, messages, escalation rate, out-of-scope rate).
+- **Purpose**: Retrieve only the key metrics (conversations, escalation rate, out-of-scope rate, and trends).
 
 - **Authentication**: Cognito required
 
@@ -329,9 +408,13 @@ Endpoints for admin dashboard analytics and metrics. All admin endpoints require
 ```json
 {
   "totalConversations": "number",
-  "totalMessages": "number",
-  "escalationRate": "number (percentage)",
-  "outOfScopeRate": "number (percentage)"
+  "escalationRate": "number (percentage) - User-submitted escalation forms",
+  "outOfScopeRate": "number (percentage) - Questions auto-escalated due to low confidence",
+  "trends": {
+    "conversations": "string (e.g., +12%, -5%)",
+    "escalations": "string (week-over-week trend)",
+    "outOfScope": "string (week-over-week trend)"
+  }
 }
 ```
 
@@ -362,51 +445,8 @@ Endpoints for admin dashboard analytics and metrics. All admin endpoints require
 - **Response**:
 ```json
 {
-  "en": "number (percentage)",
-  "es": "number (percentage)",
-  "other": "number (percentage)"
-}
-```
-
----
-
-#### GET /admin/frequently-asked-questions — Get Frequently Asked Questions
-
-- **Purpose**: Retrieve top 6 most frequently asked questions.
-
-- **Authentication**: Cognito required
-
-- **Response**:
-```json
-{
-  "questions": [
-    {
-      "question": "string",
-      "count": "number",
-      "category": "string"
-    }
-  ]
-}
-```
-
----
-
-#### GET /admin/unanswered-questions — Get Unanswered Questions
-
-- **Purpose**: Retrieve top 6 unanswered questions (questions with high escalation rate).
-
-- **Authentication**: Cognito required
-
-- **Response**:
-```json
-{
-  "questions": [
-    {
-      "question": "string",
-      "unansweredRate": "number (percentage)",
-      "category": "string"
-    }
-  ]
+  "english": "number (percentage)",
+  "spanish": "number (percentage)"
 }
 ```
 

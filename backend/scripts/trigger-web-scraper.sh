@@ -7,9 +7,6 @@
 
 set -e
 
-# NOTE: Color codes removed for Windows/MSYS2 compatibility
-# Plain text output only
-
 # Configuration
 STACK_NAME="AdaClaraUnifiedStack"
 REGION=${AWS_REGION:-$(aws configure get region 2>/dev/null || echo "us-west-2")}

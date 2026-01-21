@@ -1,6 +1,5 @@
 /**
  * Admin Analytics Lambda
- * Consolidated single-file implementation
  *
  * Handles:
  * - GET /admin/metrics - Dashboard metrics
@@ -167,10 +166,10 @@ async function getMetrics() {
 
     console.log('Cache miss - fetching fresh metrics...');
 
-    // Get total questions (more accurate than sessions for conversation activity)
+    // Get total questions
     const totalQuestions = await getTotalQuestions();
 
-    // Get escalation rate from questions table (now consistent)
+    // Get escalation rate from questions table
     const escalationRate = await getEscalationRate();
 
     // Get out of scope rate from analytics table
@@ -481,7 +480,7 @@ async function getEscalationRate() {
 
     if (totalQuestions === 0) return 0;
 
-    // Get count of actual form submissions using GSI (much more efficient)
+    // Get count of actual form submissions using GSI
     const queryResult = await dynamodb.send(new QueryCommand({
       TableName: ESCALATION_REQUESTS_TABLE,
       IndexName: 'SourceIndex',
