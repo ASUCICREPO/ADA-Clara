@@ -28,18 +28,43 @@ export interface ChatPanelHandle {
   resetChat: () => void;
 }
 
-// Session management
+// Session management with daily rotation
 function getOrCreateSessionId(): string {
   if (typeof window === 'undefined') {
     return `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
-  
-  let sessionId = localStorage.getItem('ada-clara-session-id');
-  if (!sessionId) {
-    sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem('ada-clara-session-id', sessionId);
+
+  // Get current date in YYYY-MM-DD format (local timezone)
+  const today = (() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  })();
+
+  try {
+    // Check for existing session and its date
+    const storedSessionId = localStorage.getItem('ada-clara-session-id');
+    const storedDate = localStorage.getItem('ada-clara-session-date');
+
+    // If session exists and is from today, reuse it
+    if (storedSessionId && storedDate === today) {
+      return storedSessionId;
+    }
+
+    // Create new session for today
+    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    localStorage.setItem('ada-clara-session-id', newSessionId);
+    localStorage.setItem('ada-clara-session-date', today);
+
+    return newSessionId;
+  } catch (error) {
+    // localStorage unavailable (disabled, full, or private browsing)
+    console.warn('localStorage unavailable, using ephemeral session:', error);
+    // Fallback: generate ephemeral session ID (won't persist across page loads)
+    return `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
-  return sessionId;
 }
 
 const ChatPanel = forwardRef<ChatPanelHandle>((props, ref) => {

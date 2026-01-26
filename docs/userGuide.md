@@ -24,7 +24,7 @@ ADA Clara is designed to help users get reliable diabetes information quickly an
 - **Source Citations**: Every answer includes links to the source content from diabetes.org
 - **Escalation Support**: Easy access to submit a form to speak with a healthcare professional
 - **Admin Dashboard**: Analytics and insights for administrators (requires login)
-- **Persistent Chat History**: Your conversation history is saved for 30 days with up to 100 messages per session
+- **Daily Chat History**: Your conversation history is saved throughout the day with up to 100 messages per session
 
 ### System Capabilities
 
@@ -37,7 +37,7 @@ ADA Clara is designed to help users get reliable diabetes information quickly an
 
 **Chat Features**:
 - Message history: Last 100 messages per session
-- Session persistence: 30 days
+- Session persistence: Daily (resets each day)
 - Character limit: 5,000 characters per message
 - Automatic language detection
 
@@ -48,11 +48,13 @@ ADA Clara is designed to help users get reliable diabetes information quickly an
 
 ---
 
-## Getting Started
+## Getting Started as User
 
 ### Step 1: Access the Application
 
 Navigate to the application URL provided after deployment (typically an AWS Amplify URL).
+
+![Landing Page](./media/landing-page.png)
 
 The landing page displays:
 - The ADA Clara header with logo and title
@@ -71,6 +73,8 @@ Type your question about diabetes in the text input field at the bottom of the p
 
 Press Enter or click the Send button to submit your question.
 
+![Initial Query](./media/initial-query.png)
+
 **Note**: Use the language switcher in the header to select your preferred language (English or Spanish) before asking questions.
 
 ---
@@ -84,6 +88,8 @@ Clara will process your question and provide:
 
 The response appears in the chat interface with a timestamp. You can click on source links to read more detailed information.
 
+![Initial Response](./media/initial-response.png)
+
 ---
 
 ### Step 4: Continue the Conversation
@@ -94,6 +100,8 @@ Examples of follow-up questions:
 - "Can you tell me more about that?"
 - "What about exercise recommendations?"
 - "How does this relate to type 1 diabetes?"
+
+![Follow-up Query](./media/follow-up-query.png)
 
 ---
 
@@ -112,7 +120,31 @@ Fill out the escalation form with:
 
 Your recent question will be automatically included in the form. Submit the form, and your request will be sent to the support team.
 
+![Escalation Form](./media/escalation-form.png)
+
 **Note**: The escalation form has rate limiting (3 submissions per email per 60 minutes) to prevent spam.
+
+---
+
+## Getting Started as Admin
+
+### Step 1: Log in to Dashboard
+
+Provide admin login credentials (set up in Cognito UserPool)
+
+![Admin Login](./media/admin-login.png)
+
+---
+
+### Step 2: View Analytics
+
+View conversation analytics at the top of the page
+
+![Admin Dashboard 1](./media/admin-dash-1.png)
+
+View escalation requests w/escalated message text at the bottom of the page
+
+![Admin Dashboard 2](./media/admin-dash-2.png)
 
 ---
 
@@ -171,7 +203,7 @@ The system will provide information about blood glucose monitoring, target range
 
 - **Character Limits**: Keep your questions under 5000 characters for optimal processing.
 
-- **Persistent History**: Your chat history automatically saves and reloads when you return, persisting for 30 days with up to 100 messages.
+- **Daily History**: Your chat history automatically saves throughout the day. Each day starts a fresh conversation with up to 100 messages.
 
 ---
 
@@ -187,7 +219,7 @@ The system will provide information about blood glucose monitoring, target range
 **A:** All responses are based on content from the American Diabetes Association (diabetes.org), which is a trusted source for diabetes information. The system uses AI to retrieve and present this information, but always includes source citations so you can verify the information.
 
 ### Q: Can I save my conversation?
-**A:** Yes! Your conversation history is automatically saved for 30 days and will reload when you return. The system maintains up to 100 messages per session. Your session is tied to a unique session ID stored in your browser. For important information, you can still copy responses or use the source links to bookmark relevant pages.
+**A:** Yes! Your conversation history is automatically saved throughout the day and will reload when you return. Each day starts a fresh conversation with up to 100 messages. Your session is tied to a unique daily session ID stored in your browser. For important information, you can still copy responses or use the source links to bookmark relevant pages.
 
 ### Q: How do I access the admin dashboard?
 **A:** The admin dashboard is available at `/admin` and requires authentication. Contact your administrator for access credentials.
