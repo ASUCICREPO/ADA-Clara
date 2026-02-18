@@ -1,12 +1,12 @@
-![ASU AI CIC Logo](./media/ASU-AI-CIC-logo.png)
+![ASU AI CIC Logo](./media/project-closure/ASU-AI-CIC-logo.png)
 
 **Project Completion Documentation** 
 
 ADA Clara - AI-Powered Diabetes Chatbot
 
- ![American Diabetes Association Logo](./media/ada-logo.png)
+ ![American Diabetes Association Logo](./media/project-closure/ada-logo.png)
 
-![Powered by AWS](./media/powered-by-aws.png)
+![Powered by AWS](./media/project-closure/powered-by-aws.png)
 
 **Authors:** 
 
@@ -198,7 +198,7 @@ The organization needed an intelligent, scalable solution that could provide ins
 
 #### 
 
-![UI/UX Design Process](./media/UI-UX-design-process.png)
+![UI/UX Design Process](./media/project-closure/UI-UX-design-process.png)
 
 #### **Who are the users of this application?**
 
