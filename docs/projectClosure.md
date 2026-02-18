@@ -523,6 +523,8 @@ For detailed troubleshooting and advanced deployment options, see the [Deploymen
 
 **GitHub Repository** - [https://github.com/ASUCICREPO/ADA-Clara](https://github.com/ASUCICREPO/ADA-Clara)
 
+**Figma Design Link** - [https://www.figma.com/design/L9tlg9xGb4gW2LtD1dRmPj/ADA-Chatbot---Clara?node-id=0-1&t=AzggApIdhVMWQyDw-1](https://www.figma.com/design/L9tlg9xGb4gW2LtD1dRmPj/ADA-Chatbot---Clara?node-id=0-1&t=AzggApIdhVMWQyDw-1)
+
 **Project Demo Recording** - [https://drive.google.com/file/d/1mrBAhw4bXFlNrgvHk-Jm0gcBxuISawcr/preview](https://drive.google.com/file/d/1mrBAhw4bXFlNrgvHk-Jm0gcBxuISawcr/preview)
 
 **Additional resources:**
