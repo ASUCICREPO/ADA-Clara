@@ -91,7 +91,7 @@ exports.handler = async (event, context) => {
 
     return createResponse(500, {
       error: 'Content processor processing failed',
-      message: error.message || 'Unknown error',
+      message: 'Unable to process content. Please try again later.',
       timestamp: new Date().toISOString(),
       requestId: context.awsRequestId
     });
@@ -287,6 +287,8 @@ async function processUrl(url) {
       Key: s3Key,
       Body: markdown,
       ContentType: 'text/markdown',
+      // SECURITY FIX: Enforce server-side encryption on upload
+      ServerSideEncryption: 'AES256',
       Metadata: {
         url: sanitizeHeaderValue(url.substring(0, 100)),
         title: sanitizeHeaderValue(title.substring(0, 50)),

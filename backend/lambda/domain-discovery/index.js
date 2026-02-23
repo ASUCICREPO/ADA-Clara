@@ -61,7 +61,7 @@ exports.handler = async (event, context) => {
       statusCode: 500,
       body: JSON.stringify({
         error: 'Domain discovery failed',
-        message: error.message || 'Unknown error',
+        message: 'Unable to complete domain discovery. Please try again later.',
         timestamp: new Date().toISOString(),
         requestId: context.awsRequestId
       })
@@ -609,10 +609,21 @@ async function handleDirectUrls(urls) {
       })
     };
   } catch (error) {
-    console.error('Error sending to SQS:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Error sending to SQS:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({
+        error: 'Failed to queue URLs for processing',
+        message: 'Unable to process URLs at this time. Please try again later.'
+      })
     };
   }
 }

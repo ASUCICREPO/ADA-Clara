@@ -50,10 +50,18 @@ exports.handler = async (event) => {
     }
 
   } catch (error) {
-    console.error('Escalation handler error:', error);
+    // SECURITY: Log detailed error server-side only (with PII redaction)
+    console.error('Escalation handler error:', redactPII({
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    }));
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Internal server error',
-      message: error.message || 'Unknown error occurred'
+      message: 'An unexpected error occurred. Please try again.'
     });
   }
 };
@@ -138,10 +146,18 @@ async function handleEscalationRequest(event) {
     });
 
   } catch (error) {
-    console.error('Error handling escalation request:', error);
+    // SECURITY: Log detailed error server-side only (with PII redaction)
+    console.error('Error handling escalation request:', redactPII({
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    }));
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to process escalation request',
-      message: error.message || 'Unknown error'
+      message: 'Unable to submit your request at this time. Please try again later.'
     });
   }
 }
@@ -227,26 +243,41 @@ async function getEscalationRequests(event) {
     });
 
   } catch (error) {
-    console.error('Error fetching escalation requests:', error);
+    // SECURITY: Log detailed error server-side only (with PII redaction)
+    console.error('Error fetching escalation requests:', redactPII({
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    }));
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to fetch escalation requests',
-      message: error.message || 'Unknown error'
+      message: 'Unable to retrieve requests at this time. Please try again later.'
     });
   }
 }
 
 /**
  * Validate escalation request
+ * SECURITY: Comprehensive input validation to prevent injection attacks and data quality issues
  */
 function validateEscalationRequest(request) {
+  // Validate name field
   if (!request.name || typeof request.name !== 'string' || request.name.trim().length === 0) {
     return { valid: false, message: 'Name is required' };
+  }
+
+  if (request.name.trim().length < 2) {
+    return { valid: false, message: 'Name must be at least 2 characters' };
   }
 
   if (request.name.trim().length > 100) {
     return { valid: false, message: 'Name must be 100 characters or less' };
   }
 
+  // Validate email field
   if (!request.email || typeof request.email !== 'string' || request.email.trim().length === 0) {
     return { valid: false, message: 'Email is required' };
   }
@@ -255,34 +286,78 @@ function validateEscalationRequest(request) {
     return { valid: false, message: 'Email must be 255 characters or less' };
   }
 
-  // More strict email validation
+  // RFC 5322 compliant email validation
   const emailRegex = /^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
   if (!emailRegex.test(request.email.trim())) {
     return { valid: false, message: 'Please provide a valid email address' };
   }
 
   // Validate optional phone number format if provided
-  if (request.phoneNumber && request.phoneNumber.trim().length > 0) {
-    if (request.phoneNumber.trim().length > 20) {
-      return { valid: false, message: 'Phone number must be 20 characters or less' };
+  if (request.phoneNumber !== undefined && request.phoneNumber !== null) {
+    if (typeof request.phoneNumber !== 'string') {
+      return { valid: false, message: 'Phone number must be a string' };
     }
-    const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
-    const cleanPhone = request.phoneNumber.replace(/[\s\-\(\)\.]/g, '');
-    if (!phoneRegex.test(cleanPhone)) {
-      // Don't fail validation, just log warning
-      console.warn('Invalid phone number format provided:', '***-***-' + request.phoneNumber.slice(-4));
+    
+    if (request.phoneNumber.trim().length > 0) {
+      if (request.phoneNumber.trim().length > 20) {
+        return { valid: false, message: 'Phone number must be 20 characters or less' };
+      }
+      
+      // Remove common formatting characters for validation
+      const cleanPhone = request.phoneNumber.replace(/[\s\-\(\)\.]/g, '');
+      
+      // Must be 10-15 digits (international format support)
+      if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+        return { valid: false, message: 'Phone number must be 10-15 digits' };
+      }
+      
+      // Must contain only digits (and optional leading +)
+      const phoneRegex = /^[\+]?[0-9]{10,15}$/;
+      if (!phoneRegex.test(cleanPhone)) {
+        return { valid: false, message: 'Phone number must contain only digits' };
+      }
     }
   }
 
   // Validate optional zip code format if provided
-  if (request.zipCode && request.zipCode.trim().length > 0) {
-    if (request.zipCode.trim().length > 10) {
-      return { valid: false, message: 'ZIP code must be 10 characters or less' };
+  if (request.zipCode !== undefined && request.zipCode !== null) {
+    if (typeof request.zipCode !== 'string') {
+      return { valid: false, message: 'ZIP code must be a string' };
     }
-    const zipRegex = /^\d{5}(-\d{4})?$/;
-    if (!zipRegex.test(request.zipCode.trim())) {
-      // Don't fail validation, just log warning
-      console.warn('Invalid zip code format provided:', request.zipCode);
+    
+    if (request.zipCode.trim().length > 0) {
+      if (request.zipCode.trim().length > 10) {
+        return { valid: false, message: 'ZIP code must be 10 characters or less' };
+      }
+      
+      // US ZIP code format: 5 digits or 5+4 format
+      const zipRegex = /^\d{5}(-\d{4})?$/;
+      if (!zipRegex.test(request.zipCode.trim())) {
+        return { valid: false, message: 'ZIP code must be in format 12345 or 12345-6789' };
+      }
+    }
+  }
+
+  // Validate optional question text if provided
+  if (request.questionText !== undefined && request.questionText !== null) {
+    if (typeof request.questionText !== 'string') {
+      return { valid: false, message: 'Question text must be a string' };
+    }
+    
+    if (request.questionText.trim().length > 2000) {
+      return { valid: false, message: 'Question text must be 2000 characters or less' };
+    }
+  }
+
+  // Validate escalationType if provided
+  if (request.escalationType !== undefined && request.escalationType !== null) {
+    if (typeof request.escalationType !== 'string') {
+      return { valid: false, message: 'Escalation type must be a string' };
+    }
+    
+    const validTypes = ['submit', 'talk_to_person'];
+    if (!validTypes.includes(request.escalationType)) {
+      return { valid: false, message: 'Escalation type must be "submit" or "talk_to_person"' };
     }
   }
 

@@ -72,10 +72,18 @@ exports.handler = async (event) => {
     }
 
   } catch (error) {
-    console.error('Admin analytics handler error:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Admin analytics handler error:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Internal server error',
-      message: error.message || 'Unknown error occurred'
+      message: 'An unexpected error occurred. Please try again.'
     });
   }
 };
@@ -145,10 +153,18 @@ async function getDashboardData() {
     return createResponse(200, dashboardData);
 
   } catch (error) {
-    console.error('Error fetching dashboard data:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Error fetching dashboard data:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to fetch dashboard data',
-      message: error.message || 'Unknown error'
+      message: 'Unable to load dashboard data. Please try again later.'
     });
   }
 }
@@ -246,10 +262,18 @@ async function getMetrics() {
     return createResponse(200, responseData);
 
   } catch (error) {
-    console.error('Error fetching metrics:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Error fetching metrics:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to fetch metrics',
-      message: error.message || 'Unknown error'
+      message: 'Unable to load metrics. Please try again later.'
     });
   }
 }
@@ -327,10 +351,18 @@ async function getConversationsChart() {
     return createResponse(200, responseData);
 
   } catch (error) {
-    console.error('Error fetching conversations chart:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Error fetching conversations chart:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to fetch conversations chart',
-      message: error.message || 'Unknown error'
+      message: 'Unable to load chart data. Please try again later.'
     });
   }
 }
@@ -419,10 +451,18 @@ async function getLanguageSplit() {
     return createResponse(200, responseData);
 
   } catch (error) {
-    console.error('Error fetching language split:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Error fetching language split:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to fetch language split',
-      message: error.message || 'Unknown error'
+      message: 'Unable to load language data. Please try again later.'
     });
   }
 }

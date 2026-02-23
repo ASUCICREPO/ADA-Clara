@@ -45,7 +45,8 @@ const HIGH_CONFIDENCE_THRESHOLD = 0.79;
  * Main Lambda handler - Direct API Gateway entry point
  */
 export const handler = async (event) => {
-  console.log('Chat handler invoked:', JSON.stringify(event, null, 2));
+  // SECURITY: Redact PII before logging event
+  console.log('Chat handler invoked:', JSON.stringify(redactPII(event), null, 2));
 
   try {
     // Support both HTTP API (v2) and REST API (v1) formats
@@ -75,7 +76,8 @@ export const handler = async (event) => {
     let request;
     try {
       request = JSON.parse(bodyString);
-      console.log('Parsed request:', JSON.stringify(request));
+      // SECURITY: Redact PII before logging request
+      console.log('Parsed request:', JSON.stringify(redactPII(request)));
     } catch (parseError) {
       return createResponse(400, {
         error: 'Invalid JSON',
@@ -83,27 +85,17 @@ export const handler = async (event) => {
       });
     }
 
-    // Validate message
-    if (!request.message || typeof request.message !== 'string') {
+    // Validate chat request
+    const validation = validateChatRequest(request);
+    if (!validation.valid) {
       return createResponse(400, {
-        error: 'Message is required',
-        message: 'Message must be a non-empty string'
+        error: 'Validation error',
+        message: validation.message
       });
     }
 
-    if (request.message.trim().length === 0) {
-      return createResponse(400, {
-        error: 'Message cannot be empty',
-        message: 'Please provide a message'
-      });
-    }
-
-    if (request.message.length > 5000) {
-      return createResponse(400, {
-        error: 'Message too long',
-        message: 'Message cannot exceed 5000 characters'
-      });
-    }
+    // SECURITY: Detect potential prompt injection attempts (logging only, non-blocking)
+    detectPromptInjection(request.message, request.sessionId);
 
     // Process chat flow
     const result = await processChatFlow(request);
@@ -111,10 +103,18 @@ export const handler = async (event) => {
     return createResponse(200, result);
 
   } catch (error) {
-    console.error('Chat handler error:', error);
+    // SECURITY: Log detailed error server-side only (with PII redaction)
+    console.error('Chat handler error:', redactPII({
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    }));
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Internal server error',
-      message: error.message || 'An unexpected error occurred'
+      message: 'An unexpected error occurred. Please try again.'
     });
   }
 };
@@ -734,6 +734,223 @@ async function invokeAnalyticsAsync(analyticsData) {
     // Log but don't throw - analytics is non-blocking
     console.error('Failed to invoke analytics processor (non-blocking):', error);
   }
+}
+
+//=============================================================================
+// INPUT VALIDATION
+//=============================================================================
+
+/**
+ * Validate chat request
+ * SECURITY: Comprehensive input validation to prevent injection attacks and data quality issues
+ */
+function validateChatRequest(request) {
+  // Validate message field
+  if (!request.message || typeof request.message !== 'string') {
+    return { valid: false, message: 'Message is required and must be a string' };
+  }
+
+  const trimmedMessage = request.message.trim();
+  
+  if (trimmedMessage.length === 0) {
+    return { valid: false, message: 'Message cannot be empty' };
+  }
+
+  if (trimmedMessage.length < 3) {
+    return { valid: false, message: 'Message must be at least 3 characters' };
+  }
+
+  if (request.message.length > 5000) {
+    return { valid: false, message: 'Message cannot exceed 5000 characters' };
+  }
+
+  // Validate optional language field if provided
+  if (request.language !== undefined && request.language !== null) {
+    if (typeof request.language !== 'string') {
+      return { valid: false, message: 'Language must be a string' };
+    }
+    
+    const validLanguages = ['en', 'es'];
+    if (!validLanguages.includes(request.language)) {
+      return { valid: false, message: 'Language must be "en" or "es"' };
+    }
+  }
+
+  // Validate optional sessionId field if provided
+  if (request.sessionId !== undefined && request.sessionId !== null) {
+    if (typeof request.sessionId !== 'string') {
+      return { valid: false, message: 'Session ID must be a string' };
+    }
+    
+    if (request.sessionId.trim().length === 0) {
+      return { valid: false, message: 'Session ID cannot be empty' };
+    }
+    
+    if (request.sessionId.length > 200) {
+      return { valid: false, message: 'Session ID must be 200 characters or less' };
+    }
+    
+    // Session ID format validation (session-timestamp-randomstring or UUID)
+    const sessionIdRegex = /^(session-\d+-[a-z0-9]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+    if (!sessionIdRegex.test(request.sessionId)) {
+      return { valid: false, message: 'Session ID format is invalid' };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Detect potential prompt injection attempts
+ * SECURITY: Monitors for common prompt injection patterns
+ * 
+ * NOTE: This is DETECTION ONLY - does not block requests
+ * Purpose: Security monitoring and alerting for suspicious activity
+ * 
+ * @param {string} message - User message to analyze
+ * @param {string} sessionId - Session ID for tracking
+ */
+function detectPromptInjection(message, sessionId) {
+  const suspiciousPatterns = [
+    // Direct instruction manipulation
+    { pattern: /ignore\s+(previous|all|prior|above)\s+instructions?/i, name: 'ignore_instructions' },
+    { pattern: /disregard\s+(previous|all|prior|above)\s+instructions?/i, name: 'disregard_instructions' },
+    { pattern: /forget\s+(everything|all|previous|prior|what|your)/i, name: 'forget_instructions' },
+    
+    // Role manipulation
+    { pattern: /you\s+are\s+now\s+(a|an)\s+/i, name: 'role_change' },
+    { pattern: /act\s+as\s+(if|a|an)\s+/i, name: 'act_as' },
+    { pattern: /pretend\s+(you|to\s+be)\s+/i, name: 'pretend' },
+    { pattern: /simulate\s+(being|a|an)\s+/i, name: 'simulate' },
+    
+    // System prompt access attempts
+    { pattern: /system\s+prompt/i, name: 'system_prompt_access' },
+    { pattern: /reveal\s+your\s+(prompt|instructions|system)/i, name: 'reveal_prompt' },
+    { pattern: /show\s+(me\s+)?(your\s+)?(prompt|instructions|system)/i, name: 'show_prompt' },
+    { pattern: /what\s+(is|are)\s+your\s+(instructions|prompt|system)/i, name: 'query_prompt' },
+    
+    // Instruction injection
+    { pattern: /new\s+instructions?:/i, name: 'new_instructions' },
+    { pattern: /updated\s+instructions?:/i, name: 'updated_instructions' },
+    { pattern: /override\s+(previous|all|prior)\s+/i, name: 'override_instructions' },
+    
+    // Delimiter/escape attempts
+    { pattern: /\[SYSTEM\]/i, name: 'system_tag' },
+    { pattern: /\[INST\]/i, name: 'instruction_tag' },
+    { pattern: /\<\|system\|\>/i, name: 'system_delimiter' },
+    { pattern: /\<\|im_start\|\>/i, name: 'chat_delimiter' },
+    
+    // Output manipulation
+    { pattern: /respond\s+with\s+only/i, name: 'output_constraint' },
+    { pattern: /output\s+format:/i, name: 'format_override' },
+    { pattern: /always\s+(respond|answer|say)\s+/i, name: 'behavior_override' }
+  ];
+
+  const detectedPatterns = [];
+  
+  for (const { pattern, name } of suspiciousPatterns) {
+    if (pattern.test(message)) {
+      detectedPatterns.push(name);
+    }
+  }
+
+  if (detectedPatterns.length > 0) {
+    // SECURITY: Log detection for monitoring (with message preview only, not full content)
+    console.warn('SECURITY ALERT: Potential prompt injection detected', {
+      sessionId: sessionId || 'unknown',
+      patternsDetected: detectedPatterns,
+      patternCount: detectedPatterns.length,
+      messageLength: message.length,
+      messagePreview: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
+      timestamp: new Date().toISOString()
+    });
+    
+    // Return detection result (for potential future use in analytics)
+    return {
+      detected: true,
+      patterns: detectedPatterns,
+      severity: detectedPatterns.length >= 3 ? 'HIGH' : detectedPatterns.length >= 2 ? 'MEDIUM' : 'LOW'
+    };
+  }
+
+  return { detected: false };
+}
+
+//=============================================================================
+// PII REDACTION FOR LOGGING
+//=============================================================================
+
+/**
+ * Redact PII from data before logging to CloudWatch
+ * Masks email addresses, phone numbers, and other sensitive data
+ * 
+ * SECURITY: Prevents PII from being logged to CloudWatch Logs
+ * Used for all event and request logging
+ */
+function redactPII(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const redacted = JSON.parse(JSON.stringify(obj)); // Deep clone
+
+  function redactRecursive(item) {
+    if (Array.isArray(item)) {
+      return item.map(redactRecursive);
+    }
+
+    if (item && typeof item === 'object') {
+      const result = {};
+      for (const [key, value] of Object.entries(item)) {
+        const lowerKey = key.toLowerCase();
+
+        // Redact email addresses
+        if (lowerKey.includes('email')) {
+          if (typeof value === 'string' && value.includes('@')) {
+            const parts = value.split('@');
+            result[key] = `${parts[0][0]}***@${parts[1]}`;
+          } else {
+            result[key] = '[REDACTED-EMAIL]';
+          }
+        }
+        // Redact phone numbers
+        else if (lowerKey.includes('phone')) {
+          result[key] = typeof value === 'string' && value.length > 0 ? '***-***-' + value.slice(-4) : '[REDACTED-PHONE]';
+        }
+        // Redact names
+        else if (lowerKey === 'name') {
+          result[key] = typeof value === 'string' && value.length > 0 ? value[0] + '***' : '[REDACTED-NAME]';
+        }
+        // Redact message content which might contain PII
+        else if (lowerKey === 'message' && typeof value === 'string') {
+          // Show length and first few chars only
+          result[key] = value.length > 20 
+            ? `[MESSAGE:${value.length}chars:"${value.substring(0, 20)}..."]`
+            : `[MESSAGE:${value.length}chars]`;
+        }
+        // Redact body content which might contain PII
+        else if (lowerKey === 'body' && typeof value === 'string') {
+          try {
+            const parsed = JSON.parse(value);
+            result[key] = JSON.stringify(redactRecursive(parsed));
+          } catch {
+            result[key] = '[REDACTED-BODY]';
+          }
+        }
+        // Recursively handle nested objects
+        else if (value && typeof value === 'object') {
+          result[key] = redactRecursive(value);
+        }
+        // Keep other fields as-is
+        else {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+
+    return item;
+  }
+
+  return redactRecursive(redacted);
 }
 
 //=============================================================================
