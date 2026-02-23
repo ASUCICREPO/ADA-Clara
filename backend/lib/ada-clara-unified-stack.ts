@@ -102,6 +102,10 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
+      },
     });
 
     // Add GSI for efficient querying by source type (form_submit vs chat_escalation)
@@ -118,6 +122,10 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
+      },
     });
 
     // ========== CONSOLIDATED DATA TABLE ==========
@@ -130,6 +138,10 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
+      pointInTimeRecoverySpecification: {
+        pointInTimeRecoveryEnabled: true,
+      },
     });
 
     // GSI for time-based analytics queries
@@ -155,12 +167,15 @@ export class AdaClaraUnifiedStack extends Stack {
       signInAliases: { email: true },
       autoVerify: { email: true },
       passwordPolicy: {
-        minLength: 8,
+        minLength: 12,  // Increased from 8 to 12 for better security
         requireLowercase: true,
         requireUppercase: true,
         requireDigits: true,
-        requireSymbols: false,
+        requireSymbols: true,  // SECURITY FIX: Enable special characters requirement (CDK-Nag COG1)
       },
+      // SECURITY FIX: Enable threat protection for account takeover prevention (CDK-Nag COG3)
+      // Using new API: standardThreatProtectionMode replaces deprecated advancedSecurityMode
+      standardThreatProtectionMode: cognito.StandardThreatProtectionMode.FULL_FUNCTION,
       removalPolicy: RemovalPolicy.DESTROY,
     });
 
@@ -212,17 +227,7 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      inlinePolicies: {
-        ApiGatewayAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['execute-api:Invoke'],
-              resources: ['*'], // Will be scoped to specific API after it's created
-            }),
-          ],
-        }),
-      },
+      // Note: API Gateway permissions will be added after API is created to avoid circular dependency
     });
 
     const unauthenticatedRole = new iam.Role(this, 'CognitoUnauthenticatedRole', {
@@ -238,17 +243,7 @@ export class AdaClaraUnifiedStack extends Stack {
         },
         'sts:AssumeRoleWithWebIdentity'
       ),
-      inlinePolicies: {
-        ApiGatewayAccess: new iam.PolicyDocument({
-          statements: [
-            new iam.PolicyStatement({
-              effect: iam.Effect.ALLOW,
-              actions: ['execute-api:Invoke'],
-              resources: ['*'], // Will be scoped to specific API after it's created
-            }),
-          ],
-        }),
-      },
+      // Note: API Gateway permissions will be added after API is created to avoid circular dependency
     });
 
     // Attach roles to Identity Pool
@@ -261,6 +256,16 @@ export class AdaClaraUnifiedStack extends Stack {
     });
 
     // ========== S3 VECTORS ==========
+    // SECURITY FIX: Create dedicated logging bucket for S3 access logs (CDK-Nag S1)
+    const logBucket = new s3.Bucket(this, 'LogBucket', {
+      bucketName: `ada-clara-logs${stackSuffix}-${accountId}-${region}`,
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+    });
+
     this.contentBucket = new s3.Bucket(this, 'ContentBucket', {
       bucketName: `ada-clara-content${stackSuffix}-${accountId}-${region}`,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -268,6 +273,11 @@ export class AdaClaraUnifiedStack extends Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       versioned: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      // SECURITY FIX: Enforce SSL/TLS for all requests (CDK-Nag S10)
+      enforceSSL: true,
+      // SECURITY FIX: Enable access logging (CDK-Nag S1)
+      serverAccessLogsBucket: logBucket,
+      serverAccessLogsPrefix: 'content-bucket-logs/',
     });
 
     this.vectorsBucket = new Bucket(this, 'VectorsBucket', {
@@ -305,10 +315,25 @@ export class AdaClaraUnifiedStack extends Stack {
     // The vectors bucket is managed by S3 Vectors service, not standard S3
 
     // Grant S3 Vectors permissions
+    // SECURITY: Specific S3 Vectors actions scoped to this project's vector bucket
+    // Justification: Knowledge Base needs to read/write vectors for semantic search
     kbRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['s3vectors:*'],
-      resources: ['*'],
+      actions: [
+        's3vectors:GetObject',
+        's3vectors:PutObject',
+        's3vectors:ListBucket',
+        's3vectors:DeleteObject',
+      ],
+      resources: [
+        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
+        `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/*`,
+      ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
     }));
 
     // Grant Bedrock model invocation permissions for embeddings
@@ -379,8 +404,22 @@ export class AdaClaraUnifiedStack extends Stack {
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-              resources: ['arn:aws:bedrock:*::foundation-model/*'],
+              // SECURITY: Specific Bedrock actions and models only
+              // Justification: Chat handler needs to invoke Claude for generation and retrieve from KB
+              actions: [
+                'bedrock:InvokeModel',
+                'bedrock:InvokeModelWithResponseStream',
+              ],
+              resources: [
+                // Specific foundation models only (no wildcard)
+                `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
+                `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-3-haiku-20240307-v1:0`,
+              ],
+              conditions: {
+                StringEquals: {
+                  'aws:SourceAccount': accountId,
+                },
+              },
             }),
           ],
         }),
@@ -416,8 +455,22 @@ export class AdaClaraUnifiedStack extends Stack {
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              actions: ['s3vectors:*'],
-              resources: ['*'],
+              // SECURITY: Specific S3 Vectors actions for content processing
+              // Justification: Content processor needs to interact with vector storage for KB ingestion
+              actions: [
+                's3vectors:GetObject',
+                's3vectors:PutObject',
+                's3vectors:ListBucket',
+              ],
+              resources: [
+                `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}`,
+                `arn:aws:s3vectors:${region}:${accountId}:bucket/${this.vectorsBucket.vectorBucketName}/*`,
+              ],
+              conditions: {
+                StringEquals: {
+                  'aws:SourceAccount': accountId,
+                },
+              },
             }),
           ],
         }),
@@ -425,18 +478,27 @@ export class AdaClaraUnifiedStack extends Stack {
           statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
+              // SECURITY: Specific Bedrock actions and models for content processing
+              // Justification: Content processor needs to invoke models and manage KB ingestion
               actions: [
                 'bedrock:InvokeModel',
                 'bedrock:InvokeModelWithResponseStream',
-                'bedrock:RetrieveAndGenerate',
                 'bedrock:Retrieve',
                 'bedrock:StartIngestionJob',
                 'bedrock:GetIngestionJob',
               ],
               resources: [
-                'arn:aws:bedrock:*::foundation-model/*',
+                // Specific foundation models only
+                `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v2:0`,
+                `arn:aws:bedrock:${region}::foundation-model/amazon.titan-embed-text-v1:0`,
+                // Specific Knowledge Base only
                 `arn:aws:bedrock:${region}:${accountId}:knowledge-base/${this.knowledgeBase.attrKnowledgeBaseId}`,
               ],
+              conditions: {
+                StringEquals: {
+                  'aws:SourceAccount': accountId,
+                },
+              },
             }),
           ],
         }),
@@ -447,17 +509,21 @@ export class AdaClaraUnifiedStack extends Stack {
     // Two-lambda architecture with SQS decoupling for scalable content processing
     
     // Dead Letter Queue for failed scraping batches
+    // SECURITY FIX: Enforce SSL for SQS (CDK-Nag SQS4)
     const scrapingDLQ = new sqs.Queue(this, 'ScrapingDLQ', {
       queueName: `ada-clara-scraping-dlq${stackSuffix}`,
       retentionPeriod: Duration.days(14),
+      enforceSSL: true,  // Require HTTPS for all requests
     });
 
     // Main scraping queue for URL batches
+    // SECURITY FIX: Enforce SSL for SQS (CDK-Nag SQS4)
     this.scrapingQueue = new sqs.Queue(this, 'ScrapingQueue', {
       queueName: `ada-clara-scraping-queue${stackSuffix}`,
       visibilityTimeout: Duration.minutes(15), // Match content processor timeout
       retentionPeriod: Duration.days(14),
       receiveMessageWaitTime: Duration.seconds(20), // Long polling for efficiency
+      enforceSSL: true,  // Require HTTPS for all requests
       deadLetterQueue: {
         queue: scrapingDLQ,
         maxReceiveCount: 3 // After 3 failed attempts, move to DLQ
@@ -597,9 +663,18 @@ export class AdaClaraUnifiedStack extends Stack {
     console.log(`CORS Origins configured: ${JSON.stringify(corsOrigins)}`);
 
     // ========== HTTP API (V2) ==========
+    // SECURITY FIX: Create log group for API Gateway access logs (CDK-Nag APIG1)
+    const apiLogGroup = new logs.LogGroup(this, 'ApiAccessLogs', {
+      logGroupName: `/aws/apigateway/ada-clara-api${stackSuffix}`,
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+
     this.api = new apigatewayv2.HttpApi(this, 'HttpApi', {
       apiName: `ada-clara-api${stackSuffix}`,
       description: 'ADA Clara HTTP API Gateway',
+      // SECURITY FIX: Enable access logging (CDK-Nag APIG1)
+      defaultDomainMapping: undefined,
       corsPreflight: {
         allowOrigins: corsOrigins,
         allowMethods: [
@@ -613,6 +688,24 @@ export class AdaClaraUnifiedStack extends Stack {
         allowCredentials: true,
       },
     });
+
+    // SECURITY FIX: Configure access logging for default stage (CDK-Nag APIG1)
+    const defaultStage = this.api.defaultStage?.node.defaultChild as apigatewayv2.CfnStage;
+    if (defaultStage) {
+      defaultStage.accessLogSettings = {
+        destinationArn: apiLogGroup.logGroupArn,
+        format: JSON.stringify({
+          requestId: '$context.requestId',
+          ip: '$context.identity.sourceIp',
+          requestTime: '$context.requestTime',
+          httpMethod: '$context.httpMethod',
+          routeKey: '$context.routeKey',
+          status: '$context.status',
+          protocol: '$context.protocol',
+          responseLength: '$context.responseLength',
+        }),
+      };
+    }
 
     // ========== COGNITO AUTHORIZER ==========
     // Create JWT Authorizer for Cognito User Pool (admin endpoints)
@@ -878,19 +971,65 @@ export class AdaClaraUnifiedStack extends Stack {
     // Note: chat-handler invokes analytics-processor asynchronously via Lambda SDK
     // Uses InvocationType: 'Event' for fire-and-forget pattern (non-blocking)
 
+    // ========== SCOPE COGNITO IDENTITY POOL PERMISSIONS ==========
+    // SECURITY: Grant API Gateway access to Cognito Identity Pool roles
+    // Added after API creation to avoid circular dependency
+    // Justification: Authenticated users need to invoke public chat endpoints
+    authenticatedRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['execute-api:Invoke'],
+      resources: [
+        `${this.api.arnForExecuteApi()}/*`,  // All methods and paths in this API only
+      ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
+    }));
+
+    // SECURITY: Unauthenticated users can only invoke public chat endpoint
+    // Justification: Public chatbot needs to work without authentication
+    unauthenticatedRole.addToPolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['execute-api:Invoke'],
+      resources: [
+        `${this.api.arnForExecuteApi()}/*/POST/chat`,           // Chat endpoint
+        `${this.api.arnForExecuteApi()}/*/POST/escalation/request`,  // Escalation form
+        `${this.api.arnForExecuteApi()}/*/GET/config`,          // Config endpoint
+      ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
+    }));
+
     // ========== GRANT PERMISSIONS TO LAMBDA ROLES ==========
     // Grant permissions AFTER all resources are created to avoid circular dependencies
 
     // Chat Handler Role permissions - grant access to DynamoDB tables, Knowledge Base, and Analytics Lambda
+    // SECURITY: Specific DynamoDB actions only (no wildcard)
+    // Justification: Chat handler needs to read/write session data, messages, and escalation records
     chatHandlerRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['dynamodb:*'],
+      actions: [
+        'dynamodb:PutItem',      // Store user messages, bot responses, sessions
+        'dynamodb:GetItem',      // Retrieve session metadata
+        'dynamodb:UpdateItem',   // Update session activity
+        'dynamodb:Query',        // Query messages by session
+      ],
       resources: [
         this.escalationRequestsTable.tableArn,
         `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
         this.dataTable.tableArn,
         `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
     }));
 
     chatHandlerRole.addToPolicy(new iam.PolicyStatement({
@@ -906,32 +1045,71 @@ export class AdaClaraUnifiedStack extends Stack {
     }));
 
     // Analytics Processor Role permissions - grant access to DynamoDB tables only
+    // SECURITY: Specific DynamoDB actions for analytics processing
+    // Justification: Analytics processor needs to record analytics events and query session data
     analyticsProcessorRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:GetItem', 'dynamodb:Query'],
+      actions: [
+        'dynamodb:PutItem',      // Record analytics events, questions
+        'dynamodb:UpdateItem',   // Update session activity timestamps
+        'dynamodb:GetItem',      // Retrieve session metadata
+        'dynamodb:Query',        // Query sessions and messages for analytics
+        'dynamodb:Scan',         // Scan for admin dashboard metrics (limited use)
+      ],
       resources: [
         this.dataTable.tableArn,
         `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
     }));
 
     // Admin API Role permissions - grant access to DynamoDB tables
+    // SECURITY: Specific DynamoDB actions for admin dashboard
+    // Justification: Admin endpoints need to query/scan for dashboard metrics and manage escalations
     adminApiRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['dynamodb:Query', 'dynamodb:Scan', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+      actions: [
+        'dynamodb:Query',        // Query escalations, sessions, messages
+        'dynamodb:Scan',         // Scan for dashboard metrics and analytics
+        'dynamodb:GetItem',      // Retrieve specific records
+        'dynamodb:PutItem',      // Create escalation records
+        'dynamodb:UpdateItem',   // Update escalation status
+      ],
       resources: [
         this.escalationRequestsTable.tableArn,
         `${this.escalationRequestsTable.tableArn}/index/*`, // GSI access for SourceIndex
         this.dataTable.tableArn,
         `${this.dataTable.tableArn}/index/*`, // GSI access for TimestampIndex and SessionIndex
       ],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
     }));
 
     // Background Jobs Role permissions - grant access to content tracking table
+    // SECURITY: Specific DynamoDB actions for content processing
+    // Justification: Content processor needs to track crawled URLs and update processing status
     backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
-      actions: ['dynamodb:*'],
+      actions: [
+        'dynamodb:PutItem',      // Store content tracking records
+        'dynamodb:GetItem',      // Check if URL already processed
+        'dynamodb:Query',        // Query by URL for change detection
+        'dynamodb:UpdateItem',   // Update processing status
+        'dynamodb:Scan',         // Scan for ingestion statistics
+      ],
       resources: [this.contentTrackingTable.tableArn],
+      conditions: {
+        StringEquals: {
+          'aws:SourceAccount': accountId,
+        },
+      },
     }));
     backgroundJobsRole.addToPolicy(new iam.PolicyStatement({
       effect: iam.Effect.ALLOW,
