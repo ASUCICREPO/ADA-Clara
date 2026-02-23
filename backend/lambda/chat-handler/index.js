@@ -45,7 +45,8 @@ const HIGH_CONFIDENCE_THRESHOLD = 0.79;
  * Main Lambda handler - Direct API Gateway entry point
  */
 export const handler = async (event) => {
-  console.log('Chat handler invoked:', JSON.stringify(event, null, 2));
+  // SECURITY: Redact PII before logging event
+  console.log('Chat handler invoked:', JSON.stringify(redactPII(event), null, 2));
 
   try {
     // Support both HTTP API (v2) and REST API (v1) formats
@@ -75,7 +76,8 @@ export const handler = async (event) => {
     let request;
     try {
       request = JSON.parse(bodyString);
-      console.log('Parsed request:', JSON.stringify(request));
+      // SECURITY: Redact PII before logging request
+      console.log('Parsed request:', JSON.stringify(redactPII(request)));
     } catch (parseError) {
       return createResponse(400, {
         error: 'Invalid JSON',
@@ -734,6 +736,83 @@ async function invokeAnalyticsAsync(analyticsData) {
     // Log but don't throw - analytics is non-blocking
     console.error('Failed to invoke analytics processor (non-blocking):', error);
   }
+}
+
+//=============================================================================
+// PII REDACTION FOR LOGGING
+//=============================================================================
+
+/**
+ * Redact PII from data before logging to CloudWatch
+ * Masks email addresses, phone numbers, and other sensitive data
+ * 
+ * SECURITY: Prevents PII from being logged to CloudWatch Logs
+ * Used for all event and request logging
+ */
+function redactPII(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  const redacted = JSON.parse(JSON.stringify(obj)); // Deep clone
+
+  function redactRecursive(item) {
+    if (Array.isArray(item)) {
+      return item.map(redactRecursive);
+    }
+
+    if (item && typeof item === 'object') {
+      const result = {};
+      for (const [key, value] of Object.entries(item)) {
+        const lowerKey = key.toLowerCase();
+
+        // Redact email addresses
+        if (lowerKey.includes('email')) {
+          if (typeof value === 'string' && value.includes('@')) {
+            const parts = value.split('@');
+            result[key] = `${parts[0][0]}***@${parts[1]}`;
+          } else {
+            result[key] = '[REDACTED-EMAIL]';
+          }
+        }
+        // Redact phone numbers
+        else if (lowerKey.includes('phone')) {
+          result[key] = typeof value === 'string' && value.length > 0 ? '***-***-' + value.slice(-4) : '[REDACTED-PHONE]';
+        }
+        // Redact names
+        else if (lowerKey === 'name') {
+          result[key] = typeof value === 'string' && value.length > 0 ? value[0] + '***' : '[REDACTED-NAME]';
+        }
+        // Redact message content which might contain PII
+        else if (lowerKey === 'message' && typeof value === 'string') {
+          // Show length and first few chars only
+          result[key] = value.length > 20 
+            ? `[MESSAGE:${value.length}chars:"${value.substring(0, 20)}..."]`
+            : `[MESSAGE:${value.length}chars]`;
+        }
+        // Redact body content which might contain PII
+        else if (lowerKey === 'body' && typeof value === 'string') {
+          try {
+            const parsed = JSON.parse(value);
+            result[key] = JSON.stringify(redactRecursive(parsed));
+          } catch {
+            result[key] = '[REDACTED-BODY]';
+          }
+        }
+        // Recursively handle nested objects
+        else if (value && typeof value === 'object') {
+          result[key] = redactRecursive(value);
+        }
+        // Keep other fields as-is
+        else {
+          result[key] = value;
+        }
+      }
+      return result;
+    }
+
+    return item;
+  }
+
+  return redactRecursive(redacted);
 }
 
 //=============================================================================
