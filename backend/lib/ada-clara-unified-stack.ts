@@ -102,6 +102,8 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY: Explicit encryption at rest with AWS-managed keys
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
       // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: true,
@@ -122,6 +124,8 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl', // Enable TTL for automatic cleanup
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY: Explicit encryption at rest with AWS-managed keys
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
       // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: true,
@@ -138,6 +142,8 @@ export class AdaClaraUnifiedStack extends Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: 'ttl',
       removalPolicy: RemovalPolicy.DESTROY,
+      // SECURITY: Explicit encryption at rest with AWS-managed keys
+      encryption: dynamodb.TableEncryption.AWS_MANAGED,
       // SECURITY FIX: Enable point-in-time recovery for data protection (CDK-Nag DDB3)
       pointInTimeRecoverySpecification: {
         pointInTimeRecoveryEnabled: true,

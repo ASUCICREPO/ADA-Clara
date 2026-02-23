@@ -60,10 +60,18 @@ exports.handler = async (event) => {
     }
 
   } catch (error) {
-    console.error('Chat data processor error:', error);
+    // SECURITY: Log detailed error server-side only
+    console.error('Chat data processor error:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Internal server error',
-      message: error.message || 'Unknown error occurred'
+      message: 'An unexpected error occurred. Please try again.'
     });
   }
 };
@@ -247,10 +255,17 @@ async function handleConfig() {
     return response;
 
   } catch (error) {
-    console.error('Config error:', error);
+    console.error('Config error:', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code
+    });
+    
+    // Return generic error to client (no internal details)
     return createResponse(500, {
       error: 'Failed to retrieve configuration',
-      message: error.message || 'Unknown error'
+      message: 'Unable to load configuration. Please try again later.'
     });
   }
 }
